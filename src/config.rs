@@ -253,7 +253,8 @@ pub struct RulesConfig {
     /// §10.3. Consumed by the shell, not the core, but a rules-class setting by
     /// §6.5 — the class is a property of the setting, not of who reads it.
     pub das_ticks: u32,
-    /// §10.3. May be 0, meaning "every tick".
+    /// §10.3. May be 0, meaning "move to the wall instantly"; one tick is the
+    /// finest repeat the tick grid can express.
     pub arr_ticks: u32,
     /// Soft drop is this many times normal gravity (§9.10).
     pub soft_drop_factor: u32,
