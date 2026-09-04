@@ -3,8 +3,9 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: specification and plan complete; no code yet.** Stage 0 of `PLAN.md`
-has not started. This repo is not yet under git.
+**Status: Stage 0 of `PLAN.md` complete.** The crate skeleton, the full §4
+module tree and the CI gates exist; there is no game logic yet. Stage 1
+(geometry, pieces, matrix) is next.
 
 ## Read these first
 
@@ -79,6 +80,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 ## Commands
 
 ```
+make check           # everything CI runs: fmt, clippy, test, release build
 cargo check          # fast feedback
 cargo test           # unit + integration
 cargo clippy -- -D warnings
