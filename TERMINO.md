@@ -2,7 +2,7 @@
 
 **Version:** 1.0 (draft)
 **Date:** 2026-09-04
-**Target language:** Rust (edition 2021, MSRV 1.75)
+**Target language:** Rust (edition 2024, MSRV 1.85)
 **Name:** Termino (a terminal tetromino game; binary name `termino`)
 
 ---
@@ -112,7 +112,9 @@ rules.
 
 ## 3. Technology and dependencies
 
-The implementation is a single Rust binary crate.
+The implementation is a single Rust binary crate, **edition 2024**. Edition 2024
+is stable from Rust 1.85, which is therefore the MSRV; the toolchain is pinned no
+further than that.
 
 | Crate | Version | Purpose |
 |---|---|---|
