@@ -64,10 +64,11 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   botched rule in the spec.
 - **Hold** clears its lock-out when the next piece **locks**, not when it spawns
   (§9.7).
-- **A four-line clear is a `QUAD`** (§1.3, §2, §9.14), never a `TETRIS`. The
-  word is trademarked and is kept off the screen entirely; the spec keeps it
-  only for the trademark and for the Guideline it cites. `ClearKind::Tetris` in
-  `core/events.rs` is the one identifier still carrying the old name.
+- **A four-line clear is a `QUAD`** (§1.3, §2, §9.14), never a `TETRIS` — in the
+  interface, in the spec and in the source, where the variant is
+  `ClearKind::Quad`. The word is trademarked and is kept out of the game
+  entirely; the spec keeps it only for the trademark and for the Guideline it
+  cites.
 - **Disabled keys** (`hold_enabled`, `allow_180_rotation` off) are dropped at the
   input boundary, so they cannot reset a lock-delay timer as a side effect
   (§10.1).

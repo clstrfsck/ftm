@@ -23,7 +23,7 @@ pub enum ClearKind {
     Single,
     Double,
     Triple,
-    Tetris,
+    Quad,
     TSpin,
     TSpinSingle,
     TSpinDouble,
@@ -43,7 +43,7 @@ impl ClearKind {
             1 => Some(ClearKind::Single),
             2 => Some(ClearKind::Double),
             3 => Some(ClearKind::Triple),
-            4 => Some(ClearKind::Tetris),
+            4 => Some(ClearKind::Quad),
             _ => None,
         }
     }
@@ -55,15 +55,15 @@ impl ClearKind {
             ClearKind::Single | ClearKind::TSpinSingle | ClearKind::TSpinMiniSingle => 1,
             ClearKind::Double | ClearKind::TSpinDouble | ClearKind::TSpinMiniDouble => 2,
             ClearKind::Triple | ClearKind::TSpinTriple => 3,
-            ClearKind::Tetris => 4,
+            ClearKind::Quad => 4,
         }
     }
 
     /// Whether this is a **difficult** clear, and so continues a back-to-back
-    /// chain (§9.15): any Tetris, and any T-spin that cleared a line.
+    /// chain (§9.15): any Quad, and any T-spin that cleared a line.
     pub const fn is_difficult(self) -> bool {
         match self {
-            ClearKind::Tetris => true,
+            ClearKind::Quad => true,
             ClearKind::Single | ClearKind::Double | ClearKind::Triple => false,
             ClearKind::TSpin | ClearKind::TSpinMini => false,
             _ => true,
@@ -140,7 +140,7 @@ mod tests {
     fn a_plain_clear_is_named_after_its_row_count() {
         assert_eq!(ClearKind::plain(0), None);
         assert_eq!(ClearKind::plain(1), Some(ClearKind::Single));
-        assert_eq!(ClearKind::plain(4), Some(ClearKind::Tetris));
+        assert_eq!(ClearKind::plain(4), Some(ClearKind::Quad));
         assert_eq!(ClearKind::plain(5), None, "four minos cannot clear five");
     }
 
@@ -150,7 +150,7 @@ mod tests {
             (ClearKind::Single, 1),
             (ClearKind::Double, 2),
             (ClearKind::Triple, 3),
-            (ClearKind::Tetris, 4),
+            (ClearKind::Quad, 4),
             (ClearKind::TSpin, 0),
             (ClearKind::TSpinSingle, 1),
             (ClearKind::TSpinDouble, 2),
@@ -164,11 +164,11 @@ mod tests {
     }
 
     #[test]
-    fn difficult_clears_are_the_tetris_and_the_scoring_t_spins() {
-        // §9.15: "any Tetris, and any T-spin or T-spin Mini that clears at
+    fn difficult_clears_are_the_quad_and_the_scoring_t_spins() {
+        // §9.15: "any Quad, and any T-spin or T-spin Mini that clears at
         // least one line." A T-spin that clears nothing does not qualify, and
         // does not break the chain either -- that half is Stage 7's.
-        assert!(ClearKind::Tetris.is_difficult());
+        assert!(ClearKind::Quad.is_difficult());
         assert!(ClearKind::TSpinSingle.is_difficult());
         assert!(ClearKind::TSpinMiniDouble.is_difficult());
         assert!(!ClearKind::Triple.is_difficult());
