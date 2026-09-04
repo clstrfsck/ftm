@@ -308,6 +308,32 @@ impl InputState {
         }
     }
 
+    /// What this key is bound to, without folding it into the held state.
+    ///
+    /// The overlays of §12.6 need to recognise the pause key without letting a
+    /// stray direction charge DAS behind a menu (§10.4).
+    pub fn binding(&self, event: &KeyEvent, bindings: &Bindings) -> Option<Action> {
+        if event.kind == KeyEventKind::Release {
+            return None;
+        }
+        match bindings.get(event)? {
+            Bound::Act(action) => Some(action),
+            Bound::Held(_) => None,
+        }
+    }
+
+    /// Let go of every held key.
+    ///
+    /// §9.17 stops the timers, and in legacy mode nothing else would: a key is
+    /// held until it falls quiet (§8.2), and `expire` only runs while the game
+    /// does.
+    pub fn release_all(&mut self) {
+        self.left = Key::default();
+        self.right = Key::default();
+        self.soft_drop = Key::default();
+        self.priority = None;
+    }
+
     /// Resolve DAS/ARR over `dt` into the direction to shift and the whole
     /// cells owed (§10.3, §15.2 step 3).
     pub fn resolve(&mut self, dt: Duration) -> (Option<Shift>, u8) {

@@ -1262,7 +1262,7 @@ Concrete mock-up at `preview_count = 5`, drawn to exact size (44 × 23):
            │      ██████████    │           
            │██████████████████  │           
            └────────────────────┘           
-              B2B  COMBO x3                 
+               B2B  COMBO x3                
 ```
 
 Rules for the layout:
@@ -1342,7 +1342,7 @@ background and a double-line border.
 ║  PIECES        128   ║
 ║  PPS           0.9   ║
 ║                      ║
-║   Press any key      ║
+║    Press any key     ║
 ╚══════════════════════╝
 ```
 

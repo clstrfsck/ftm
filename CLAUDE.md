@@ -3,18 +3,23 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 8 of `PLAN.md` complete.** It is playable and it keeps score:
-`cargo run --release` gives a bare bordered field where pieces move, rotate,
-soft drop, hard drop, hold, clear rows, spin, chain and top out under a ghost,
-with the counters on the bottom border as a debug line until §12.4's status line
-lands in Stage 9. `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the
-single entry point and `Game::view()` still the only way to see the result; the
-shell is `main.rs` (terminal), `app.rs` (the §15.2 loop), `input.rs` (§10) and
-`ui/` (§12). T1-T17 all pass, plus I1, and the batch-invariance canary is in CI.
-Every rule in §9 is now implemented. What is missing is presentation: there is
-no hold box, next box, status line, pause or menu, so `GameView::hold`,
-`hold_locked` and `next` are filled in and nothing draws them. Stage 9 (the full
-44 x 23 playfield screen) is next.
+**Status: Stage 9 of `PLAN.md` complete.** It is playable, it keeps score and it
+now looks like §12.4: `cargo run --release` gives the full 44 x 23 screen — hold
+box, playfield, preview queue with per-slot dimming, stats box and status line —
+with the pause menu, the 3-2-1 resume countdown and the §12.6 game-over box over
+it, and the six §12.5 animations running off the event stream.
+`Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point and
+`Game::view()` still the only way to see the result; the shell is `main.rs`
+(terminal), `app.rs` (the §15.2 loop and the part of the §7 state machine a game
+needs), `input.rs` (§10) and `ui/` (§12). T1-T17 all pass, plus I1, and the
+batch-invariance canary is in CI. Every rule in §9 is implemented and every
+screen a *game* needs is drawn. What is missing is everything outside the game:
+no config file, no CLI, no attract screen, no high scores. Stage 10 (config
+file, CLI, options) is next, and takes the §12.4 debug stats box with it —
+`show_debug` is unreachable until then, so the box is deliberately not built.
+
+The mono and `NO_COLOR` paths already work (`NO_COLOR=1 tools/drive.py` shows
+the §9.2 letters and `..` ghosts); Stage 12 owns finishing and playing them.
 
 ## Read these first
 
@@ -84,6 +89,19 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **Disabled keys** (`hold_enabled`, `allow_180_rotation` off) are dropped at the
   input boundary, so they cannot reset a lock-delay timer as a side effect
   (§10.1).
+- **Animations see events and a clock, and nothing else.** `ui::Cosmetics` takes
+  `&[GameEvent]` and an `Instant`; it has no path to `Game`, which is what makes
+  §12.5 provably free of side effects (§12.8). Keep it that way — if an
+  animation seems to need to ask the core something, the answer belongs in
+  `GameView` or in the event.
+- **Overlays are centred over the whole 44 x 23 block**, not over the
+  playfield's interior: §12.6's game-over box is 24 characters wide and the
+  interior is 20. For a box that does fit it comes to the same thing, because
+  the playfield is itself centred in the block.
+- **`Chrome` carries what `GameView` cannot.** `hold_enabled` is the one layout
+  question the view cannot answer — an empty hold slot and an absent hold
+  mechanic are both `hold: None` — so it travels with the theme and `show_grid`
+  rather than being smuggled into the view (§12.4, §12.7).
 
 ## Working agreements
 
@@ -101,6 +119,12 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   `UPDATE_SNAPSHOT=1 cargo test --test scripted_game`. Stage 7 has to, when the
   score stops being zero. Read the diff before committing it: a snapshot that
   moves for no reason is exactly the bug the test exists to catch.
+- **§12.4's mock-up is a test.** `ui::playfield::tests::the_screen_matches_the_
+  spec_mock_up` renders the exact state the mock-up depicts through a
+  `TestBackend` and compares it character for character. It is not in §17.1 —
+  that list is core-only by design — but it is the acceptance criterion for
+  Stage 9, and the cheapest way to notice a layout that has drifted by one
+  column. §12.6's two boxes are checked the same way.
 
 ## Scope discipline
 
