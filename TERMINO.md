@@ -243,14 +243,25 @@ file immediately on leaving that screen.
   one-line warning to stderr after terminal teardown, uses defaults for the
   unreadable keys, and leaves the file untouched.
 - Unknown keys are ignored (forwards compatibility), but reported in the same
-  warning.
+  warning, as are values clamped or rejected by the ranges in §6.3.
 
 ### 6.3 Schema and defaults
+
+Every range given below is **inclusive**, and every one of them is enforced. A
+value outside its range is **clamped** to the nearest end; a value of the wrong
+type, or a string outside its enumerated set, is **rejected** and the default
+used. Either way the file is left untouched and one line is added to the warning
+of §6.2. Clamping rather than rejecting numbers is deliberate: `preview_count =
+9` says clearly enough what the player wanted.
+
+The upper bounds exist to keep a typo playable, not to police taste. The lower
+bounds are load-bearing — `lines_per_level` and `soft_drop_factor` are both
+divisors, and a zero reaching the core is a crash.
 
 ```toml
 [gameplay]
 # Number of upcoming pieces shown in the preview window.
-# Range: 1..=6. Values outside the range are clamped.
+# Range: 1..=6. The upper bound is the height of the next box in §12.4.
 preview_count      = 5
 # Show the translucent ghost piece at the landing position.
 ghost_piece        = true
@@ -259,9 +270,11 @@ ghost_piece        = true
 hold_enabled       = true
 # Lock-down rule: "extended" | "infinite" | "classic"  (see §9.11)
 lock_down          = "extended"
-# Starting level, 1..=15.
+# Starting level. Range: 1..=15, the levels the §9.9 speed curve is defined for.
 start_level        = 1
-# Lines required to advance one level.
+# Lines required to advance one level (§9.9). Range: 1..=1000. A large value is
+# a legitimate way to hold the speed constant; 0 is not, since the level
+# threshold is a multiple of it.
 lines_per_level    = 10
 # Make 180-degree rotation available (an extension beyond the guideline; see
 # §9.5). When false the 180 key is inert and the binding is hidden from the
@@ -269,18 +282,27 @@ lines_per_level    = 10
 allow_180_rotation = true
 
 [timing]
-# All values in milliseconds.
-lock_delay_ms       = 500   # §9.11
-das_ms              = 170   # §10.3
-arr_ms              = 30    # §10.3
-soft_drop_factor    = 20    # soft drop is this many times normal gravity (§9.10)
-line_clear_delay_ms = 250   # §9.12
-entry_delay_ms      = 0     # ARE, §9.12
+# All values in milliseconds, converted once to whole ticks at load (§6.6).
+# Every one of them is a duration, so the ranges below are the durations that
+# leave a playable game; a value that rounds to 0 ticks is raised to 1 except
+# where §6.6 says 0 is meaningful.
+lock_delay_ms       = 500   # §9.11.  Range: 0..=5000. For a delay that never
+                            #         expires use lock_down = "infinite".
+das_ms              = 170   # §10.3.  Range: 0..=1000.
+arr_ms              = 30    # §10.3.  Range: 0..=1000. 0 means "every tick".
+soft_drop_factor    = 20    # soft drop is this many times normal gravity
+                            # (§9.10). Range: 1..=100. 1 is no speed-up at all;
+                            # above about 20 it is a hard drop in all but name.
+line_clear_delay_ms = 250   # §9.12.  Range: 0..=2000.
+entry_delay_ms      = 0     # ARE, §9.12. Range: 0..=2000. 0 means the next
+                            #         piece enters on the same tick.
 
 [display]
 # "auto" | "truecolor" | "256" | "16" | "mono"   (see §12.3)
 color_depth   = "auto"
-# Characters used to paint one occupied cell. Must be exactly 2 columns wide.
+# Characters used to paint one occupied cell. Each must be exactly 2 display
+# columns wide; one that is not is rejected with a warning and the default used
+# (§12.2).
 cell_filled   = "██"
 cell_empty    = "  "
 cell_ghost    = "▒▒"
@@ -291,6 +313,10 @@ show_debug    = false
 
 [keys]
 # See §10. Each action maps to a list of key names; any listed key triggers it.
+# An empty list leaves that action unbound, which is a supported way to disable
+# it. `pause` and `quit` are the exceptions: an empty list for either is
+# rejected with a warning and the default restored, because between them they
+# are the only way out of a game.
 move_left     = ["Left"]
 move_right    = ["Right"]
 soft_drop     = ["Down"]

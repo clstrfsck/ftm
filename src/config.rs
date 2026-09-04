@@ -25,10 +25,30 @@ pub const TICK: Duration = Duration::from_nanos(1_000_000_000 / TICK_HZ);
 /// this the shell discards the backlog rather than sprinting through it.
 pub const MAX_CATCH_UP_TICKS: u32 = 6;
 
-/// `preview_count` is clamped to this range (§6.3).
-pub const PREVIEW_RANGE: std::ops::RangeInclusive<u8> = 1..=6;
-/// `start_level` is clamped to this range (§6.3).
-pub const START_LEVEL_RANGE: std::ops::RangeInclusive<u32> = 1..=15;
+/// The inclusive ranges of §6.3. A numeric value outside its range is clamped
+/// to the nearest end and reported in the §6.2 warning; the lower bounds of
+/// `LINES_PER_LEVEL` and `SOFT_DROP_FACTOR` are load-bearing, since both values
+/// are divisors.
+pub mod range {
+    use std::ops::RangeInclusive;
+
+    /// Upper bound is the height of the next box in §12.4.
+    pub const PREVIEW_COUNT: RangeInclusive<u8> = 1..=6;
+    /// The levels the §9.9 speed curve is defined for.
+    pub const START_LEVEL: RangeInclusive<u32> = 1..=15;
+    pub const LINES_PER_LEVEL: RangeInclusive<u32> = 1..=1000;
+    pub const LOCK_DELAY_MS: RangeInclusive<u32> = 0..=5000;
+    pub const DAS_MS: RangeInclusive<u32> = 0..=1000;
+    pub const ARR_MS: RangeInclusive<u32> = 0..=1000;
+    pub const SOFT_DROP_FACTOR: RangeInclusive<u32> = 1..=100;
+    pub const LINE_CLEAR_DELAY_MS: RangeInclusive<u32> = 0..=2000;
+    pub const ENTRY_DELAY_MS: RangeInclusive<u32> = 0..=2000;
+}
+
+/// Clamp to an inclusive range from §6.3.
+fn clamped<T: Ord + Copy>(value: T, range: &std::ops::RangeInclusive<T>) -> T {
+    value.clamp(*range.start(), *range.end())
+}
 
 /// Convert milliseconds to whole ticks, rounding to nearest (§6.6).
 ///
@@ -208,7 +228,10 @@ pub struct ConfigFile {
 }
 
 // TODO(stage 10): load/save at the §6.2 path, the §6.4 CLI merge, and the
-// warning vector for out-of-range and unknown keys (§6.2, §16).
+// warning vector (§6.2, §16). The clamping in `RulesConfig::from_settings` is
+// silent; the loader is what reports it, along with unknown keys, the §12.2
+// cell-glyph width rule, and the §6.3 rule that an empty `pause` or `quit`
+// binding is rejected and the default restored.
 
 /// Settings that change **what happens** (§6.5): the `[gameplay]` and
 /// `[timing]` classes, with every duration already in ticks.
@@ -247,27 +270,33 @@ impl Default for RulesConfig {
 }
 
 impl RulesConfig {
-    /// Resolve the rules class: clamp the ranges of §6.3 and convert every
+    /// Resolve the rules class: clamp to the §6.3 ranges, then convert every
     /// duration to ticks by the two rules of §6.6.
+    ///
+    /// Clamping happens in milliseconds, before the conversion, so the range in
+    /// the spec is the range the player reads in their own file. Reporting what
+    /// was clamped is the loader's job (§6.2).
     pub fn from_settings(gameplay: &GameplaySettings, timing: &TimingSettings) -> Self {
         Self {
-            preview_count: gameplay
-                .preview_count
-                .clamp(*PREVIEW_RANGE.start(), *PREVIEW_RANGE.end()),
+            preview_count: clamped(gameplay.preview_count, &range::PREVIEW_COUNT),
             ghost_piece: gameplay.ghost_piece,
             hold_enabled: gameplay.hold_enabled,
             lock_down: gameplay.lock_down,
-            start_level: gameplay
-                .start_level
-                .clamp(*START_LEVEL_RANGE.start(), *START_LEVEL_RANGE.end()),
-            lines_per_level: gameplay.lines_per_level.max(1),
+            start_level: clamped(gameplay.start_level, &range::START_LEVEL),
+            lines_per_level: clamped(gameplay.lines_per_level, &range::LINES_PER_LEVEL),
             allow_180_rotation: gameplay.allow_180_rotation,
-            lock_delay_ticks: ms_to_ticks_at_least_one(timing.lock_delay_ms),
-            das_ticks: ms_to_ticks_at_least_one(timing.das_ms),
-            arr_ticks: ms_to_ticks(timing.arr_ms),
-            soft_drop_factor: timing.soft_drop_factor.max(1),
-            line_clear_delay_ticks: ms_to_ticks_at_least_one(timing.line_clear_delay_ms),
-            entry_delay_ticks: ms_to_ticks(timing.entry_delay_ms),
+            lock_delay_ticks: ms_to_ticks_at_least_one(clamped(
+                timing.lock_delay_ms,
+                &range::LOCK_DELAY_MS,
+            )),
+            das_ticks: ms_to_ticks_at_least_one(clamped(timing.das_ms, &range::DAS_MS)),
+            arr_ticks: ms_to_ticks(clamped(timing.arr_ms, &range::ARR_MS)),
+            soft_drop_factor: clamped(timing.soft_drop_factor, &range::SOFT_DROP_FACTOR),
+            line_clear_delay_ticks: ms_to_ticks_at_least_one(clamped(
+                timing.line_clear_delay_ms,
+                &range::LINE_CLEAR_DELAY_MS,
+            )),
+            entry_delay_ticks: ms_to_ticks(clamped(timing.entry_delay_ms, &range::ENTRY_DELAY_MS)),
         }
     }
 }
@@ -481,8 +510,22 @@ mod tests {
             );
             assert_eq!(rules.start_level, expected, "start_level = {given}");
         }
-        // Not in the spec's ranges, but a division by zero either way: a level
-        // must take at least one line, and soft drop at least normal gravity.
+        for (given, expected) in [(0, 1), (1, 1), (10, 10), (1000, 1000), (99_999, 1000)] {
+            let rules = RulesConfig::from_settings(
+                &GameplaySettings {
+                    lines_per_level: given,
+                    ..GameplaySettings::default()
+                },
+                &TimingSettings::default(),
+            );
+            assert_eq!(rules.lines_per_level, expected, "lines_per_level = {given}");
+        }
+    }
+
+    #[test]
+    fn the_load_bearing_lower_bounds_hold() {
+        // §6.3: lines_per_level and soft_drop_factor are divisors, and a zero
+        // reaching the core is a crash, not a slow game.
         let rules = RulesConfig::from_settings(
             &GameplaySettings {
                 lines_per_level: 0,
@@ -495,6 +538,44 @@ mod tests {
         );
         assert_eq!(rules.lines_per_level, 1);
         assert_eq!(rules.soft_drop_factor, 1);
+        assert_eq!(*range::LINES_PER_LEVEL.start(), 1);
+        assert_eq!(*range::SOFT_DROP_FACTOR.start(), 1);
+    }
+
+    #[test]
+    fn timing_is_clamped_in_milliseconds_before_conversion() {
+        // §6.3's ranges are the ones the player reads in their own file, so
+        // they are applied to the milliseconds, not to the derived ticks.
+        let rules = RulesConfig::from_settings(
+            &GameplaySettings::default(),
+            &TimingSettings {
+                lock_delay_ms: 60_000,
+                das_ms: 60_000,
+                arr_ms: 60_000,
+                soft_drop_factor: 10_000,
+                line_clear_delay_ms: 60_000,
+                entry_delay_ms: 60_000,
+            },
+        );
+        assert_eq!(rules.lock_delay_ticks, ms_to_ticks(5000));
+        assert_eq!(rules.das_ticks, ms_to_ticks(1000));
+        assert_eq!(rules.arr_ticks, ms_to_ticks(1000));
+        assert_eq!(rules.soft_drop_factor, 100);
+        assert_eq!(rules.line_clear_delay_ticks, ms_to_ticks(2000));
+        assert_eq!(rules.entry_delay_ticks, ms_to_ticks(2000));
+        // Every default sits inside its own range, or the spec contradicts
+        // itself.
+        let defaults = TimingSettings::default();
+        assert!(range::LOCK_DELAY_MS.contains(&defaults.lock_delay_ms));
+        assert!(range::DAS_MS.contains(&defaults.das_ms));
+        assert!(range::ARR_MS.contains(&defaults.arr_ms));
+        assert!(range::SOFT_DROP_FACTOR.contains(&defaults.soft_drop_factor));
+        assert!(range::LINE_CLEAR_DELAY_MS.contains(&defaults.line_clear_delay_ms));
+        assert!(range::ENTRY_DELAY_MS.contains(&defaults.entry_delay_ms));
+        let gameplay = GameplaySettings::default();
+        assert!(range::PREVIEW_COUNT.contains(&gameplay.preview_count));
+        assert!(range::START_LEVEL.contains(&gameplay.start_level));
+        assert!(range::LINES_PER_LEVEL.contains(&gameplay.lines_per_level));
     }
 
     #[test]
