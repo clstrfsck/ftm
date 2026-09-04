@@ -1562,12 +1562,18 @@ impl Game {
 }
 
 pub struct TickInput {
-    pub actions: SmallVec<[Action; 4]>,   // edge-triggered, this tick only
+    pub actions: Actions,                 // edge-triggered, this tick only
     pub soft_drop: bool,                  // level-triggered
     pub shift: Option<Shift>,             // Left | Right, already DAS-resolved
     pub shift_cells: u8,                  // cells to shift this tick (ARR ≥ 1)
 }
 ```
+
+`Actions` is a fixed-capacity inline list of at most four actions, not a `Vec`:
+the core is called sixty times a second and must not allocate in order to do
+nothing (§12.8). Four is more distinct actions than a player can produce in
+16 ms, and a fifth in one tick is dropped. It is a handful of lines in the core
+rather than a dependency, because §3's table is exhaustive.
 
 A fixed timestep is required, not merely tidy. With a variable `Duration` the
 gravity accumulator (§9.9) and the lock-delay timer (§9.11) depend on frame

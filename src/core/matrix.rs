@@ -17,6 +17,49 @@ pub const VISIBLE_TOP: i32 = 20;
 /// The number of visible rows (§5).
 pub const VISIBLE_ROWS: i32 = HEIGHT - VISIBLE_TOP;
 
+/// The most rows one lock can complete: a piece has four minos, and every
+/// newly completed row must contain at least one of them.
+pub const MAX_CLEARED_ROWS: usize = 4;
+
+/// The rows completed by one lock, top to bottom (§9.12).
+///
+/// Fixed capacity and `Copy`, so finding the rows costs no allocation on the
+/// one tick in ten that clears anything (§12.8).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClearedRows {
+    rows: [i32; MAX_CLEARED_ROWS],
+    len: u8,
+}
+
+impl ClearedRows {
+    /// Append a row, or report that there was no space.
+    fn push(&mut self, row: i32) -> bool {
+        if usize::from(self.len) == MAX_CLEARED_ROWS {
+            return false;
+        }
+        self.rows[usize::from(self.len)] = row;
+        self.len += 1;
+        true
+    }
+
+    /// The rows, top to bottom.
+    pub fn as_slice(&self) -> &[i32] {
+        &self.rows[..usize::from(self.len)]
+    }
+
+    pub fn len(&self) -> usize {
+        usize::from(self.len)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn contains(&self, row: i32) -> bool {
+        self.as_slice().contains(&row)
+    }
+}
+
 /// The playfield's locked cells.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Matrix {
@@ -85,6 +128,44 @@ impl Matrix {
     /// Whether every cell of row `y` is filled.
     pub fn row_is_full(&self, y: i32) -> bool {
         (0..WIDTH).all(|x| self.is_filled(x, y))
+    }
+
+    /// The completed rows, top to bottom (§9.12 step 3).
+    ///
+    /// At most four, since every newly completed row must contain one of the
+    /// four minos just locked. A board handed in with completed rows already on
+    /// it is a fixture error, not a game state, and trips a debug assertion.
+    pub fn full_rows(&self) -> ClearedRows {
+        let mut rows = ClearedRows::default();
+        for y in 0..HEIGHT {
+            if self.row_is_full(y) && !rows.push(y) {
+                debug_assert!(false, "more than {MAX_CLEARED_ROWS} rows were complete");
+                break;
+            }
+        }
+        rows
+    }
+
+    /// Remove the given rows; everything above each one shifts down by a row,
+    /// and empty rows appear at the top of the buffer zone (§9.12 step 6).
+    ///
+    /// Naive gravity: no cascading, no sticky cells. A cell's column never
+    /// changes, and the order of the surviving rows is preserved.
+    pub fn clear_rows(&mut self, cleared: &ClearedRows) {
+        if cleared.is_empty() {
+            return;
+        }
+        let mut write = HEIGHT - 1;
+        for read in (0..HEIGHT).rev() {
+            if cleared.contains(read) {
+                continue;
+            }
+            self.rows[write as usize] = self.rows[read as usize];
+            write -= 1;
+        }
+        for y in 0..=write {
+            self.rows[y as usize] = [None; WIDTH as usize];
+        }
     }
 
     /// Whether the matrix holds no locked cells at all — the perfect-clear
@@ -193,6 +274,108 @@ pub(crate) mod tests {
         assert!(matrix.collides(PieceKind::T, Point::new(3, 38), Rotation::North));
         // Vertical I down the well at column 4 reaches the floor.
         assert!(!matrix.collides(PieceKind::I, Point::new(2, 36), Rotation::East));
+    }
+
+    /// The matrix's bottom `n` rows as a picture, for comparing against a
+    /// fixture.
+    fn bottom_rows(matrix: &Matrix, n: usize) -> Vec<String> {
+        ((HEIGHT - n as i32)..HEIGHT)
+            .map(|y| {
+                (0..WIDTH)
+                    .map(|x| match matrix.get(x, y) {
+                        None => '.',
+                        Some(kind) => kind.glyph(),
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn rows_collapse_with_naive_gravity() {
+        // T8. The row below the cleared one stays put; the rows above it shift
+        // down by exactly one, keeping their contents and their order.
+        let mut matrix =
+            from_bottom_rows(&["T........T", "SS......SS", "##########", "L........L"]);
+        let cleared = matrix.full_rows();
+        assert_eq!(cleared.as_slice(), [38]);
+        matrix.clear_rows(&cleared);
+        assert_eq!(
+            bottom_rows(&matrix, 4),
+            ["..........", "T........T", "SS......SS", "L........L"],
+        );
+    }
+
+    #[test]
+    fn a_clear_preserves_rows_above_and_below_in_order() {
+        // T8's named case: a full row with filled rows on both sides.
+        let mut matrix = from_bottom_rows(&[
+            "I.........",
+            "JJ........",
+            "##########",
+            "ZZZ.......",
+            "TTTT......",
+        ]);
+        let cleared = matrix.full_rows();
+        assert_eq!(cleared.len(), 1);
+        matrix.clear_rows(&cleared);
+        assert_eq!(
+            bottom_rows(&matrix, 5),
+            [
+                "..........",
+                "I.........",
+                "JJ........",
+                "ZZZ.......",
+                "TTTT......",
+            ],
+        );
+    }
+
+    #[test]
+    fn four_rows_clear_at_once() {
+        // T8. The most a single lock can complete, and the rows are reported
+        // top to bottom.
+        let mut matrix = from_bottom_rows(&[
+            "L.........",
+            "##########",
+            "##########",
+            "##########",
+            "##########",
+        ]);
+        let cleared = matrix.full_rows();
+        assert_eq!(cleared.as_slice(), [36, 37, 38, 39]);
+        matrix.clear_rows(&cleared);
+        assert_eq!(bottom_rows(&matrix, 2), ["..........", "L........."]);
+        assert!(!matrix.is_empty());
+    }
+
+    #[test]
+    fn non_adjacent_rows_clear_together() {
+        // Rows 37 and 39 clear; row 38 survives and lands on the floor.
+        let mut matrix = from_bottom_rows(&["##########", "TT........", "##########"]);
+        let cleared = matrix.full_rows();
+        assert_eq!(cleared.as_slice(), [37, 39]);
+        matrix.clear_rows(&cleared);
+        assert_eq!(bottom_rows(&matrix, 2), ["..........", "TT........"]);
+    }
+
+    #[test]
+    fn clearing_the_only_rows_empties_the_matrix() {
+        // The perfect clear of §9.15, seen from the matrix's side.
+        let mut matrix = from_bottom_rows(&["##########", "##########"]);
+        let cleared = matrix.full_rows();
+        matrix.clear_rows(&cleared);
+        assert!(matrix.is_empty());
+    }
+
+    #[test]
+    fn clearing_nothing_changes_nothing() {
+        let matrix = from_bottom_rows(&["#########.", "TT........"]);
+        let mut after = matrix.clone();
+        let cleared = after.full_rows();
+        assert!(cleared.is_empty());
+        after.clear_rows(&cleared);
+        assert_eq!(after, matrix);
     }
 
     #[test]

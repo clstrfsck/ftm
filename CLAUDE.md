@@ -3,9 +3,10 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 3 of `PLAN.md` complete.** Geometry, pieces, matrix, SRS
-rotation and the config/timing data model exist; T1-T3 and T17 pass. Nothing
-falls yet. Stage 4 (the falling-piece core) is next, and is the largest stage.
+**Status: Stage 4 of `PLAN.md` complete.** The core plays: pieces spawn, fall,
+are steered, lock, clear rows and top out, driven by `Game::tick`. T1-T8, T11
+and T17 pass. There is no score, hold, ghost, view model or event stream yet.
+Stage 5 (view, events, determinism) is next, and closes milestone M1.
 
 ## Read these first
 
