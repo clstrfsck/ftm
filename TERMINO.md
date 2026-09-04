@@ -78,10 +78,16 @@ reproduced, or approximated.** The attract screen uses an original block-letter
 wordmark (§13.2). No official branding, colours-as-logo, or marketing artwork is
 to be reproduced.
 
-The word "Tetris" does still appear in this document, and on screen, in its
-descriptive sense: it is the established name of a four-line clear (§9.14,
-§12.4), in the same way that "T-spin" names a manoeuvre. That nominative use is
-deliberate, and naming that clear is the only thing the word is used for.
+A four-line clear is therefore called a **QUAD** (§2, §9.14, §12.4, §13.3),
+not a "Tetris". The nominative use — naming the clear the way "T-spin" names a
+manoeuvre — would have been defensible, but it is the only thing the word was
+needed for, and giving it up costs one syllable and keeps the trademark off the
+screen altogether. `QUAD` is the preferred term throughout: in this document, in
+the interface, and in anything written about the game.
+
+The word "Tetris" survives in this document only where it refers to the
+trademark itself (this section, §13.2) or to the Tetris Guideline and the
+tetris.wiki references the rules are drawn from (§1, §3).
 
 Termino is a personal, non-commercial implementation of the well-known public
 rules.
@@ -106,6 +112,7 @@ rules.
 | **DAS** | Delayed Auto Shift: the pause before a held movement key repeats. |
 | **ARR** | Auto Repeat Rate: the interval between repeats once DAS has elapsed. |
 | **ARE** | Entry delay: the pause between one piece locking and the next spawning. |
+| **Quad** | A four-line clear (§9.14). Elsewhere called a "Tetris"; Termino does not use that name (§1.3). |
 | **B2B** | Back-to-back: consecutive "difficult" line clears (§9.15). |
 
 ---
@@ -988,7 +995,7 @@ All values below are multiplied by the current **level** except where stated.
 | Single (1 line) | 100 | — |
 | Double (2 lines) | 300 | — |
 | Triple (3 lines) | 500 | — |
-| Tetris (4 lines) | 800 | 1200 |
+| Quad (4 lines) | 800 | 1200 |
 | T-Spin, no lines | 400 | — |
 | T-Spin Single | 800 | 1200 |
 | T-Spin Double | 1200 | 1800 |
@@ -1008,14 +1015,14 @@ multiplied by level:
 | Single | 800 | 1200 |
 | Double | 1200 | 1800 |
 | Triple | 1800 | 2400 |
-| Tetris | 2000 | 3200 |
+| Quad | 2000 | 3200 |
 
 Score is a `u64` and is not capped. The displayed score is the running total,
 updated immediately, including drop points earned mid-piece.
 
 ### 9.15 Back-to-back, combo, perfect clear
 
-**Difficult clears** are: any Tetris, and any T-spin or T-spin Mini that clears at
+**Difficult clears** are: any Quad, and any T-spin or T-spin Mini that clears at
 least one line.
 
 - **Back-to-back** applies when a difficult clear immediately follows another
@@ -1275,7 +1282,7 @@ Rules for the layout:
   (`enhanced` or `legacy`).
 - **Status line** (bottom, centred): shows `B2B` when the back-to-back chain is
   active, `COMBO xN` when the combo counter is ≥ 1, and the most recent clear's
-  name (`TETRIS`, `T-SPIN DOUBLE`, `PERFECT CLEAR`, …) for 1.5 s after it occurs.
+  name (`QUAD`, `T-SPIN DOUBLE`, `PERFECT CLEAR`, …) for 1.5 s after it occurs.
 
 ### 12.5 Animations
 
@@ -1511,7 +1518,7 @@ or artwork may be copied (§1.3).
 - The panel beneath the menu **cycles every 6 seconds** between three faces:
   1. the quick control summary shown above;
   2. the top three high scores;
-  3. a one-line rules reminder (`Clear 4 rows at once for a TETRIS` and similar,
+  3. a one-line rules reminder (`Clear 4 rows at once for a QUAD` and similar,
      rotating through a short list).
   The cycle pauses while a menu item other than **PLAY** is selected.
 
