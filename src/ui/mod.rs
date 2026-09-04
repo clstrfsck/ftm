@@ -23,7 +23,8 @@ use ratatui::layout::Rect;
 
 use crate::core::events::OFF_SCREEN;
 use crate::core::piece::PieceKind;
-use crate::core::{ClearKind, GameEvent, GameView, ScoreReason};
+use crate::core::{ClearKind, DebugView, GameEvent, GameView, ScoreReason};
+use crate::input::InputMode;
 use crate::ui::theme::Theme;
 
 /// The terminal the game draws on.
@@ -60,10 +61,36 @@ pub enum Overlay {
     GameOver,
 }
 
+/// The debug strip's figures (§12.4), half from the shell and half from the
+/// core.
+///
+/// The core's half arrives as a [`DebugView`] — a view type, not a `Game` — so
+/// §12.7's layering rule holds here as it does everywhere else in `ui`.
+#[derive(Clone, Debug)]
+pub struct Debug {
+    /// Frames actually drawn in the last second (§15.2).
+    pub fps: u32,
+    /// Ticks abandoned to the catch-up cap since the game began (§15.2 step 4).
+    pub dropped: u64,
+    /// How far the held direction's DAS charge has come, as a percentage
+    /// (§10.3).
+    pub das_charge: u8,
+    /// Which of §8.2's two paths is live.
+    pub mode: InputMode,
+    pub core: DebugView,
+}
+
 /// Draw one frame of the playing screen.
-pub fn draw(frame: &mut Frame, view: &GameView, chrome: &Chrome, fx: &Cosmetics, overlay: Overlay) {
+pub fn draw(
+    frame: &mut Frame,
+    view: &GameView,
+    chrome: &Chrome,
+    fx: &Cosmetics,
+    overlay: Overlay,
+    debug: Option<&Debug>,
+) {
     let blanked = matches!(overlay, Overlay::Paused { .. });
-    let screen = playfield::render(frame, view, chrome, fx, blanked);
+    let screen = playfield::render(frame, view, chrome, fx, blanked, debug);
     match overlay {
         Overlay::None => {}
         Overlay::Paused { selected } => overlays::paused(frame, screen, chrome, selected),

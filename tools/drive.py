@@ -12,6 +12,7 @@ so the screen can be *seen* without a human at a terminal.
     tools/drive.py c c                    # press hold twice
     tools/drive.py '\\x1b[B' '\\x1b[B' ' '  # down, down, hard drop
     tools/drive.py --legacy left left     # the §8.2 fallback path
+    tools/drive.py --arg=--seed=42        # the same game every time (§6.4)
 
 Keys are Python string escapes, so '\\x1b[B' is Down and '\\r' is Enter;
 a few names (up, down, left, right, space, enter, esc) are spelled out.
@@ -20,9 +21,13 @@ settled.
 
 Three things to know before believing the output:
 
-* **`--seed` is not wired up until Stage 10**, so every run is a different
-  game. Never compare two runs -- press keys within one run and compare
-  its frames, which is what the per-keystroke output is for.
+* Without `--arg=--seed=N` every run is a different game, so two runs are
+  not comparable; press keys within one run and compare its frames, which
+  is what the per-keystroke output is for. With a seed they *are*
+  comparable, which is how a rendering change is told from a new game.
+  `--arg` passes one argument to the binary and repeats. Write it glued on
+  with `=`, both times: `--arg=--seed=42`, or `argparse` reads the value
+  as an option of its own.
 * The interpreter understands CUP, ED and text, and nothing else. It is
   enough for ratatui's diffed output and would mislead you about anything
   cleverer.
@@ -64,12 +69,12 @@ NAMED = {
 QUERIES = [(b"\x1b[?u", b"\x1b[?1u"), (b"\x1b[c", b"\x1b[?62;22c")]
 
 
-def run(binary, keys, size, pause, settle, enhanced):
+def run(binary, keys, size, pause, settle, enhanced, argv=()):
     """Play `keys` through the binary, returning the capture after each one."""
     rows, cols = size
     pid, fd = pty.fork()
     if pid == 0:
-        os.execv(binary, [os.path.basename(binary)])
+        os.execv(binary, [os.path.basename(binary), *argv])
     fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 
     out = bytearray()
@@ -163,7 +168,7 @@ def key(spec):
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__.split("\n\n")[0],
-        epilog="Every run is a different game until --seed lands in Stage 10.",
+        epilog="Pass --arg=--seed=42 for a game that is the same every run.",
     )
     parser.add_argument("keys", nargs="*", help="keys to send, one frame each")
     parser.add_argument("--size", default="30x100", help="ROWSxCOLS (default 30x100)")
@@ -174,6 +179,14 @@ def main():
         action="store_true",
         help="decline the §8.2 capability queries, taking the fallback path",
     )
+    parser.add_argument(
+        "--arg",
+        action="append",
+        default=[],
+        metavar="ARG",
+        help="an argument to pass to the binary, repeatable; glue it on with "
+        "= both times, as in --arg=--seed=42",
+    )
     parser.add_argument("--bin", default=BINARY, help="the binary to drive")
     args = parser.parse_args()
 
@@ -183,7 +196,7 @@ def main():
     size = (rows, cols)
 
     keys = [key(spec) for spec in args.keys]
-    frames = run(args.bin, keys, size, args.pause, args.settle, not args.legacy)
+    frames = run(args.bin, keys, size, args.pause, args.settle, not args.legacy, args.arg)
     for n, frame in enumerate(frames):
         label = f"after {args.keys[n]!r}" if n < len(keys) else "settled"
         print(f"--- {label} " + "-" * 40)

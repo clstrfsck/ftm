@@ -17,7 +17,7 @@ use crate::core::{Action, Actions, Game, GameEvent, GameView, Shift, TickInput};
 use crate::input::{Bindings, InputMode, InputState};
 use crate::ui::overlays::PauseChoice;
 use crate::ui::theme::{Glyphs, Theme};
-use crate::ui::{self, Chrome, Cosmetics, Overlay, Tui};
+use crate::ui::{self, Chrome, Cosmetics, Debug, Overlay, Tui};
 
 // TODO(stage 11): the rest of the §7 state machine — attract, restart and name
 // entry — replacing Stage 6's "play until quit". `Playing`, `Paused` and
@@ -104,6 +104,18 @@ impl App {
 
     pub fn dropped_ticks(&self) -> u64 {
         self.dropped_ticks
+    }
+
+    /// The §12.4 debug strip's figures: the shell's own, plus the core's
+    /// through a `DebugView` (§12.7).
+    fn debug(&self, fps: u32) -> Debug {
+        Debug {
+            fps,
+            dropped: self.dropped_ticks,
+            das_charge: self.input.das_charge(),
+            mode: self.input.mode(),
+            core: self.game.debug(),
+        }
     }
 
     /// What the screen should draw on top of the playfield (§12.6).
@@ -286,6 +298,39 @@ impl App {
     }
 }
 
+/// Frames actually drawn in the last second (§12.4).
+///
+/// Counted rather than derived from the frame time, because §15.2 step 5 skips
+/// a frame that would not change anything: the interesting number is how many
+/// were drawn, not how fast one of them was.
+#[derive(Debug)]
+struct Fps {
+    since: Instant,
+    frames: u32,
+    rate: u32,
+}
+
+impl Fps {
+    fn new(now: Instant) -> Self {
+        Self {
+            since: now,
+            frames: 0,
+            rate: 0,
+        }
+    }
+
+    /// Count one drawn frame and report the rate.
+    fn drew(&mut self, now: Instant) -> u32 {
+        self.frames += 1;
+        if now.saturating_duration_since(self.since) >= Duration::from_secs(1) {
+            self.rate = self.frames;
+            self.frames = 0;
+            self.since = now;
+        }
+        self.rate
+    }
+}
+
 /// §10.1's fixed overlay navigation, which is deliberately *not* rebindable.
 fn menu_action(event: &KeyEvent) -> Option<Action> {
     if event.kind == KeyEventKind::Release {
@@ -336,14 +381,14 @@ pub fn run(
         show_grid: presentation.display.show_grid,
         hold_enabled: rules.hold_enabled,
     };
-    // TODO(stage 10): the §12.4 debug stats box, which `show_debug` turns on and
-    // which nothing can reach until the config file and CLI of Stage 10 exist.
+    let show_debug = presentation.display.show_debug;
     let clear_delay = TICK * rules.line_clear_delay_ticks;
     let mut app = App::new(rules, presentation, mode, seed);
     let mut fx = Cosmetics::new(clear_delay, Instant::now());
     let mut previous: Option<(GameView, Overlay)> = None;
     let mut accumulator = Duration::ZERO;
     let mut last = Instant::now();
+    let mut fps = Fps::new(last);
 
     loop {
         // 1. Wall-clock time since the last iteration. §9.17: while the clock
@@ -398,11 +443,14 @@ pub fn run(
         //    and skipping it entirely is cheaper. An animation in flight
         //    changes the screen without changing the view, so it counts as new.
         let frame = (app.view(), app.overlay(now));
-        if invalidated || fx.animating() || previous.as_ref() != Some(&frame) {
+        // The strip's own figures change every frame, so with it on there is
+        // always something new to look at (§12.4).
+        if invalidated || show_debug || fx.animating() || previous.as_ref() != Some(&frame) {
+            let debug = show_debug.then(|| app.debug(fps.drew(now)));
             // §16: a frame lost to a write failure is simply lost. Leaving
             // `previous` behind is what makes the next frame try again.
             if terminal
-                .draw(|f| ui::draw(f, &frame.0, &chrome, &fx, frame.1))
+                .draw(|f| ui::draw(f, &frame.0, &chrome, &fx, frame.1, debug.as_ref()))
                 .is_ok()
             {
                 previous = Some(frame);
@@ -583,6 +631,24 @@ mod tests {
         assert_eq!(
             app.key(&press(KeyCode::Char('x')), now + GAME_OVER_LOCKOUT),
             Flow::Leave,
+        );
+    }
+    #[test]
+    fn the_frame_rate_is_frames_drawn_not_frames_due() {
+        // §12.4: the interesting number is how many frames were drawn, and
+        // §15.2 step 5 skips a frame that would change nothing — so counting
+        // is right and deriving it from the frame time is not.
+        let start = Instant::now();
+        let mut fps = Fps::new(start);
+        assert_eq!(fps.drew(start), 0, "nothing to report in the first second");
+        for _ in 0..40 {
+            fps.drew(start + Duration::from_millis(500));
+        }
+        assert_eq!(fps.drew(start + Duration::from_secs(1)), 42);
+        assert_eq!(
+            fps.drew(start + Duration::from_millis(1_500)),
+            42,
+            "and it holds until the next second is up",
         );
     }
 }

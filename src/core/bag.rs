@@ -60,6 +60,15 @@ impl Bag {
         self.queue.iter().copied().take(self.preview_count as usize)
     }
 
+    /// What is left of the current bag, for §12.4's debug strip.
+    ///
+    /// This is **not** what the player is shown: the queue is drawn from the
+    /// front of the bag, so anything still in here beyond `preview_count` is
+    /// hidden information (§12.7).
+    pub fn remaining(&self) -> impl Iterator<Item = PieceKind> + '_ {
+        self.bag.iter().copied()
+    }
+
     /// Keep the queue at `preview_count + 1`: everything on show, plus the one
     /// about to be taken.
     fn top_up(&mut self) {

@@ -299,6 +299,22 @@ impl Game {
         Some(piece)
     }
 
+    /// The fall period in force (§9.9), for §12.4's debug strip.
+    pub fn fall_period(&self) -> u32 {
+        self.gravity.period()
+    }
+
+    /// Lock-delay ticks left (§9.11), absent while the piece is airborne.
+    pub fn lock_delay_remaining(&self) -> Option<u32> {
+        self.lock.remaining()
+    }
+
+    /// What is left of the current bag (§9.6). Hidden information beyond the
+    /// preview, which is why it travels in `DebugView` and not `GameView`.
+    pub fn bag_remaining(&self) -> impl Iterator<Item = PieceKind> + '_ {
+        self.bag.remaining()
+    }
+
     pub fn is_over(&self) -> bool {
         self.state == PlayState::ToppedOut
     }

@@ -1284,11 +1284,19 @@ Rules for the layout:
   (100 %, 75 %, and 55 % for slot 2 and beyond) where the colour depth allows.
 - Should a future layout leave too little room for every slot, as many as fit are
   drawn and the last visible row of the box shows `+N` right-aligned.
-- **Stats box**: score, level, lines, time (`MM:SS`, capped at `99:59`). With
-  `show_debug = true` a second stats box appears below with the frame rate, ticks
-  elapsed, any dropped ticks (§15.2), gravity in G, `fall_period`, lock-delay
-  ticks remaining, DAS charge, current bag contents, and the input mode
-  (`enhanced` or `legacy`).
+- **Stats box**: score, level, lines, time (`MM:SS`, capped at `99:59`).
+- **Debug strip**: with `show_debug = true` a bordered strip 44 characters wide
+  and 5 rows tall is drawn **directly beneath the block**, making the whole
+  thing 44 × 28. It shows the frame rate, ticks elapsed, any dropped ticks
+  (§15.2), gravity in G, `fall_period`, lock-delay ticks remaining, DAS charge,
+  current bag contents, and the input mode (`enhanced` or `legacy`).
+
+  Beneath rather than inside the left column, because the column's interior is
+  8 characters wide and the block has at most 3 spare rows under the stats box:
+  those nine figures do not fit there at any height. The strip is a developer's
+  read-out and not a supported layout, so it does not change the minimum
+  terminal size of §12.1 — a terminal with fewer than 28 rows is simply drawn
+  without it, and the game is unaffected.
 - **Status line** (bottom, centred): shows `B2B` when the back-to-back chain is
   active, `COMBO xN` when the combo counter is ≥ 1, and the most recent clear's
   name (`QUAD`, `T-SPIN DOUBLE`, `PERFECT CLEAR`, …) for 1.5 s after it occurs.
@@ -1410,6 +1418,35 @@ Requirements:
 This costs one struct in v1.0 and buys the renderer a stable contract: §12.4 is
 written against `GameView`, so a change to the rules cannot silently break the
 screen, and §19 gets its wire format for free.
+
+**`DebugView`.** §12.4's debug strip needs four figures the view above does not
+carry: gravity in G, `fall_period`, the lock-delay ticks remaining, and the
+contents of the current bag. They travel in a second view type,
+
+```rust
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct DebugView {
+    pub milli_g:      u32,             // rows per tick x 1000, integer (§9.9)
+    pub fall_period:  u32,             // 16.16 ticks per row (§9.9)
+    pub lock_delay:   Option<u32>,     // ticks left, absent when not grounded
+    pub bag:          Vec<PieceKind>,  // what is left of the current bag (§9.6)
+}
+```
+
+built by `Game::debug(&self) -> DebugView`, a second `&self` constructor beside
+`Game::view`, and **not** a field of `GameView`. Two reasons, and the second is
+the load-bearing one:
+
+- `show_debug` is a presentation setting (§6.5), so the core cannot be told
+  whether to produce the strip. A `debug` field on `GameView` would therefore be
+  filled on every frame of every game, whether or not anyone was looking.
+- The bag beyond `preview_count` is **hidden information**. Under §19 `GameView`
+  is what a server sends a player, and a field on it that reveals the rest of
+  the bag is a field that has to be stripped before transmission. A separate
+  type is not sent by accident.
+
+The layering rule of §12.7 is unchanged by this: the renderer is handed a
+`DebugView`, never a `Game`.
 
 ### 12.8 The event stream
 

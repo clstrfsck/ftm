@@ -362,6 +362,20 @@ impl InputState {
         }
     }
 
+    /// How far the active direction's DAS charge has come, as a percentage,
+    /// for §12.4's debug strip. Zero when nothing is held.
+    pub fn das_charge(&self) -> u8 {
+        let key = match self.active() {
+            Some(Shift::Left) => &self.left,
+            Some(Shift::Right) => &self.right,
+            None => return 0,
+        };
+        if self.das.is_zero() {
+            return 100;
+        }
+        ((key.elapsed.as_nanos() * 100 / self.das.as_nanos()).min(100)) as u8
+    }
+
     /// The direction in force: the most recently pressed one that is still
     /// held (§10.3).
     fn active(&self) -> Option<Shift> {

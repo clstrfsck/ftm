@@ -25,4 +25,4 @@ pub mod view;
 // them (§3.1, §19.2). Acceptance A10 audits that in Stage 12.
 pub use events::{ClearKind, GameEvent, ScoreReason, TopOutCause};
 pub use game::{Action, Actions, Game, PlayState, Shift, TickInput};
-pub use view::{GameView, PieceView};
+pub use view::{DebugView, GameView, PieceView};

@@ -21,7 +21,7 @@ use crate::core::piece::PieceKind;
 use crate::core::view::{VIEW_HEIGHT, VIEW_WIDTH};
 use crate::ui::cells::{CELL_WIDTH, Paint, span};
 use crate::ui::theme;
-use crate::ui::{Banner, Chrome, Cosmetics, centred};
+use crate::ui::{Banner, Chrome, Cosmetics, Debug, centred};
 
 /// The whole screen, in characters (§12.4).
 pub const SCREEN_WIDTH: u16 = 44;
@@ -47,6 +47,13 @@ const HOLD_HEIGHT: u16 = 5;
 const STATS_HEIGHT: u16 = 13;
 /// The status line sits on the last row of the block, under the playfield.
 const STATUS_Y: u16 = SCREEN_HEIGHT - 1;
+/// The §12.4 debug strip: three rows of figures plus its border.
+const DEBUG_HEIGHT: u16 = 5;
+/// Three columns of figures across the strip's 42-character interior, two
+/// spaces apart: 12 + 2 + 12 + 2 + 14. The widest figure in each row is put in
+/// the last column, which is the one with room for `fall_period`'s seven
+/// digits and for the word `enhanced`.
+const DEBUG_COLUMNS: [usize; 3] = [12, 12, 14];
 /// The interior width of every box in the two side columns, in characters.
 const LABEL_WIDTH: usize = (PANEL_CELLS * CELL_WIDTH) as usize;
 
@@ -66,8 +73,21 @@ pub fn render(
     chrome: &Chrome,
     fx: &Cosmetics,
     blanked: bool,
+    debug: Option<&Debug>,
 ) -> Rect {
-    let screen = centred(frame.area(), SCREEN_WIDTH, SCREEN_HEIGHT);
+    // §12.4: the debug strip sits directly beneath the block, so what is
+    // centred is the two of them together. A terminal too short for the strip
+    // is drawn without it and is otherwise unaffected — `show_debug` is a
+    // developer's read-out, not a supported layout, and it does not move
+    // §12.1's minimum size.
+    let room = frame.area().height >= SCREEN_HEIGHT + DEBUG_HEIGHT;
+    let strip = debug.filter(|_| room);
+    let height = SCREEN_HEIGHT + if strip.is_some() { DEBUG_HEIGHT } else { 0 };
+    let block = centred(frame.area(), SCREEN_WIDTH, height);
+    let screen = Rect {
+        height: SCREEN_HEIGHT.min(block.height),
+        ..block
+    };
     let at = |x: u16, y: u16, width: u16, height: u16| Rect {
         x: screen.x + x,
         y: screen.y + y,
@@ -116,7 +136,77 @@ pub fn render(
         Paragraph::new(status(view, fx)).style(chrome.theme.plain()),
         at(0, STATUS_Y, SCREEN_WIDTH, 1),
     );
+    if let Some(strip) = strip {
+        panel(
+            frame,
+            at(0, SCREEN_HEIGHT, SCREEN_WIDTH, DEBUG_HEIGHT),
+            debug_lines(strip, view),
+        );
+    }
     screen
+}
+
+/// The §12.4 debug strip: nine figures in three columns of three.
+///
+/// Everything here is either the shell's own or comes from a `DebugView`
+/// (§12.7). Gravity is printed from the core's integer milli-G rather than
+/// computed here, so the strip cannot disagree with the rules about how fast
+/// the piece is falling.
+fn debug_lines(debug: &Debug, view: &GameView) -> Vec<Line<'static>> {
+    // The bag empties as the queue is topped up, so "nothing left" is the
+    // common answer at the default `preview_count` and is worth showing as
+    // something rather than as a blank column.
+    let bag: String = match debug
+        .core
+        .bag
+        .iter()
+        .map(|kind| kind.glyph())
+        .collect::<String>()
+    {
+        empty if empty.is_empty() => "-".to_string(),
+        bag => bag,
+    };
+    let rows = [
+        [
+            ("FPS", debug.fps.to_string()),
+            ("TICKS", view.ticks.to_string()),
+            ("DROPPED", debug.dropped.to_string()),
+        ],
+        [
+            ("G", gravity(debug.core.milli_g)),
+            ("LOCK", optional(debug.core.lock_delay)),
+            ("PERIOD", debug.core.fall_period.to_string()),
+        ],
+        [
+            ("DAS", format!("{}%", debug.das_charge)),
+            ("BAG", bag),
+            ("INPUT", debug.mode.name().to_string()),
+        ],
+    ];
+    rows.iter()
+        .map(|row| {
+            Line::raw(
+                row.iter()
+                    .zip(DEBUG_COLUMNS)
+                    .map(|((label, value), width)| {
+                        let value_width = width - label.len();
+                        format!("{label}{value:>value_width$}")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("  "),
+            )
+        })
+        .collect()
+}
+
+/// Gravity in G, from the core's integer thousandths (§9.9).
+fn gravity(milli_g: u32) -> String {
+    format!("{}.{:03}", milli_g / 1000, milli_g % 1000)
+}
+
+/// A figure that is only sometimes there — the lock delay, while grounded.
+fn optional(value: Option<u32>) -> String {
+    value.map_or_else(|| "-".to_string(), |v| v.to_string())
 }
 
 /// A bordered box with `lines` inside it.
@@ -222,7 +312,7 @@ fn slot(chrome: &Chrome, kind: Option<PieceKind>, percent: u8) -> [Line<'static>
             }
         }
     }
-    grid.map(|row| paint(chrome, &row))
+    grid.map(|row| paint(chrome, &row, false))
 }
 
 /// The visible rows, with the ghost, the falling piece and the §12.5
@@ -236,7 +326,9 @@ fn field(view: &GameView, chrome: &Chrome, fx: &Cosmetics, blanked: bool) -> Vec
     if !blanked {
         compose(&mut grid, view, fx);
     }
-    grid.iter().map(|row| paint(chrome, row)).collect()
+    grid.iter()
+        .map(|row| paint(chrome, row, chrome.show_grid))
+        .collect()
 }
 
 /// Everything that can occupy a cell, in the order it is allowed to win.
@@ -306,10 +398,15 @@ fn put(grid: &mut [[Paint; VIEW_WIDTH]; VIEW_HEIGHT], (col, row): (u8, u8), pain
     }
 }
 
-fn paint(chrome: &Chrome, row: &[Paint]) -> Line<'static> {
+/// One row of cells as a line.
+///
+/// `grid` is passed rather than read off the `Chrome`, because §6.3 puts the
+/// dots "in the empty **playfield**": the hold and preview boxes are not the
+/// field, and a dotted background behind a preview piece is noise.
+fn paint(chrome: &Chrome, row: &[Paint], grid: bool) -> Line<'static> {
     Line::from(
         row.iter()
-            .map(|cell| span(chrome.theme, *cell, chrome.show_grid))
+            .map(|cell| span(chrome.theme, *cell, grid))
             .collect::<Vec<_>>(),
     )
 }
@@ -463,7 +560,7 @@ mod tests {
         let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
         terminal
             .draw(|frame| {
-                render(frame, view, chrome, &fx, false);
+                render(frame, view, chrome, &fx, false, None);
             })
             .expect("a frame");
         let buffer = terminal.backend().buffer().clone();
@@ -549,7 +646,7 @@ mod tests {
         let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
         terminal
             .draw(|frame| {
-                render(frame, view, chrome, &fx, false);
+                render(frame, view, chrome, &fx, false, None);
             })
             .expect("a frame");
         terminal.backend().buffer()[(x, y)].fg
@@ -615,6 +712,14 @@ mod tests {
         let row = drawn.lines().nth(1).expect("the first field row");
         let interior: String = row.chars().skip(12).take(20).collect();
         assert_eq!(interior, "·".repeat(20));
+        // §6.3 puts the dots "in the empty playfield": the hold and preview
+        // boxes are not the field, and a dotted backing behind a preview piece
+        // is noise.
+        let slot = drawn.lines().nth(2).expect("the hold box's first cell row");
+        assert!(
+            !slot[..COLUMN_WIDTH as usize].contains('\u{b7}'),
+            "the grid stopped at the field: {slot:?}",
+        );
     }
 
     #[test]
@@ -628,7 +733,7 @@ mod tests {
         let chrome = chrome();
         terminal
             .draw(|frame| {
-                render(frame, &view, &chrome, &fx, true);
+                render(frame, &view, &chrome, &fx, true, None);
             })
             .expect("a frame");
         let buffer = terminal.backend().buffer().clone();
@@ -649,5 +754,81 @@ mod tests {
         assert_eq!(clock(60), "00:01");
         assert_eq!(clock((2 * 60 + 14) * 60), "02:14");
         assert_eq!(clock(u64::MAX), "99:59");
+    }
+    /// Render at an arbitrary size with the debug strip on, and read it back.
+    fn screenshot_with_debug(view: &GameView, chrome: &Chrome, rows: u16) -> Vec<String> {
+        let backend = TestBackend::new(SCREEN_WIDTH, rows);
+        let mut terminal = Terminal::new(backend).expect("a test terminal");
+        let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
+        let debug = Debug {
+            fps: 60,
+            dropped: 3,
+            das_charge: 100,
+            mode: crate::input::InputMode::Enhanced,
+            core: crate::core::DebugView {
+                milli_g: 16,
+                fall_period: 3_932_160,
+                lock_delay: Some(27),
+                bag: vec![PieceKind::T, PieceKind::S, PieceKind::Z],
+            },
+        };
+        terminal
+            .draw(|frame| {
+                render(frame, view, chrome, &fx, false, Some(&debug));
+            })
+            .expect("a frame");
+        let buffer = terminal.backend().buffer().clone();
+        (0..rows)
+            .map(|y| {
+                (0..SCREEN_WIDTH)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_debug_strip_sits_beneath_the_block() {
+        // §12.4 as amended: 44 x 5 directly under the 23-row block, with nine
+        // figures in three columns of three.
+        let lines = screenshot_with_debug(&mock_up_view(), &chrome(), SCREEN_HEIGHT + DEBUG_HEIGHT);
+        assert_eq!(
+            lines[..SCREEN_HEIGHT as usize].join("\n"),
+            MOCK_UP,
+            "the block itself is untouched by the strip below it",
+        );
+        let strip = &lines[SCREEN_HEIGHT as usize..];
+        assert_eq!(strip.len(), DEBUG_HEIGHT as usize);
+        assert_eq!(
+            strip.join("\n"),
+            "\
+┌──────────────────────────────────────────┐
+│FPS       60  TICKS   8040  DROPPED      3│
+│G      0.016  LOCK      27  PERIOD 3932160│
+│DAS     100%  BAG      TSZ  INPUT enhanced│
+└──────────────────────────────────────────┘",
+        );
+        for row in strip {
+            assert_eq!(row.chars().count(), SCREEN_WIDTH as usize);
+        }
+    }
+
+    #[test]
+    fn a_terminal_too_short_for_the_strip_is_drawn_without_it() {
+        // §12.4: `show_debug` is a developer's read-out and does not move
+        // §12.1's minimum size, so the game is unaffected by having no room.
+        let lines = screenshot_with_debug(&mock_up_view(), &chrome(), SCREEN_HEIGHT);
+        assert_eq!(lines.join("\n"), MOCK_UP);
+    }
+
+    #[test]
+    fn gravity_is_printed_from_the_cores_own_integer() {
+        // §9.9: no floating point in the rules, and none introduced here — the
+        // strip cannot disagree with the core about how fast a piece falls.
+        assert_eq!(gravity(16), "0.016");
+        assert_eq!(gravity(1_250), "1.250");
+        assert_eq!(gravity(0), "0.000");
+        assert_eq!(optional(None), "-");
+        assert_eq!(optional(Some(30)), "30");
     }
 }
