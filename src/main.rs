@@ -42,7 +42,6 @@ fn main() -> Result<()> {
         report(&startup.warnings);
         return Ok(());
     }
-    let (rules, presentation) = startup.file.resolve();
 
     // §8.1 step 2: the panic hook goes in *before* raw mode, so that a crash
     // between here and the first frame still leaves a usable shell.
@@ -59,13 +58,16 @@ fn main() -> Result<()> {
         ));
     }
 
-    let result = app::run(&mut terminal, rules, &presentation, mode, startup.seed);
+    // The Options panel may edit `startup.file` and add to its warnings on the
+    // way through (§13.5, §16), so `run` borrows the whole bundle.
+    let result = app::run(&mut terminal, &mut startup, mode);
 
     restore();
     // §6.2: the commented default file is written on the first clean exit, and
     // never over a file the player already has. What is written is the file
     // without the command line applied: a flag is for one run (§6.1).
-    if let (false, Some(path), true) = (startup.existed, startup.path.as_deref(), result.is_ok()) {
+    let write_defaults = !startup.existed && result.is_ok() && !startup.wrote_config;
+    if let (true, Some(path)) = (write_defaults, startup.path.as_deref()) {
         if let Err(error) = config::save(path, &startup.on_disk) {
             // §16: an unwritable config never aborts.
             startup

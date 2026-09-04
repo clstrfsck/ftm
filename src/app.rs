@@ -12,10 +12,10 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 
-use crate::config::{MAX_CATCH_UP_TICKS, PresentationConfig, RulesConfig, TICK};
+use crate::config::{self, DisplaySettings, MAX_CATCH_UP_TICKS, Startup, TICK};
 use crate::core::{Action, Actions, Game, GameEvent, GameView, Shift, TickInput};
 use crate::input::{Bindings, InputMode, InputState};
-use crate::ui::overlays::PauseChoice;
+use crate::ui::overlays::{PauseChoice, Setting};
 use crate::ui::theme::{Glyphs, Theme};
 use crate::ui::{self, Chrome, Cosmetics, Debug, Overlay, Tui};
 
@@ -33,9 +33,19 @@ const GAME_OVER_LOCKOUT: Duration = Duration::from_secs(1);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
     Playing,
-    Paused { selected: usize },
-    Resuming { since: Instant },
-    GameOver { since: Instant },
+    Paused {
+        selected: usize,
+    },
+    /// The §13.5 Options panel, over the paused playfield (§12.6).
+    Options {
+        selected: usize,
+    },
+    Resuming {
+        since: Instant,
+    },
+    GameOver {
+        since: Instant,
+    },
 }
 
 impl Phase {
@@ -70,6 +80,24 @@ pub struct App {
     game: Game,
     input: InputState,
     bindings: Bindings,
+    /// The effective configuration (§6.1), which the §13.5 Options panel edits
+    /// in place and writes back on the way out.
+    config: config::ConfigFile,
+    config_path: Option<std::path::PathBuf>,
+    /// §16's warning vector, borrowed for the length of the run so that a
+    /// config the panel could not write still reaches stderr at exit.
+    warnings: Vec<String>,
+    /// Set when the Options panel is left, so the loop knows to rebuild the
+    /// presentation half of the `Chrome` (§13.5).
+    settings_changed: bool,
+    /// Whether the panel ever wrote the file, so §6.2's first-clean-exit write
+    /// does not undo what the player just saved.
+    saved: bool,
+    /// Bumped whenever something the screen shows changes that is neither in
+    /// the `GameView` nor in the `Overlay` — the Options panel's values are the
+    /// only such thing so far. §15.2 step 5 compares frames to decide whether
+    /// to draw at all, and is otherwise blind to them.
+    generation: u32,
     /// Reused across ticks: the core appends and the common tick appends
     /// nothing, so this must not be reallocated sixty times a second (§12.8).
     events: Vec<GameEvent>,
@@ -82,15 +110,22 @@ pub struct App {
 
 impl App {
     pub fn new(
-        rules: RulesConfig,
-        presentation: &PresentationConfig,
+        config: config::ConfigFile,
+        config_path: Option<std::path::PathBuf>,
         mode: InputMode,
         seed: u64,
     ) -> Self {
+        let (rules, presentation) = config.resolve();
         Self {
             bindings: Bindings::new(&presentation.keys, &rules),
             input: InputState::new(&rules, mode),
             game: Game::new(rules, seed),
+            config,
+            config_path,
+            warnings: Vec::new(),
+            settings_changed: false,
+            saved: false,
+            generation: 0,
             events: Vec::new(),
             pending: Pending::default(),
             phase: Phase::Playing,
@@ -123,6 +158,7 @@ impl App {
         match self.phase {
             Phase::Playing => Overlay::None,
             Phase::Paused { selected } => Overlay::Paused { selected },
+            Phase::Options { selected } => Overlay::Options { selected },
             Phase::Resuming { since } => {
                 let elapsed = now.saturating_duration_since(since);
                 let left = COUNTDOWN.saturating_sub(elapsed);
@@ -139,6 +175,7 @@ impl App {
         match self.phase {
             Phase::Playing => self.play_key(event),
             Phase::Paused { selected } => self.pause_key(event, selected, now),
+            Phase::Options { selected } => self.options_key(event, selected),
             // §9.17: input other than pause is ignored during the countdown.
             Phase::Resuming { .. } => {
                 if self.is_pause(event) {
@@ -202,15 +239,68 @@ impl App {
             Some(Action::MenuBack) => self.resume(now),
             Some(Action::MenuSelect) => match PauseChoice::ALL[selected] {
                 PauseChoice::Resume => self.resume(now),
+                PauseChoice::Options => self.phase = Phase::Options { selected: 0 },
                 // TODO(stage 11): Restart starts a fresh game and Controls
-                // opens the §13.5 panel; both need the state machine that
-                // stage builds.
+                // opens the §13.5 controls panel; both need the state machine
+                // that stage builds.
                 PauseChoice::Restart | PauseChoice::Controls => {}
                 PauseChoice::QuitToMenu => return Flow::Leave,
             },
             _ => {}
         }
         Flow::Continue
+    }
+
+    /// §13.5: `↑`/`↓` choose a setting, `←`/`→` change it, `Esc` saves the
+    /// config file and returns to the pause menu.
+    ///
+    /// The write happens here, on the way out, which is what §6.1 means by
+    /// "written back to the config file immediately on leaving that screen".
+    fn options_key(&mut self, event: &KeyEvent, selected: usize) -> Flow {
+        if event.kind == KeyEventKind::Release {
+            return Flow::Continue;
+        }
+        let items = Setting::ALL.len();
+        match event.code {
+            KeyCode::Up => {
+                self.phase = Phase::Options {
+                    selected: (selected + items - 1) % items,
+                }
+            }
+            KeyCode::Down => {
+                self.phase = Phase::Options {
+                    selected: (selected + 1) % items,
+                }
+            }
+            KeyCode::Left | KeyCode::Right => {
+                Setting::ALL[selected].step(&mut self.config, event.code == KeyCode::Right);
+                self.generation += 1;
+            }
+            KeyCode::Esc | KeyCode::Enter => {
+                self.save_config();
+                self.settings_changed = true;
+                self.phase = Phase::Paused { selected: 0 };
+            }
+            _ => {}
+        }
+        Flow::Continue
+    }
+
+    /// §6.1: write the edited settings back. §16: an unwritable file never
+    /// aborts — it adds a line to the warnings printed at exit.
+    fn save_config(&mut self) {
+        let Some(path) = self.config_path.as_deref() else {
+            return;
+        };
+        match config::save(path, &self.config) {
+            Ok(()) => self.saved = true,
+            Err(error) => {
+                let warning = format!("{}: {error}", path.display());
+                if !self.warnings.contains(&warning) {
+                    self.warnings.push(warning);
+                }
+            }
+        }
     }
 
     /// Whether this event is the configured pause key (§9.17).
@@ -364,33 +454,36 @@ fn ticks_due(accumulator: &mut Duration) -> (u32, u64) {
 }
 
 /// Play until the player quits or the process is killed (§15.2).
-pub fn run(
-    terminal: &mut Tui,
-    rules: RulesConfig,
-    presentation: &PresentationConfig,
-    mode: InputMode,
-    seed: u64,
-) -> Result<()> {
-    let chrome = Chrome {
-        // §12.2's glyphs are interned once, here: the theme is `Copy` and
-        // carries them by reference for the life of the process.
-        theme: Theme::resolve(
-            presentation.display.color_depth,
-            Glyphs::configured(&presentation.display),
-        ),
-        show_grid: presentation.display.show_grid,
-        hold_enabled: rules.hold_enabled,
-    };
-    let show_debug = presentation.display.show_debug;
+///
+/// `startup` is borrowed rather than consumed because the §13.5 Options panel
+/// edits the config in place and §16's warnings have to survive back to `main`,
+/// which prints them after terminal teardown.
+pub fn run(terminal: &mut Tui, startup: &mut Startup, mode: InputMode) -> Result<()> {
+    let show_debug = startup.file.display.show_debug;
+    // §12.2's glyphs are interned once, here: the theme is `Copy` and carries
+    // them by reference for the life of the process. They are not on the §13.5
+    // list, so the Options panel cannot invalidate them.
+    let glyphs = Glyphs::configured(&startup.file.display);
+    let (rules, _) = startup.file.resolve();
+    // §13.5: a game keeps the rules it started under, so the hold box's
+    // presence is the *game's* answer and not the config's, however the panel
+    // is edited mid-run.
+    let hold_enabled = rules.hold_enabled;
     let clear_delay = TICK * rules.line_clear_delay_ticks;
-    let mut app = App::new(rules, presentation, mode, seed);
+    let mut chrome = chrome_for(&startup.file.display, glyphs, hold_enabled);
+    let mut app = App::new(
+        startup.file.clone(),
+        startup.path.clone(),
+        mode,
+        startup.seed,
+    );
     let mut fx = Cosmetics::new(clear_delay, Instant::now());
-    let mut previous: Option<(GameView, Overlay)> = None;
+    let mut previous: Option<(GameView, Overlay, u32)> = None;
     let mut accumulator = Duration::ZERO;
     let mut last = Instant::now();
     let mut fps = Fps::new(last);
 
-    loop {
+    let outcome = loop {
         // 1. Wall-clock time since the last iteration. §9.17: while the clock
         //    is stopped the time simply does not accumulate, so unpausing does
         //    not pay out the pause as catch-up ticks.
@@ -412,17 +505,17 @@ pub fn run(
         // 2. Drain *every* event that is already waiting; reading one per frame
         //    would leave fast typing lagging behind.
         let mut invalidated = false;
+        let mut leaving = false;
         while event::poll(Duration::ZERO)? {
             match event::read()? {
-                Event::Key(key) => {
-                    if app.key(&key, now) == Flow::Leave {
-                        return Ok(());
-                    }
-                }
+                Event::Key(key) => leaving |= app.key(&key, now) == Flow::Leave,
                 // §8.4: a resize invalidates the whole frame.
                 Event::Resize(..) => invalidated = true,
                 _ => {}
             }
+        }
+        if leaving {
+            break Ok(());
         }
 
         // 3. Resolve DAS/ARR against the wall clock, not the tick rate (§10.3).
@@ -438,11 +531,20 @@ pub fn run(
         //    of §12.5 provably free of side effects on the game.
         fx.absorb(&app.events, now);
 
+        // §13.5: leaving the Options panel applies the presentation half at
+        // once. The rules half is deliberately not applied — the game keeps
+        // what it started under, which is also the only answer that leaves the
+        // run deterministic (§15.4).
+        if std::mem::take(&mut app.settings_changed) {
+            chrome = chrome_for(&app.config.display, glyphs, hold_enabled);
+            invalidated = true;
+        }
+
         // 6. Draw, but only when there is something new to look at: ratatui
         //    diffs against its previous buffer, so an unchanged frame is cheap,
         //    and skipping it entirely is cheaper. An animation in flight
         //    changes the screen without changing the view, so it counts as new.
-        let frame = (app.view(), app.overlay(now));
+        let frame = (app.view(), app.overlay(now), app.generation);
         // The strip's own figures change every frame, so with it on there is
         // always something new to look at (§12.4).
         if invalidated || show_debug || fx.animating() || previous.as_ref() != Some(&frame) {
@@ -450,7 +552,17 @@ pub fn run(
             // §16: a frame lost to a write failure is simply lost. Leaving
             // `previous` behind is what makes the next frame try again.
             if terminal
-                .draw(|f| ui::draw(f, &frame.0, &chrome, &fx, frame.1, debug.as_ref()))
+                .draw(|f| {
+                    ui::draw(
+                        f,
+                        &frame.0,
+                        &chrome,
+                        &fx,
+                        frame.1,
+                        &app.config,
+                        debug.as_ref(),
+                    )
+                })
                 .is_ok()
             {
                 previous = Some(frame);
@@ -461,6 +573,25 @@ pub fn run(
         //    a key wakes the loop early, so input latency stays near one tick
         //    while idle CPU stays near zero.
         event::poll(TICK.saturating_sub(accumulator))?;
+    };
+
+    // The panel may have edited the config and may have failed to write it
+    // (§16); either way `main` is the one that prints, after teardown.
+    startup.file = app.config;
+    startup.wrote_config = app.saved;
+    startup.warnings.append(&mut app.warnings);
+    outcome
+}
+
+/// The presentation half of the `Chrome` (§12.4, §12.7).
+///
+/// `hold_enabled` is the *game's*, not the config's: §13.5 gives a running game
+/// the rules it started under, and the hold box's presence is a rule.
+fn chrome_for(display: &DisplaySettings, glyphs: Glyphs, hold_enabled: bool) -> Chrome {
+    Chrome {
+        theme: Theme::resolve(display.color_depth, glyphs),
+        show_grid: display.show_grid,
+        hold_enabled,
     }
 }
 
@@ -501,9 +632,7 @@ mod tests {
     }
 
     fn app() -> App {
-        let rules = RulesConfig::default();
-        let presentation = PresentationConfig::default();
-        App::new(rules, &presentation, InputMode::Enhanced, 42)
+        App::new(config::ConfigFile::default(), None, InputMode::Enhanced, 42)
     }
 
     fn press(code: KeyCode) -> KeyEvent {
@@ -591,7 +720,9 @@ mod tests {
         app.key(&press(KeyCode::Up), now);
         assert_eq!(
             app.phase,
-            Phase::Paused { selected: 3 },
+            Phase::Paused {
+                selected: PauseChoice::ALL.len() - 1
+            },
             "up from the top wraps to Quit to menu",
         );
         assert_eq!(app.key(&press(KeyCode::Enter), now), Flow::Leave);
@@ -650,5 +781,99 @@ mod tests {
             42,
             "and it holds until the next second is up",
         );
+    }
+    #[test]
+    fn the_pause_menu_opens_the_options_panel() {
+        // §12.6 as amended, and §6.1's "in-game Options screen".
+        let mut app = app();
+        let now = Instant::now();
+        app.pause(0);
+        for _ in 0..2 {
+            app.key(&press(KeyCode::Down), now);
+        }
+        assert_eq!(
+            PauseChoice::ALL[2],
+            PauseChoice::Options,
+            "third item down (§12.6)",
+        );
+        app.key(&press(KeyCode::Enter), now);
+        assert_eq!(app.phase, Phase::Options { selected: 0 });
+    }
+
+    #[test]
+    fn the_options_panel_edits_and_writes_back_on_the_way_out() {
+        // §13.5: `←`/`→` change the selected value, `Esc` saves and returns.
+        // §6.1: "written back to the config file immediately on leaving".
+        let dir = std::env::temp_dir().join("termino-options-panel-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join(crate::config::FILE_NAME);
+        let mut app = App::new(
+            config::ConfigFile::default(),
+            Some(path.clone()),
+            InputMode::Enhanced,
+            42,
+        );
+        let now = Instant::now();
+        app.phase = Phase::Options { selected: 0 };
+
+        app.key(&press(KeyCode::Right), now);
+        assert_eq!(app.config.gameplay.preview_count, 6);
+        app.key(&press(KeyCode::Down), now);
+        app.key(&press(KeyCode::Left), now);
+        assert_eq!(
+            app.config.gameplay.start_level, 15,
+            "the second row, wrapping off the bottom",
+        );
+        assert!(!path.exists(), "nothing is written while the panel is up");
+
+        assert_eq!(app.key(&press(KeyCode::Esc), now), Flow::Continue);
+        assert_eq!(app.phase, Phase::Paused { selected: 0 }, "back to the menu");
+        assert!(app.saved && app.warnings.is_empty(), "{:?}", app.warnings);
+
+        let mut warnings = Vec::new();
+        let written = crate::config::load(Some(&path), &mut warnings).file;
+        assert_eq!(written, app.config);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_config_that_cannot_be_written_warns_rather_than_aborting() {
+        // §16: recoverable problems degrade to a documented default and add a
+        // line to the warnings printed at exit.
+        let mut app = App::new(
+            config::ConfigFile::default(),
+            // A path under a file rather than a directory: `create_dir_all`
+            // cannot make it, whatever the platform.
+            Some(std::path::PathBuf::from("/dev/null/termino/config.toml")),
+            InputMode::Enhanced,
+            42,
+        );
+        app.phase = Phase::Options { selected: 0 };
+        app.key(&press(KeyCode::Esc), Instant::now());
+        assert!(!app.saved);
+        assert_eq!(app.warnings.len(), 1, "{:?}", app.warnings);
+        assert_eq!(
+            app.phase,
+            Phase::Paused { selected: 0 },
+            "and the game carries on regardless",
+        );
+    }
+
+    #[test]
+    fn changing_a_value_makes_the_loop_redraw() {
+        // §15.2 step 5 draws only when the frame changed, and compares the view
+        // and the overlay — neither of which a panel value lives in.
+        let mut app = app();
+        let now = Instant::now();
+        app.phase = Phase::Options { selected: 0 };
+        let before = app.generation;
+        app.key(&press(KeyCode::Down), now);
+        assert_eq!(
+            app.generation, before,
+            "moving the cursor changes the overlay"
+        );
+        app.key(&press(KeyCode::Right), now);
+        assert_ne!(app.generation, before, "changing a value does not");
     }
 }

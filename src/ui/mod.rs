@@ -21,6 +21,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::Rect;
 
+use crate::config::ConfigFile;
 use crate::core::events::OFF_SCREEN;
 use crate::core::piece::PieceKind;
 use crate::core::{ClearKind, DebugView, GameEvent, GameView, ScoreReason};
@@ -51,6 +52,11 @@ pub enum Overlay {
     None,
     /// §9.17: the pause menu, over a blanked playfield.
     Paused {
+        selected: usize,
+    },
+    /// The §13.5 Options panel, reached from the pause menu (§12.6). The
+    /// playfield stays blanked underneath it, as it is for the menu itself.
+    Options {
         selected: usize,
     },
     /// §9.17: the 3-2-1 resume countdown, over a playfield that is visible
@@ -87,13 +93,15 @@ pub fn draw(
     chrome: &Chrome,
     fx: &Cosmetics,
     overlay: Overlay,
+    config: &ConfigFile,
     debug: Option<&Debug>,
 ) {
-    let blanked = matches!(overlay, Overlay::Paused { .. });
+    let blanked = matches!(overlay, Overlay::Paused { .. } | Overlay::Options { .. });
     let screen = playfield::render(frame, view, chrome, fx, blanked, debug);
     match overlay {
         Overlay::None => {}
         Overlay::Paused { selected } => overlays::paused(frame, screen, chrome, selected),
+        Overlay::Options { selected } => overlays::options(frame, screen, chrome, config, selected),
         Overlay::Resuming { count } => overlays::resuming(frame, screen, chrome, count),
         Overlay::GameOver => overlays::game_over(frame, screen, view, chrome),
     }

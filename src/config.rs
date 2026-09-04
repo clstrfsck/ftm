@@ -1073,6 +1073,9 @@ pub struct Startup {
     pub on_disk: ConfigFile,
     pub path: Option<PathBuf>,
     pub existed: bool,
+    /// Set when the §13.5 Options panel wrote the file during the run, so the
+    /// §6.2 first-clean-exit write does not undo what the player just saved.
+    pub wrote_config: bool,
     pub seed: u64,
     /// §6.4: a seeded run is reproducible and is never written to the
     /// high-score table (§14).
@@ -1099,6 +1102,7 @@ impl Startup {
             on_disk: loaded.file,
             path: loaded.path,
             existed: loaded.existed,
+            wrote_config: false,
             seed: cli.seed.unwrap_or_else(seed),
             seeded: cli.seed.is_some(),
             warnings,

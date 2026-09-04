@@ -9,6 +9,7 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
+use crate::config::{ColorDepth, ConfigFile, LockDownRule, range};
 use crate::core::GameView;
 use crate::ui::playfield::clock;
 use crate::ui::{Chrome, centred};
@@ -20,14 +21,17 @@ use crate::ui::{Chrome, centred};
 pub enum PauseChoice {
     Resume,
     Restart,
+    /// The §13.5 panel; §6.1 calls it "the in-game Options screen".
+    Options,
     Controls,
     QuitToMenu,
 }
 
 impl PauseChoice {
-    pub const ALL: [PauseChoice; 4] = [
+    pub const ALL: [PauseChoice; 5] = [
         PauseChoice::Resume,
         PauseChoice::Restart,
+        PauseChoice::Options,
         PauseChoice::Controls,
         PauseChoice::QuitToMenu,
     ];
@@ -36,6 +40,7 @@ impl PauseChoice {
         match self {
             PauseChoice::Resume => "Resume",
             PauseChoice::Restart => "Restart",
+            PauseChoice::Options => "Options",
             PauseChoice::Controls => "Controls",
             PauseChoice::QuitToMenu => "Quit to menu",
         }
@@ -99,12 +104,190 @@ pub fn game_over(frame: &mut Frame, over: Rect, view: &GameView, chrome: &Chrome
     box_over(frame, over, OVER_WIDTH, lines);
 }
 
+/// One row of the §13.5 Options panel.
+///
+/// The list is "the settings most worth changing without a text editor", not
+/// all of §6.3: the rest stay in the file, where they can be commented.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Setting {
+    Preview,
+    StartLevel,
+    Ghost,
+    Hold,
+    Rotate180,
+    LockDown,
+    Colour,
+    Grid,
+}
+
+impl Setting {
+    /// §13.5, in the order it lists them.
+    pub const ALL: [Setting; 8] = [
+        Setting::Preview,
+        Setting::StartLevel,
+        Setting::Ghost,
+        Setting::Hold,
+        Setting::Rotate180,
+        Setting::LockDown,
+        Setting::Colour,
+        Setting::Grid,
+    ];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Setting::Preview => "Preview",
+            Setting::StartLevel => "Start level",
+            Setting::Ghost => "Ghost piece",
+            Setting::Hold => "Hold",
+            Setting::Rotate180 => "180 rotation",
+            Setting::LockDown => "Lock down",
+            Setting::Colour => "Colour",
+            Setting::Grid => "Grid",
+        }
+    }
+
+    /// The setting's value as the panel shows it.
+    fn value(self, file: &ConfigFile) -> String {
+        let switch = |on: bool| if on { "on" } else { "off" }.to_string();
+        match self {
+            Setting::Preview => file.gameplay.preview_count.to_string(),
+            Setting::StartLevel => file.gameplay.start_level.to_string(),
+            Setting::Ghost => switch(file.gameplay.ghost_piece),
+            Setting::Hold => switch(file.gameplay.hold_enabled),
+            Setting::Rotate180 => switch(file.gameplay.allow_180_rotation),
+            Setting::LockDown => match file.gameplay.lock_down {
+                LockDownRule::Extended => "extended",
+                LockDownRule::Infinite => "infinite",
+                LockDownRule::Classic => "classic",
+            }
+            .to_string(),
+            Setting::Colour => match file.display.color_depth {
+                ColorDepth::Auto => "auto",
+                ColorDepth::Truecolor => "truecolor",
+                ColorDepth::Ansi256 => "256",
+                ColorDepth::Ansi16 => "16",
+                ColorDepth::Mono => "mono",
+            }
+            .to_string(),
+            Setting::Grid => switch(file.display.show_grid),
+        }
+    }
+
+    /// Move one step along the setting's values (§13.5), wrapping at each end.
+    ///
+    /// Wrapping rather than stopping, because every one of these lists is short
+    /// enough to walk round and a player holding `→` on a two-value switch
+    /// expects it to toggle.
+    pub fn step(self, file: &mut ConfigFile, forward: bool) {
+        let g = &mut file.gameplay;
+        match self {
+            Setting::Preview => {
+                g.preview_count = wrap(g.preview_count, forward, &range::PREVIEW_COUNT);
+            }
+            Setting::StartLevel => {
+                g.start_level = wrap(g.start_level, forward, &range::START_LEVEL);
+            }
+            Setting::Ghost => g.ghost_piece = !g.ghost_piece,
+            Setting::Hold => g.hold_enabled = !g.hold_enabled,
+            Setting::Rotate180 => g.allow_180_rotation = !g.allow_180_rotation,
+            Setting::LockDown => {
+                const RULES: [LockDownRule; 3] = [
+                    LockDownRule::Extended,
+                    LockDownRule::Infinite,
+                    LockDownRule::Classic,
+                ];
+                g.lock_down = cycle(&RULES, g.lock_down, forward);
+            }
+            Setting::Colour => {
+                const DEPTHS: [ColorDepth; 5] = [
+                    ColorDepth::Auto,
+                    ColorDepth::Truecolor,
+                    ColorDepth::Ansi256,
+                    ColorDepth::Ansi16,
+                    ColorDepth::Mono,
+                ];
+                file.display.color_depth = cycle(&DEPTHS, file.display.color_depth, forward);
+            }
+            Setting::Grid => file.display.show_grid = !file.display.show_grid,
+        }
+    }
+}
+
+/// The next value in an inclusive numeric range, wrapping.
+fn wrap<T>(value: T, forward: bool, range: &std::ops::RangeInclusive<T>) -> T
+where
+    T: Copy + PartialOrd + std::ops::Add<Output = T> + std::ops::Sub<Output = T> + From<u8>,
+{
+    let one = T::from(1u8);
+    if forward {
+        if value >= *range.end() {
+            *range.start()
+        } else {
+            value + one
+        }
+    } else if value <= *range.start() {
+        *range.end()
+    } else {
+        value - one
+    }
+}
+
+/// The next entry of a short list, wrapping. An unrecognised current value
+/// takes the first, which is the only sane answer and cannot arise.
+fn cycle<T: Copy + PartialEq>(values: &[T], current: T, forward: bool) -> T {
+    let at = values.iter().position(|v| *v == current).unwrap_or(0);
+    let count = values.len();
+    let next = if forward {
+        (at + 1) % count
+    } else {
+        (at + count - 1) % count
+    };
+    values[next]
+}
+
+/// The §13.5 Options panel, over the paused playfield (§12.6).
+///
+/// It reads a `ConfigFile` rather than a `GameView`, which is not a breach of
+/// §12.7: the config is presentation and rules settings, not game state, and
+/// the panel is what edits them.
+pub fn options(frame: &mut Frame, over: Rect, chrome: &Chrome, file: &ConfigFile, selected: usize) {
+    let mut lines = vec![
+        Line::styled(centre("OPTIONS", OPTIONS_WIDTH), chrome.theme.bold()),
+        Line::raw(" ".repeat(OPTIONS_WIDTH)),
+    ];
+    for (index, setting) in Setting::ALL.iter().enumerate() {
+        let marker = if index == selected { "\u{25b8} " } else { "  " };
+        let style = if index == selected {
+            chrome.theme.bold()
+        } else {
+            chrome.theme.plain()
+        };
+        lines.push(Line::styled(
+            format!(
+                "  {marker}{:<13}{:>9}  ",
+                setting.label(),
+                setting.value(file),
+            ),
+            style,
+        ));
+    }
+    lines.push(Line::raw(" ".repeat(OPTIONS_WIDTH)));
+    lines.push(Line::styled(
+        centre("\u{2190}\u{2192} change   Esc saves", OPTIONS_WIDTH),
+        chrome.theme.faint(),
+    ));
+    box_over(frame, over, OPTIONS_WIDTH, lines);
+}
+
 /// The interior width of the pause box (§12.6).
 const PAUSE_WIDTH: usize = 18;
 /// The interior width of the game-over box (§12.6).
 const OVER_WIDTH: usize = 22;
 /// Wide enough for one digit and some air.
 const COUNTDOWN_WIDTH: usize = 7;
+/// The interior width of the §13.5 Options panel: a marker, a 13-character
+/// label and the longest value (`truecolor`), with a margin either side.
+const OPTIONS_WIDTH: usize = 28;
 
 /// Draw `lines` in a cleared, double-bordered box centred over `over`.
 fn box_over(frame: &mut Frame, over: Rect, width: usize, lines: Vec<Line<'static>>) {
@@ -151,6 +334,7 @@ mod tests {
 ║                  ║
 ║    ▸ Resume      ║
 ║      Restart     ║
+║      Options     ║
 ║      Controls    ║
 ║      Quit to menu║
 ╚══════════════════╝";
@@ -231,5 +415,119 @@ mod tests {
         assert_eq!(pps(128, (2 * 60 + 14) * 60), "0.9");
         assert_eq!(pps(60, 60 * 60), "1.0");
         assert_eq!(pps(150, 60 * 60), "2.5");
+    }
+    /// §13.5's panel, as the code draws it. Not in the specification as a
+    /// mock-up — §12.6 draws only its three boxes — so this pins the layout the
+    /// same way, and would catch a label or a value column drifting.
+    const OPTIONS: &str = "\
+╔════════════════════════════╗
+║          OPTIONS           ║
+║                            ║
+║  ▸ Preview              5  ║
+║    Start level          1  ║
+║    Ghost piece         on  ║
+║    Hold                on  ║
+║    180 rotation        on  ║
+║    Lock down     extended  ║
+║    Colour            auto  ║
+║    Grid               off  ║
+║                            ║
+║   ←→ change   Esc saves    ║
+╚════════════════════════════╝";
+
+    #[test]
+    fn the_options_panel_lists_every_setting_in_thirteen_five() {
+        let chrome = Chrome {
+            theme: crate::ui::theme::Theme::new(crate::ui::theme::Depth::Truecolor),
+            show_grid: false,
+            hold_enabled: true,
+        };
+        let file = ConfigFile::default();
+        let mut lines = vec![
+            Line::raw(centre("OPTIONS", OPTIONS_WIDTH)),
+            Line::raw(" ".repeat(OPTIONS_WIDTH)),
+        ];
+        for (index, setting) in Setting::ALL.iter().enumerate() {
+            let marker = if index == 0 { "\u{25b8} " } else { "  " };
+            lines.push(Line::raw(format!(
+                "  {marker}{:<13}{:>9}  ",
+                setting.label(),
+                setting.value(&file),
+            )));
+        }
+        lines.push(Line::raw(" ".repeat(OPTIONS_WIDTH)));
+        lines.push(Line::raw(centre(
+            "\u{2190}\u{2192} change   Esc saves",
+            OPTIONS_WIDTH,
+        )));
+        assert_eq!(drawn(OPTIONS_WIDTH, &lines), OPTIONS);
+        let _ = chrome;
+    }
+
+    #[test]
+    fn the_panel_fits_inside_the_block() {
+        // §12.6: an overlay is centred over the whole 44 x 23 block, so it must
+        // not be wider than one.
+        assert!(OPTIONS_WIDTH + 2 <= crate::ui::playfield::SCREEN_WIDTH as usize);
+        assert!(Setting::ALL.len() + 4 + 2 <= crate::ui::playfield::SCREEN_HEIGHT as usize);
+    }
+
+    #[test]
+    fn every_setting_walks_round_its_own_values() {
+        // §13.5: `←`/`→` change the selected value, wrapping at each end.
+        let mut file = ConfigFile::default();
+        assert_eq!(file.gameplay.preview_count, 5);
+        Setting::Preview.step(&mut file, true);
+        assert_eq!(file.gameplay.preview_count, 6);
+        Setting::Preview.step(&mut file, true);
+        assert_eq!(
+            file.gameplay.preview_count,
+            *range::PREVIEW_COUNT.start(),
+            "off the top and round to the bottom",
+        );
+        Setting::Preview.step(&mut file, false);
+        assert_eq!(file.gameplay.preview_count, *range::PREVIEW_COUNT.end());
+
+        Setting::StartLevel.step(&mut file, false);
+        assert_eq!(file.gameplay.start_level, *range::START_LEVEL.end());
+
+        for (setting, before, after) in [
+            (Setting::Ghost, true, false),
+            (Setting::Hold, true, false),
+            (Setting::Rotate180, true, false),
+            (Setting::Grid, false, true),
+        ] {
+            let read = |file: &ConfigFile| setting.value(file) == "on";
+            assert_eq!(read(&file), before, "{setting:?}");
+            setting.step(&mut file, true);
+            assert_eq!(read(&file), after, "{setting:?}");
+            setting.step(&mut file, false);
+            assert_eq!(read(&file), before, "{setting:?} and back");
+        }
+
+        Setting::LockDown.step(&mut file, false);
+        assert_eq!(file.gameplay.lock_down, LockDownRule::Classic, "wraps back");
+        Setting::LockDown.step(&mut file, true);
+        assert_eq!(file.gameplay.lock_down, LockDownRule::Extended);
+
+        Setting::Colour.step(&mut file, false);
+        assert_eq!(file.display.color_depth, ColorDepth::Mono);
+        Setting::Colour.step(&mut file, true);
+        assert_eq!(file.display.color_depth, ColorDepth::Auto);
+    }
+
+    #[test]
+    fn a_stepped_value_never_leaves_its_range() {
+        // §6.3's ranges are enforced everywhere, and the panel is the one place
+        // a value is changed without going through the loader.
+        let mut file = ConfigFile::default();
+        for forward in [true, false] {
+            for _ in 0..40 {
+                Setting::Preview.step(&mut file, forward);
+                Setting::StartLevel.step(&mut file, forward);
+                assert!(range::PREVIEW_COUNT.contains(&file.gameplay.preview_count));
+                assert!(range::START_LEVEL.contains(&file.gameplay.start_level));
+            }
+        }
     }
 }

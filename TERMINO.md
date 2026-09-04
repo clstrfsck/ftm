@@ -1332,10 +1332,15 @@ background and a double-line border.
 ║                  ║
 ║    ▸ Resume      ║
 ║      Restart     ║
+║      Options     ║
 ║      Controls    ║
 ║      Quit to menu║
 ╚══════════════════╝
 ```
+
+**Options** opens the §13.5 Options panel over the paused playfield. §6.1 calls
+it "the in-game Options screen", and this is the in-game way in; the attract
+screen's OPTIONS item (§13.5) reaches the same panel.
 
 **Game over**
 
@@ -1601,8 +1606,16 @@ Behind the wordmark and menu, a slow ambient animation runs at 10 fps:
 - **OPTIONS** — an editable list of the settings most worth changing without a
   text editor: preview count (1–6), starting level (1–15), ghost piece on/off,
   **hold on/off**, **180° rotation on/off**, lock-down rule, colour depth, grid
-  on/off. Toggling hold or 180° rotation here takes effect for the next game. `←`/`→` change the
-  selected value, `Esc` saves the config file (§6.2) and returns.
+  on/off. `←`/`→` change the selected value, wrapping at each end, and `Esc`
+  saves the config file (§6.2) and returns.
+
+  The same panel is reached from the pause menu (§12.6), which is what §6.1
+  means by "the in-game Options screen". Presentation settings — colour depth
+  and the grid — take effect the moment the panel is left. Rules settings do
+  not: a game already in progress keeps the rules it started under, so
+  toggling hold, 180° rotation, the preview count, the starting level or the
+  lock-down rule takes effect for the next game. This is what §6.5's split is
+  for, and it is also the only answer that keeps a run deterministic (§15.4).
 
 ### 13.6 Idle behaviour
 
