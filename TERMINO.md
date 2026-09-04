@@ -164,7 +164,9 @@ termino/
 ├── Cargo.toml
 ├── TERMINO.md                # this document
 ├── README.md
+├── tests/                    # integration tests (§17.2), driven through lib.rs
 └── src/
+    ├── lib.rs                # the crate proper; main.rs is a thin wrapper
     ├── main.rs               # entry point, terminal setup/teardown, panic hook
     ├── app.rs                # top-level state machine (§7), event loop (§15)
     ├── config.rs             # Config struct, TOML load/save, CLI merge (§6)
@@ -192,6 +194,11 @@ termino/
         ├── attract.rs        # attract screen (§13)
         └── overlays.rs       # pause, game-over, name-entry overlays
 ```
+
+The crate is a **library plus a thin binary**. `main.rs` holds only the entry
+point; everything else lives behind `lib.rs`. This is what lets the integration
+tests of §17.2 — the scripted game and the batch-invariance canary of §19.4 —
+drive the core from `tests/`, which a binary-only crate cannot do.
 
 ---
 
