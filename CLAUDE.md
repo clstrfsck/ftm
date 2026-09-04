@@ -3,16 +3,18 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 7 of `PLAN.md` complete.** It is playable and it keeps score:
+**Status: Stage 8 of `PLAN.md` complete.** It is playable and it keeps score:
 `cargo run --release` gives a bare bordered field where pieces move, rotate,
-soft drop, hard drop, clear rows, spin, chain and top out, with the counters on
-the bottom border as a debug line until §12.4's status line lands in Stage 9.
-`Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
-and `Game::view()` still the only way to see the result; the shell is `main.rs`
-(terminal), `app.rs` (the §15.2 loop), `input.rs` (§10) and `ui/` (§12). T1-T11
-and T13-T17 pass, plus I1, and the batch-invariance canary is in CI. There is no
-hold, ghost, next box, pause or menu yet — the view's fields for them are
-present but inert. Stage 8 (hold, ghost, preview queue) is next.
+soft drop, hard drop, hold, clear rows, spin, chain and top out under a ghost,
+with the counters on the bottom border as a debug line until §12.4's status line
+lands in Stage 9. `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the
+single entry point and `Game::view()` still the only way to see the result; the
+shell is `main.rs` (terminal), `app.rs` (the §15.2 loop), `input.rs` (§10) and
+`ui/` (§12). T1-T17 all pass, plus I1, and the batch-invariance canary is in CI.
+Every rule in §9 is now implemented. What is missing is presentation: there is
+no hold box, next box, status line, pause or menu, so `GameView::hold`,
+`hold_locked` and `next` are filled in and nothing draws them. Stage 9 (the full
+44 x 23 playfield screen) is next.
 
 ## Read these first
 

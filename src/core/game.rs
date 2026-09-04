@@ -1778,7 +1778,7 @@ pub mod tests {
         );
     }
 
-    // -- T12: hold and the ghost (§9.7, §9.8) ------------------------------
+    // -- T12: hold, the 180 gate and the ghost (§9.7, §9.8, §12) -----------
 
     /// Default gameplay with hold switched off (§9.7).
     fn without_hold() -> GameplaySettings {
@@ -1938,6 +1938,23 @@ pub mod tests {
     }
 
     #[test]
+    fn a_180_rotation_into_a_blocked_cell_changes_nothing() {
+        // T12's third case, with both rules enabled. §9.5: the 180 is tested
+        // only at offset (0, 0), so a T sitting on the floor cannot turn its
+        // nub downwards -- and a failed rotation resets no timer (§9.5 step 4).
+        let mut game = new_game(131);
+        place(&mut game, PieceKind::T, Point::new(3, 38), Rotation::North);
+        tick(&mut game, &TickInput::default());
+        let before = game.current().unwrap();
+        let resets = game.lock.resets_used();
+
+        let events = tick_events(&mut game, &TickInput::action(Action::Rotate180));
+        assert_eq!(events, vec![GameEvent::RotationFailed]);
+        assert_eq!(game.current(), Some(before), "the piece did not budge");
+        assert_eq!(game.lock.resets_used(), resets, "and spent no reset");
+    }
+
+    #[test]
     fn the_ghost_stands_where_a_hard_drop_would_leave_the_piece() {
         // §9.8: same columns, same orientation, moved down as far as it will
         // go. Hard dropping the piece is the definition, so it is the oracle.
@@ -2004,6 +2021,52 @@ pub mod tests {
             assert_eq!(off.matrix(), on.matrix());
             assert_eq!(off.score(), on.score());
             assert_eq!(off.current(), on.current());
+        }
+    }
+
+    #[test]
+    fn the_preview_is_exactly_as_long_as_it_was_asked_to_be() {
+        // Stage 8's exit criterion, and §6.3's clamp of 1..=6: every length
+        // shows the right number of pieces, and none of them changes which
+        // pieces those are. The bag draws in one fixed order (§9.6); a preview
+        // that reached deeper into it for a longer queue would be a different
+        // game, and this is what says it is not.
+        let mut sequences = Vec::new();
+        for count in 1..=6u8 {
+            let gameplay = GameplaySettings {
+                preview_count: count,
+                ..GameplaySettings::default()
+            };
+            let mut game = new_game_with(gameplay, TimingSettings::default(), 151);
+            assert_eq!(
+                game.view().next.len(),
+                count as usize,
+                "preview_count = {count}",
+            );
+            // Spread, as `play_twenty` does: pieces dropped where they spawn
+            // top out at eleven, well before three bags have gone by. Where
+            // this particular stack finally tops out is not the point, so the
+            // loop runs until it does rather than guessing a number -- and
+            // that moment is itself part of the sequence being compared.
+            let mut order = vec![game.current().unwrap().kind];
+            for i in 0..40u8 {
+                let shift = if i % 2 == 0 {
+                    Shift::Left
+                } else {
+                    Shift::Right
+                };
+                drop_piece(&mut game, Some(shift), 4 - (i / 2) % 5);
+                if game.is_over() {
+                    break;
+                }
+                assert_eq!(game.view().next.len(), count as usize);
+                order.push(game.current().unwrap().kind);
+            }
+            assert!(order.len() > 14, "three bags at least: {}", order.len());
+            sequences.push(order);
+        }
+        for window in sequences.windows(2) {
+            assert_eq!(window[0], window[1], "the preview length is cosmetic");
         }
     }
 
