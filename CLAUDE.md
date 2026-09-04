@@ -131,4 +131,15 @@ cargo fmt --check
 cargo run --release  # play it
 cargo run -- --print-config    # effective config (from Stage 10)
 cargo run -- --seed 42         # deterministic run, not recorded to high scores
+tools/drive.py c c   # drive the release binary on a pty and see what it drew
 ```
+
+`tools/drive.py` is the only way to check the terminal layer without a human at
+a terminal: §17.1 is "core, no terminal" by design, so nothing in `cargo test`
+reaches `main.rs`, `app.rs` or `ui/`. It drives the **release** binary on a pty,
+sends a scripted burst of keys and replays the capture into a character grid,
+printing one frame per keystroke. Two traps: `--seed` is not wired up until
+Stage 10, so every run is a different game and only frames *within* one run may
+be compared; and it answers the §8.2 capability queries, so pass `--legacy` to
+exercise the fallback path. Its docstring has the rest. It substitutes for, but
+does not replace, playing the game on a real terminal.
