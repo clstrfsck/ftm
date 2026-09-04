@@ -16,15 +16,20 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      # `tests/scripted_game.rs` carries the batch-invariance test of
-      # TERMINO.md §19.4. It has run here since Stage 5 and must never be
-      # marked ignored: if it fails, a rules decision has started depending on
-      # how the shell batched its calls. Find the desync; do not skip the test.
-      - run: cargo test
-      - run: cargo build --release
+      # One step, so that CI and a developer at a terminal run the same thing
+      # by construction: `make check` is fmt, clippy, test and the release
+      # build, in that order, stopping at the first failure. Adding a step to
+      # the suite means editing the Makefile, and CI picks it up for free.
+      #
+      # `cargo test` is where `tests/scripted_game.rs` runs the
+      # batch-invariance test of TERMINO.md §19.4. It has run here since Stage
+      # 5 and must never be marked ignored: if it fails, a rules decision has
+      # started depending on how the shell batched its calls. Find the desync;
+      # do not skip the test.
+      - run: make check
 
+  # Not a Makefile target: it is the one command here that means nothing
+  # without the pinned toolchain the step above installs.
   msrv:
     runs-on: ubuntu-latest
     steps:
