@@ -1,6 +1,6 @@
 seed 42, 240 placements
-score 0  level 10  lines 94  pieces 240
-state Falling  combo -1  b2b false
+score 67917  level 10  lines 94  pieces 240
+state Falling  combo 1  b2b false
 next SOITI
 +----------+
 |..........|

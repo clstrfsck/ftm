@@ -14,7 +14,9 @@ use crate::core::gravity::{self, Gravity};
 use crate::core::lockdown::{LockDown, LockOutcome};
 use crate::core::matrix::{ClearedRows, Matrix, VISIBLE_TOP};
 use crate::core::piece::PieceKind;
+use crate::core::scoring::Scoring;
 use crate::core::srs;
+use crate::core::tspin;
 use crate::core::view::to_visible;
 
 /// An edge-triggered input, acted on once per press (§10.2).
@@ -170,12 +172,13 @@ pub struct Game {
     state_timer: u32,
     /// The rows waiting out the line-clear delay, still drawn (§9.12 step 5).
     clearing_rows: ClearedRows,
+    /// Whether the clear waiting out that delay was paid at the back-to-back
+    /// rate, kept for the perfect-clear bonus that may follow it (§9.15).
+    clearing_b2b: bool,
     ticks: u64,
     pieces: u32,
     lines: u32,
-    score: u64,
-    combo: i32,
-    back_to_back: bool,
+    scoring: Scoring,
 }
 
 impl Game {
@@ -196,12 +199,11 @@ impl Game {
             state: PlayState::Falling,
             state_timer: 0,
             clearing_rows: ClearedRows::default(),
+            clearing_b2b: false,
             ticks: 0,
             pieces: 0,
             lines: 0,
-            score: 0,
-            combo: -1,
-            back_to_back: false,
+            scoring: Scoring::new(),
             rules,
         };
         game.spawn(&mut Vec::new());
@@ -231,7 +233,7 @@ impl Game {
     }
 
     pub fn score(&self) -> u64 {
-        self.score
+        self.scoring.score()
     }
 
     pub fn ticks(&self) -> u64 {
@@ -243,11 +245,11 @@ impl Game {
     }
 
     pub fn combo(&self) -> i32 {
-        self.combo
+        self.scoring.combo()
     }
 
     pub fn back_to_back(&self) -> bool {
-        self.back_to_back
+        self.scoring.back_to_back()
     }
 
     /// The upcoming pieces the player can see: exactly `preview_count` of them
@@ -288,9 +290,17 @@ impl Game {
             return;
         }
         self.matrix.clear_rows(&self.clearing_rows);
-        // §9.15: a perfect clear is judged once the rows have gone.
+        // §9.15: a perfect clear is judged once the rows have gone, and its
+        // bonus is multiplied by the level in force for the clear -- so it is
+        // awarded here, before §9.12 step 7 moves the level on.
         if self.matrix.is_empty() {
             out.push(GameEvent::PerfectClear);
+            self.scoring.perfect_clear(
+                self.clearing_rows.len(),
+                self.clearing_b2b,
+                self.gravity.level(),
+                out,
+            );
         }
         self.lines += self.clearing_rows.len() as u32;
         let level = gravity::level_after_clear(
@@ -359,7 +369,7 @@ impl Game {
     fn apply_gravity(&mut self, soft_drop: bool, out: &mut Vec<GameEvent>) {
         let factor = soft_drop.then_some(self.rules.soft_drop_factor);
         let rows = self.gravity.accrue(factor);
-        let mut fell = false;
+        let mut fell = 0;
         for _ in 0..rows {
             if !self.try_move(0, 1) {
                 // §9.9: a blocked step clears the accumulator and hands over to
@@ -367,12 +377,17 @@ impl Game {
                 self.gravity.reset_accumulator();
                 break;
             }
-            fell = true;
+            fell += 1;
         }
-        if fell {
+        if fell > 0 {
             out.push(GameEvent::PieceMoved);
         }
-        // TODO(stage 7): 1 point per row descended under soft drop (§9.10).
+        if soft_drop {
+            // §9.10: 1 point per row *actually* descended while the key is
+            // held, unmultiplied by level. Rows the piece could not take are
+            // not descended, and are not paid for.
+            self.scoring.soft_drop(fell, out);
+        }
     }
 
     /// Update the lock-down timer and lock if it expires (§9.11).
@@ -489,7 +504,9 @@ impl Game {
             rows = rows.saturating_add(1);
         }
         out.push(GameEvent::HardDropped { rows });
-        // TODO(stage 7): 2 points per row descended (§9.10).
+        // §9.10: 2 points per row descended, unmultiplied by level. A drop of
+        // zero rows still locks the piece and awards nothing.
+        self.scoring.hard_drop(u32::from(rows), out);
         if let Some(piece) = self.current.as_mut() {
             piece.last_action_was_rotation = before.last_action_was_rotation;
             piece.last_kick_index = before.last_kick_index;
@@ -516,8 +533,8 @@ impl Game {
             cells: std::array::from_fn(|i| to_visible(minos[i].x, minos[i].y)),
             kind: piece.kind,
         });
-        // TODO(stage 7): classify the T-spin here, *before* clearing rows
-        // (§9.12 step 2), and award the score (§9.14).
+        // §9.12 step 2: the T-spin status is decided before any row is removed.
+        let spin = tspin::classify(&self.matrix, &piece);
         // TODO(stage 8): clear the hold lock-out here -- on lock, not on spawn
         // (§9.7).
 
@@ -528,20 +545,26 @@ impl Game {
         }
 
         self.clearing_rows = self.matrix.full_rows();
+        // §9.12 step 4: scored with the level in force now, which step 7 has
+        // yet to move.
+        let clear = ClearKind::of(spin, self.clearing_rows.len());
+        self.clearing_b2b = self.scoring.lock(clear, self.gravity.level(), out);
+
         if self.clearing_rows.is_empty() {
             self.begin_entry_delay(out);
         } else {
             // §12.8: raised as the rows are found, so the §12.5 flash covers
             // the clear pause exactly. The rows are still in the matrix, and
             // still drawn, until the pause runs out.
-            if let Some(clear) = ClearKind::plain(self.clearing_rows.len()) {
-                // TODO(stage 7): the T-spin variants, and the B2B and combo
-                // state that goes with them (§9.13, §9.15).
+            if let Some(clear) = clear {
                 out.push(GameEvent::LinesCleared {
                     rows: self.visible_clearing_rows(),
                     clear,
-                    b2b: self.back_to_back,
-                    combo: self.combo,
+                    // Whether *this* clear was paid at the chained rate, which
+                    // is what the banner announces. The status bar's standing
+                    // `B2B` indicator is `GameView::back_to_back` (§9.15).
+                    b2b: self.clearing_b2b,
+                    combo: self.scoring.combo(),
                 });
             }
             self.state = PlayState::Clearing;
@@ -624,6 +647,7 @@ impl Game {
 pub mod tests {
     use super::*;
     use crate::config::{GameplaySettings, TimingSettings};
+    use crate::core::events::ScoreReason;
     use crate::core::matrix::{HEIGHT, WIDTH, tests::from_bottom_rows};
 
     /// A game with the default rules under a fixed seed.
@@ -1239,13 +1263,277 @@ pub mod tests {
         assert_eq!(piece.last_kick_index, 0, "180 takes no kick tests");
     }
 
+    // -- T9, T10: T-spins and scoring (§9.13, §9.14, §9.15) ----------------
+
+    /// The canonical three-corner board, `rows 37..=39`:
+    ///
+    /// ```text
+    /// row 37   . . . . . # # # # #     the overhang, above the box's right
+    /// row 38   # # # . . . # # # #     the slot the T turns into
+    /// row 39   # # # # . # # # # #
+    /// ```
+    ///
+    /// The T's 3 × 3 box sits at `(3, 37)`. Three of its four corners are
+    /// filled — top-right, bottom-left, bottom-right — which is a proper spin
+    /// for a T that ends up pointing down and a mini for one pointing left, on
+    /// the very same board. That is the §9.13 front/back rule, and the reason
+    /// one fixture serves both.
+    fn three_corner_slot() -> Matrix {
+        from_bottom_rows(&[".....#####", "###...####", "####.#####"])
+    }
+
+    /// Rotate and immediately hard drop, which is one tick's worth of actions
+    /// (§10.2) and the shape of every T-spin a player actually performs.
+    fn spin_and_drop(game: &mut Game, rotate: Action) -> Vec<GameEvent> {
+        tick_events(
+            game,
+            &TickInput {
+                actions: [rotate, Action::HardDrop].into_iter().collect(),
+                ..TickInput::default()
+            },
+        )
+    }
+
+    /// The `LinesCleared` of a tick, if it raised one.
+    fn clear_of(events: &[GameEvent]) -> Option<(ClearKind, bool, i32)> {
+        events.iter().find_map(|event| match event {
+            GameEvent::LinesCleared {
+                clear, b2b, combo, ..
+            } => Some((*clear, *b2b, *combo)),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn the_canonical_t_spin_double() {
+        // T9. A T stood on its side in the slot, turned to point down: both
+        // front corners (the bottom pair) and one back corner. Rows 38 and 39
+        // both complete, and §9.14 pays 1200 at level 1.
+        let mut game = new_game(101);
+        game.matrix = three_corner_slot();
+        place(&mut game, PieceKind::T, Point::new(3, 37), Rotation::West);
+        let events = spin_and_drop(&mut game, Action::RotateCcw);
+
+        assert_eq!(clear_of(&events), Some((ClearKind::TSpinDouble, false, 0)));
+        assert_eq!(game.score(), 1200);
+        assert!(game.back_to_back(), "a scoring T-spin starts a chain");
+    }
+
+    #[test]
+    fn the_canonical_t_spin_single() {
+        // T9. The same slot with row 39 one cell short of complete, so only row
+        // 38 goes: 800 at level 1.
+        let mut game = new_game(103);
+        game.matrix = from_bottom_rows(&[".....#####", "###...####", ".###.#####"]);
+        place(&mut game, PieceKind::T, Point::new(3, 37), Rotation::West);
+        let events = spin_and_drop(&mut game, Action::RotateCcw);
+
+        assert_eq!(clear_of(&events), Some((ClearKind::TSpinSingle, false, 0)));
+        assert_eq!(game.score(), 800);
+    }
+
+    #[test]
+    fn the_canonical_t_spin_triple() {
+        // T9, and the reason §9.13 has a kick-index override at all. The well is
+        // roofed by the cell at `(4, 35)`, so the first four kick tests all
+        // collide and only test 5 -- one left and two down -- fits. Its corners
+        // would say proper anyway; boards where they do not are what the
+        // override is for, and `tspin` tests that half in isolation.
+        //
+        // ```text
+        // row 35   . . . . # . . . . .     the overhang the T rests against
+        // row 36   . . . . . . . . . .
+        // row 37   # # # # . # # # # #
+        // row 38   # # # # . . # # # #
+        // row 39   # # # # . # # # # #
+        // ```
+        let mut game = new_game(107);
+        game.matrix = from_bottom_rows(&[
+            "....#.....",
+            "..........",
+            "####.#####",
+            "####..####",
+            "####.#####",
+        ]);
+        place(&mut game, PieceKind::T, Point::new(4, 35), Rotation::North);
+        let events = spin_and_drop(&mut game, Action::RotateCw);
+
+        assert!(
+            events.contains(&GameEvent::PieceRotated { kick_index: 4 }),
+            "the triple is reached by kick test 5: {events:?}",
+        );
+        assert_eq!(clear_of(&events), Some((ClearKind::TSpinTriple, false, 0)));
+        assert_eq!(game.score(), 1600);
+    }
+
+    #[test]
+    fn the_canonical_t_spin_mini() {
+        // T9. The same board as the double, entered flat and turned to point
+        // left: one front corner (the top-left is empty) and both back corners.
+        // Only row 39 completes, so §9.14 pays 200.
+        let mut game = new_game(109);
+        game.matrix = three_corner_slot();
+        place(&mut game, PieceKind::T, Point::new(3, 37), Rotation::North);
+        let events = spin_and_drop(&mut game, Action::RotateCcw);
+
+        assert_eq!(
+            clear_of(&events),
+            Some((ClearKind::TSpinMiniSingle, false, 0))
+        );
+        assert_eq!(game.score(), 200);
+    }
+
+    #[test]
+    fn a_rotation_before_a_hard_drop_is_still_the_last_action() {
+        // §9.13 end to end, and the rule everybody gets wrong: the T is turned
+        // two rows above the slot and dropped into it, and the spin counts.
+        // Compare with the test below, which is the same landing without the
+        // rotation.
+        let mut game = new_game(113);
+        game.matrix = three_corner_slot();
+        place(&mut game, PieceKind::T, Point::new(3, 35), Rotation::North);
+        let events = spin_and_drop(&mut game, Action::RotateCcw);
+
+        assert!(events.contains(&GameEvent::HardDropped { rows: 2 }));
+        assert_eq!(
+            clear_of(&events),
+            Some((ClearKind::TSpinMiniSingle, false, 0))
+        );
+        // 200 for the mini single, and 2 points a row for the drop (§9.10).
+        assert_eq!(game.score(), 200 + 4);
+    }
+
+    #[test]
+    fn a_t_that_was_moved_into_the_slot_is_not_a_spin() {
+        // T9's negative case: the same piece, the same landing, the same three
+        // corners -- but it arrived by falling, so §9.13 does not look at it and
+        // the row is worth 100, not 200.
+        let mut game = new_game(127);
+        game.matrix = three_corner_slot();
+        place(&mut game, PieceKind::T, Point::new(3, 35), Rotation::West);
+        let events = tick_events(&mut game, &TickInput::action(Action::HardDrop));
+
+        assert!(events.contains(&GameEvent::HardDropped { rows: 2 }));
+        assert_eq!(clear_of(&events), Some((ClearKind::Single, false, 0)));
+        assert_eq!(game.score(), 100 + 4);
+        assert!(!game.back_to_back(), "a plain single is not difficult");
+    }
+
+    #[test]
+    fn a_rotated_piece_that_is_not_a_t_clears_plainly() {
+        // The other negative case, end to end: an I turned over the gap it
+        // fills scores a Single, not a spin. `tspin` checks every non-T kind
+        // against a board whose corners are all filled.
+        let mut game = new_game(131);
+        game.matrix = from_bottom_rows(&["###....###"]);
+        place(&mut game, PieceKind::I, Point::new(3, 37), Rotation::North);
+        let events = spin_and_drop(&mut game, Action::Rotate180);
+
+        assert_eq!(clear_of(&events), Some((ClearKind::Single, false, 0)));
+        assert_eq!(game.score(), 100);
+    }
+
+    #[test]
+    fn the_back_to_back_chain_survives_the_piece_between_two_spins() {
+        // §9.15 through the game rather than the counter: two T-spin doubles
+        // with an ordinary lock in between, which clears nothing and so breaks
+        // nothing.
+        let mut game = new_game(137);
+        game.matrix = three_corner_slot();
+        place(&mut game, PieceKind::T, Point::new(3, 37), Rotation::West);
+        spin_and_drop(&mut game, Action::RotateCcw);
+        assert_eq!(game.score(), 1200);
+        idle(&mut game, 15);
+
+        // A piece parked out of the way: no rows, no spin, no chain broken.
+        place(&mut game, PieceKind::O, Point::new(0, 30), Rotation::North);
+        tick(&mut game, &TickInput::action(Action::HardDrop));
+        assert!(game.back_to_back(), "an empty lock is not a clear");
+        assert_eq!(game.combo(), -1, "but it does end the combo");
+
+        // Rebuild the slot and do it again: 1800 this time, and no combo, the
+        // O having reset the counter.
+        game.matrix = three_corner_slot();
+        place(&mut game, PieceKind::T, Point::new(3, 37), Rotation::West);
+        let events = spin_and_drop(&mut game, Action::RotateCcw);
+        assert_eq!(clear_of(&events), Some((ClearKind::TSpinDouble, true, 0)));
+        // 1200, plus 16 for the O's eight-row drop, plus the chained 1800.
+        assert_eq!(game.score(), 1200 + 16 + 1800);
+    }
+
+    #[test]
+    fn two_clears_in_a_row_are_a_combo() {
+        // §9.15 through the game: an O into each corner of a board that is one
+        // row short at both ends.
+        //
+        // ```text
+        // row 38   . . # # # # # # . .
+        // row 39   . . # # # # # # # #
+        // ```
+        let mut game = new_game(139);
+        game.matrix = from_bottom_rows(&["..######..", "..########"]);
+
+        place(&mut game, PieceKind::O, Point::new(0, 30), Rotation::North);
+        let events = tick_events(&mut game, &TickInput::action(Action::HardDrop));
+        assert_eq!(clear_of(&events), Some((ClearKind::Single, false, 0)));
+        // 100 for the row, 16 for the eight rows dropped. No combo yet: the
+        // first clear of a run takes the counter to 0.
+        assert_eq!(game.score(), 100 + 16);
+        idle(&mut game, 15);
+
+        // Row 39 has gone and what was row 38 has taken its place, still two
+        // cells short at the right-hand end.
+        place(&mut game, PieceKind::O, Point::new(8, 30), Rotation::North);
+        let events = tick_events(&mut game, &TickInput::action(Action::HardDrop));
+        assert_eq!(clear_of(&events), Some((ClearKind::Single, false, 1)));
+        // 100 and 16 again, and 50 x 1 x 1 for the combo (§9.14).
+        assert_eq!(game.score(), 100 + 16 + 100 + 16 + 50);
+    }
+
+    #[test]
+    fn soft_drop_pays_a_point_a_row_and_hard_drop_two() {
+        // §9.10, and neither is multiplied by level. At level 1 the soft-drop
+        // period is one row every three ticks, so thirty ticks is ten rows.
+        let mut game = new_game(149);
+        let start = game.current().unwrap().lowest_row();
+        let input = TickInput {
+            soft_drop: true,
+            ..TickInput::default()
+        };
+        for _ in 0..30 {
+            tick(&mut game, &input);
+        }
+        assert_eq!(game.current().unwrap().lowest_row(), start + 10);
+        assert_eq!(game.score(), 10);
+
+        let mut game = new_game(151);
+        place(&mut game, PieceKind::O, Point::new(4, 30), Rotation::North);
+        tick(&mut game, &TickInput::action(Action::HardDrop));
+        assert_eq!(game.score(), 8 * 2, "eight rows to the floor");
+    }
+
+    #[test]
+    fn the_perfect_clear_bonus_is_worth_more_than_the_clear() {
+        // §9.15. The same fixture as the event test above, scored: a Single is
+        // 100 and emptying the board with it is 800 more.
+        let mut game = new_game(157);
+        game.matrix = from_bottom_rows(&["######...."]);
+        place(&mut game, PieceKind::I, Point::new(6, 30), Rotation::North);
+        tick(&mut game, &TickInput::action(Action::HardDrop));
+        assert_eq!(game.score(), 100 + 8 * 2, "the clear, before the pause");
+        idle(&mut game, 15);
+        assert_eq!(game.score(), 100 + 16 + 800);
+    }
+
     // -- T16: the event stream (§12.8) -------------------------------------
 
     #[test]
     fn a_clearing_tick_reports_the_rows_it_is_about_to_clear() {
         // T16. The rows are named in visible-field coordinates, the clear is
         // classified, and the event arrives as the flash starts -- one tick
-        // before the rows actually go.
+        // before the rows actually go. The score for both the drop and the
+        // clear is awarded first, in §9.12's order: step 4 pays, step 5 starts
+        // the pause.
         let mut game = new_game(29);
         game.matrix = from_bottom_rows(&["####.#####", "####.#####"]);
         place(&mut game, PieceKind::I, Point::new(2, 34), Rotation::East);
@@ -1255,15 +1543,25 @@ pub mod tests {
             events,
             vec![
                 GameEvent::HardDropped { rows: 2 },
+                GameEvent::ScoreAwarded {
+                    points: 4,
+                    reason: ScoreReason::HardDrop,
+                },
                 GameEvent::PieceLocked {
                     cells: [(4, 16), (4, 17), (4, 18), (4, 19)],
                     kind: PieceKind::I,
+                },
+                GameEvent::ScoreAwarded {
+                    points: 300,
+                    reason: ScoreReason::LineClear(ClearKind::Double),
                 },
                 GameEvent::LinesCleared {
                     rows: vec![18, 19],
                     clear: ClearKind::Double,
                     b2b: false,
-                    combo: -1,
+                    // The first clear of a run takes the counter to 0, which
+                    // is still no combo (§9.15).
+                    combo: 0,
                 },
             ],
         );
@@ -1291,12 +1589,20 @@ pub mod tests {
         let events = tick_events(&mut game, &TickInput::default());
 
         assert_eq!(events[0], GameEvent::PerfectClear, "the board is empty");
-        assert_eq!(events[1], GameEvent::LevelUp(2));
+        assert_eq!(
+            events[1],
+            GameEvent::ScoreAwarded {
+                points: 800,
+                reason: ScoreReason::PerfectClear,
+            },
+            "a one-row perfect clear at level 1 (§9.14)",
+        );
+        assert_eq!(events[2], GameEvent::LevelUp(2));
         assert!(
-            matches!(events[2], GameEvent::PieceSpawned(_)),
+            matches!(events[3], GameEvent::PieceSpawned(_)),
             "and the next piece follows, entry delay being 0",
         );
-        assert_eq!(events.len(), 3);
+        assert_eq!(events.len(), 4);
     }
 
     #[test]

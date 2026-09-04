@@ -1030,7 +1030,9 @@ least one line.
   clear no lines do not break the chain.
 - Any line clear of 1–3 lines that is not a T-spin breaks the chain.
 - The B2B column in §9.14 replaces the base value; it is not added to it.
-- The status bar shows `B2B` while the chain is active.
+- The status bar shows `B2B` while the chain is active — that is, whenever the
+  last line clear was a difficult one. A clear that *starts* a chain lights the
+  indicator without itself being paid at the chained rate.
 
 **Combo:**
 
@@ -1041,7 +1043,12 @@ least one line.
 
 **Perfect clear** (also "all clear"): after a line clear has been applied, the
 entire matrix contains no locked minos. The bonus in §9.14 is awarded, and a
-`PERFECT CLEAR` banner is shown for 1.5 s.
+`PERFECT CLEAR` banner is shown for 1.5 s. Its back-to-back column is selected
+by the same flag as the clear that emptied the board, not by the state of the
+chain afterwards: a first Quad is 800 + 2000, and only the second is
+1200 + 3200. Because the bonus is multiplied by level and §9.12 orders the award
+before the line count advances the level, it uses the level the clear was scored
+at.
 
 ### 9.16 Game over
 
@@ -1441,6 +1448,17 @@ Rules:
   line-clear pause (§9.12 step 5), so the flash animation covers the pause
   exactly. `PerfectClear` and `LevelUp` follow at the end of it, when the rows
   have actually been removed and the line count has moved.
+- `LinesCleared::b2b` says whether *this* clear was paid at the back-to-back
+  rate, which is what its banner announces; the standing `B2B` indicator of
+  §9.15 is `GameView::back_to_back` and the two differ on the clear that starts
+  a chain. `LinesCleared::combo` is the counter with this clear already counted,
+  so the first clear of a run reports 0.
+- `ScoreAwarded` is raised for each component separately — the clear, the combo,
+  the perfect clear and the drop are four events, not one total — and never for
+  zero points, so a hard drop of no rows is silent. The running total in
+  `GameView::score` is exactly the sum of them.
+- A lock that spun without completing a row raises no `LinesCleared`: the only
+  notice of it is `ScoreAwarded` with a `ClearKind` of `TSpin` or `TSpinMini`.
 - An empty vector is the common case and must not allocate (return
   `SmallVec<[GameEvent; 4]>` or reuse a caller-supplied buffer).
 - Events are a **notification**, never a mechanism: the core's own behaviour must

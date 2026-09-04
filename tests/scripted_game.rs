@@ -9,6 +9,8 @@
 //! something in the rules has started depending on how the shell batched its
 //! calls, and §19 is quietly foreclosed. Find the desync; do not skip the test.
 
+use std::collections::BTreeMap;
+
 use termino::config::RulesConfig;
 use termino::core::{Action, Game, GameEvent, GameView, PlayState, Shift, TickInput};
 
@@ -181,6 +183,38 @@ fn the_scripted_game_is_worth_snapshotting() {
     assert_eq!(view.pieces, 240, "every placement was played");
     assert!(view.lines >= 90, "lines: {}", view.lines);
     assert!(view.level >= 9, "level: {}", view.level);
+}
+
+#[test]
+fn every_point_of_the_score_was_announced() {
+    // §12.8: the events are a faithful notification of what the rules did, so
+    // the running total must be exactly the `ScoreAwarded` points, and each of
+    // the §9.14 reasons that this log earns must actually appear. It is the
+    // cheapest guard against a score that moves without saying why -- which is
+    // the half of a snapshot diff the snapshot itself cannot explain.
+    let log = recorded_log();
+    let mut game = Game::new(RulesConfig::default(), SEED);
+    let mut events = Vec::new();
+    for input in &log {
+        game.tick(input, &mut events);
+    }
+
+    let mut total = 0;
+    let mut reasons = BTreeMap::new();
+    for event in &events {
+        if let GameEvent::ScoreAwarded { points, reason } = event {
+            total += points;
+            *reasons.entry(format!("{reason:?}")).or_insert(0u64) += points;
+        }
+    }
+    assert_eq!(total, game.view().score, "breakdown: {reasons:?}");
+    for reason in ["HardDrop", "SoftDrop", "Combo"] {
+        assert!(reasons.contains_key(reason), "no {reason}: {reasons:?}");
+    }
+    assert!(
+        reasons.keys().any(|r| r.starts_with("LineClear")),
+        "no rows were scored: {reasons:?}",
+    );
 }
 
 #[test]
