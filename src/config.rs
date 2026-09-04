@@ -1781,4 +1781,40 @@ x = 1
         assert_eq!(startup.file.gameplay.start_level, 1);
         assert_eq!(startup.warnings.len(), 2, "{:?}", startup.warnings);
     }
+    #[test]
+    fn every_preview_count_is_honoured_from_the_file_and_from_the_flag() {
+        // A5. The layout's half of it is
+        // `ui::playfield::tests::the_next_box_is_sized_to_the_preview_count`;
+        // this is the config's, over all six values and both sources.
+        let dir = std::env::temp_dir().join("termino-preview-count-test");
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join(FILE_NAME);
+        for count in 1..=6u8 {
+            save(
+                &path,
+                &ConfigFile {
+                    gameplay: GameplaySettings {
+                        preview_count: count,
+                        ..GameplaySettings::default()
+                    },
+                    ..ConfigFile::default()
+                },
+            )
+            .expect("writes");
+            let from_file = cli(&["--config", path.to_str().expect("utf-8")]);
+            let startup = Startup::resolve(&from_file, || 1);
+            assert!(startup.warnings.is_empty(), "{:?}", startup.warnings);
+            assert_eq!(
+                startup.file.resolve().0.preview_count,
+                count,
+                "from the file"
+            );
+
+            let from_flag = cli(&["--preview", &count.to_string()]);
+            let mut file = ConfigFile::default();
+            from_flag.apply(&mut file);
+            assert_eq!(file.resolve().0.preview_count, count, "from the flag");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

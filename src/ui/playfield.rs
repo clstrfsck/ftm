@@ -831,4 +831,36 @@ mod tests {
         assert_eq!(optional(None), "-");
         assert_eq!(optional(Some(30)), "30");
     }
+    #[test]
+    fn a_configured_glyph_leaves_the_field_a_rectangle() {
+        // Stage 10's exit criterion, and the reason §12.2's width rule is the
+        // loader's: every cell is two columns, so the field's every row is the
+        // same width whatever the glyphs are.
+        let chrome = Chrome {
+            theme: Theme::with_glyphs(
+                Depth::Truecolor,
+                crate::ui::theme::Glyphs::configured(&crate::config::DisplaySettings {
+                    cell_filled: "[]".to_string(),
+                    cell_empty: "--".to_string(),
+                    cell_ghost: "<>".to_string(),
+                    ..crate::config::DisplaySettings::default()
+                }),
+            ),
+            ..chrome()
+        };
+        let drawn = screenshot(&mock_up_view(), &chrome);
+        for line in drawn.lines() {
+            assert_eq!(line.chars().count(), SCREEN_WIDTH as usize, "{line:?}");
+        }
+        let field: Vec<String> = drawn
+            .lines()
+            .skip(1)
+            .take(VIEW_HEIGHT)
+            .map(|line| line.chars().skip(12).take(20).collect())
+            .collect();
+        assert!(field.iter().all(|row| row.chars().count() == 20));
+        assert!(field.iter().any(|row| row.contains("[]")), "{field:#?}");
+        assert!(field.iter().any(|row| row.contains("<>")), "{field:#?}");
+        assert!(field.iter().any(|row| row.contains("--")), "{field:#?}");
+    }
 }

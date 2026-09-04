@@ -94,10 +94,16 @@ pub struct Theme {
 impl Theme {
     /// A theme with the §6.3 default glyphs.
     pub const fn new(depth: Depth) -> Self {
-        Self {
-            depth,
-            glyphs: Glyphs::DEFAULT,
-        }
+        Self::with_glyphs(depth, Glyphs::DEFAULT)
+    }
+
+    /// A theme at a settled depth, with the configured glyphs (§12.2).
+    ///
+    /// [`Theme::resolve`] is this with §12.3's environment test in front; a
+    /// caller that already knows the depth — a test, or a screen drawn at a
+    /// depth the environment did not choose — asks for it directly.
+    pub const fn with_glyphs(depth: Depth, glyphs: Glyphs) -> Self {
+        Self { depth, glyphs }
     }
 
     /// Resolve `color_depth` against the environment (§12.3).
@@ -118,7 +124,7 @@ impl Theme {
                 ColorDepth::Auto => detect(),
             }
         };
-        Self { depth, glyphs }
+        Self::with_glyphs(depth, glyphs)
     }
 
     pub const fn depth(self) -> Depth {
@@ -455,10 +461,7 @@ mod tests {
         // Under a test harness stdout is not a terminal, so §12.3 step 1 makes
         // the depth `mono` whatever was asked for -- which is the environment
         // rule working, not a failure. The glyphs travel regardless.
-        let theme = Theme {
-            depth: Depth::Truecolor,
-            ..theme
-        };
+        let theme = Theme::with_glyphs(Depth::Truecolor, theme.glyphs);
         assert_eq!(theme.filled_glyph(PieceKind::T), "[]");
         assert_eq!(theme.empty_glyph(false), "..");
         assert_eq!(theme.ghost_glyph(), "()");
@@ -478,10 +481,7 @@ mod tests {
             cell_ghost: "()".to_string(),
             ..DisplaySettings::default()
         });
-        let theme = Theme {
-            depth: Depth::Mono,
-            glyphs,
-        };
+        let theme = Theme::with_glyphs(Depth::Mono, glyphs);
         assert_eq!(theme.filled_glyph(PieceKind::S), "SS");
         assert_eq!(theme.ghost_glyph(), "..");
     }

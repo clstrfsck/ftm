@@ -3,20 +3,22 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 9 of `PLAN.md` complete.** It is playable, it keeps score and it
-now looks like §12.4: `cargo run --release` gives the full 44 x 23 screen — hold
-box, playfield, preview queue with per-slot dimming, stats box and status line —
-with the pause menu, the 3-2-1 resume countdown and the §12.6 game-over box over
-it, and the six §12.5 animations running off the event stream.
-`Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point and
-`Game::view()` still the only way to see the result; the shell is `main.rs`
-(terminal), `app.rs` (the §15.2 loop and the part of the §7 state machine a game
-needs), `input.rs` (§10) and `ui/` (§12). T1-T17 all pass, plus I1, and the
-batch-invariance canary is in CI. Every rule in §9 is implemented and every
-screen a *game* needs is drawn. What is missing is everything outside the game:
-no config file, no CLI, no attract screen, no high scores. Stage 10 (config
-file, CLI, options) is next, and takes the §12.4 debug stats box with it —
-`show_debug` is unreachable until then, so the box is deliberately not built.
+**Status: Stage 10 of `PLAN.md` complete.** It is playable, it keeps score, it
+looks like §12.4, and every setting in §6 is now reachable without a text
+editor: `cargo run --release` gives the full 44 x 23 screen — hold box,
+playfield, preview queue with per-slot dimming, stats box and status line —
+with the pause menu, the 3-2-1 resume countdown, the §12.6 game-over box and
+the §13.5 Options panel over it, the six §12.5 animations running off the event
+stream, and the §12.4 debug strip under it when `show_debug` is on. The config
+file loads and saves at the §6.2 path, the §6.4 CLI is complete, and the §6.2
+warnings reach stderr after teardown. `Game::tick(&TickInput, &mut
+Vec<GameEvent>)` is still the single entry point and `Game::view()` still the
+only way to see the result — with `Game::debug()` beside it for the strip; the
+shell is `main.rs` (terminal), `app.rs` (the §15.2 loop and the part of the §7
+state machine a game needs), `config.rs` (§6), `input.rs` (§10) and `ui/`
+(§12). T1-T17 all pass, plus I1, I2 and I3, and the batch-invariance canary is
+in CI. What is missing is the front door: no attract screen, no high scores, no
+name entry. Stage 11 is next.
 
 The mono and `NO_COLOR` paths already work (`NO_COLOR=1 tools/drive.py` shows
 the §9.2 letters and `..` ghosts); Stage 12 owns finishing and playing them.
@@ -98,6 +100,30 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   playfield's interior: §12.6's game-over box is 24 characters wide and the
   interior is 20. For a box that does fit it comes to the same thing, because
   the playfield is itself centred in the block.
+- **`DebugView` is a second view type, not a field on `GameView`** (§12.7).
+  `Game::debug()` sits beside `Game::view()`. Two reasons: `show_debug` is a
+  presentation setting so the core cannot be told whether anyone is looking,
+  and — the load-bearing one — the bag beyond `preview_count` is **hidden
+  information**, and under §19 `GameView` is what a server sends a player. Do
+  not fold it in to save a method.
+- **The Options panel applies presentation at once and rules never** (§13.5).
+  A game keeps the rules it started under; colour depth and the grid take
+  effect on leaving the panel. `Chrome::hold_enabled` therefore comes from the
+  running game's `RulesConfig`, not from `App::config`.
+- **Clamping is silent in `RulesConfig::from_settings` and loud in the loader**
+  (§6.2, §6.3). `from_settings` is also the path a §19 peer's rules take, where
+  there is nobody to warn; `config::validate` is what tells the player what
+  their file asked for and what it got.
+- **The config file is parsed value by value**, not deserialised whole (§6.3):
+  a value of the wrong type is rejected by itself and the default used. Only a
+  document that is not TOML at all falls back wholesale, and that is the one
+  case I3 pins at exactly one warning.
+- **`ui::theme::Glyphs` are leaked, once, at start-up** so `Theme` stays `Copy`
+  (§12.2). `Glyphs::configured` is a start-up call, not a per-frame one.
+- **`App::generation` is the frame's third component.** §15.2 step 5 draws only
+  when the frame changed, and it compares the `GameView` and the `Overlay`.
+  Anything else the screen shows — the Options panel's values are the only case
+  so far — has to bump the counter or it will not be redrawn.
 - **`Chrome` carries what `GameView` cannot.** `hold_enabled` is the one layout
   question the view cannot answer — an empty hold slot and an absent hold
   mechanic are both `hold: None` — so it travels with the theme and `show_grid`
@@ -153,17 +179,20 @@ cargo test           # unit + integration
 cargo clippy -- -D warnings
 cargo fmt --check
 cargo run --release  # play it
-cargo run -- --print-config    # effective config (from Stage 10)
+cargo run -- --print-config    # effective config
 cargo run -- --seed 42         # deterministic run, not recorded to high scores
-tools/drive.py c c   # drive the release binary on a pty and see what it drew
+tools/drive.py c c             # drive the release binary on a pty
+tools/drive.py --arg=--seed=42 --arg=--config=/tmp/t.toml esc down down enter
 ```
 
 `tools/drive.py` is the only way to check the terminal layer without a human at
 a terminal: §17.1 is "core, no terminal" by design, so nothing in `cargo test`
 reaches `main.rs`, `app.rs` or `ui/`. It drives the **release** binary on a pty,
 sends a scripted burst of keys and replays the capture into a character grid,
-printing one frame per keystroke. Two traps: `--seed` is not wired up until
-Stage 10, so every run is a different game and only frames *within* one run may
-be compared; and it answers the §8.2 capability queries, so pass `--legacy` to
-exercise the fallback path. Its docstring has the rest. It substitutes for, but
+printing one frame per keystroke. Two things to know: pass binary arguments through
+`--arg`, glued on with `=` both times (`--arg=--seed=42`, `--arg=--config=...`)
+or `argparse` claims them — without a seed every run is a different game and
+only frames *within* one run may be compared; and it answers the §8.2
+capability queries, so pass `--legacy` to exercise the fallback path. Its
+docstring has the rest. It substitutes for, but
 does not replace, playing the game on a real terminal.
