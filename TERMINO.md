@@ -828,10 +828,16 @@ that bag before play begins. This applies only to the very first bag of a game.
 | Level | `fall_period` | ticks per row | rows per tick |
 |---|---|---|---|
 | 1 | 3 932 160 | 60.000 | 0.02 |
-| 5 | 1 396 703 | 21.312 | 0.05 |
-| 10 | 252 248 | 3.849 | 0.26 |
-| 13 | 71 369 | 1.089 | 0.92 |
-| 15 | 27 761 | 0.424 | 2.36 |
+| 5 | 1 396 691 | 21.312 | 0.05 |
+| 10 | 252 254 | 3.849 | 0.26 |
+| 13 | 71 382 | 1.089 | 0.92 |
+| 15 | 27 756 | 0.424 | 2.36 |
+
+  This table is informative in the same sense as the one above: it is the
+  formula applied to the levels most worth checking, and the formula wins if
+  they ever disagree. Note in particular that `fall_period` is computed from
+  `seconds_per_row` at full precision — **not** from the five-decimal values
+  printed in the speed table, which differ by up to 13 units of 1/65536.
 
   Expressing the speed as a *period* rather than as a rate is deliberate: at
   level 1 the period is exactly 3 932 160, so the piece falls on tick 60 and not
