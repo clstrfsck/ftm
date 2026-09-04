@@ -35,6 +35,10 @@ Three things to know before believing the output:
   keyboard path; `--legacy` declines them instead, so both §8.2 paths can
   be exercised on the same machine. Kitty key events are '\\x1b[1;1:1D'
   (press) and '\\x1b[1;1:3D' (release) if you need to send them by hand.
+  A declined query is not answered but *timed out* inside crossterm, which
+  costs about two seconds before the first frame -- so `--legacy` wants a
+  longer `--settle` (2.5 s is enough) or its frames come back blank. That
+  is the pty, not the game.
 
 This does not replace playing it on a real terminal; it replaces guessing.
 `stty -a` either side of a run is the A7 check (§17.3).
