@@ -1405,6 +1405,19 @@ pub enum GameEvent {
 Rules:
 
 - Events are emitted in the order the rules produced them within the tick.
+- Event coordinates are **visible-field coordinates**, the same ones `GameView`
+  uses (§12.7), so nothing downstream of the core has to know the buffer zone
+  exists. A mino above the visible field is omitted from `PieceLocked::cells`,
+  encoded as `(255, 255)`; a cleared row above it is omitted from
+  `LinesCleared::rows`, which may therefore be shorter than the number of rows
+  the clear removed.
+- `PieceMoved` covers a player shift and a gravity step. The one-row drop that
+  is part of spawning is reported by `PieceSpawned`, and the rows covered by a
+  hard drop by `HardDropped`; neither raises `PieceMoved` as well.
+- `LinesCleared` is raised when the rows are found, at the start of the
+  line-clear pause (§9.12 step 5), so the flash animation covers the pause
+  exactly. `PerfectClear` and `LevelUp` follow at the end of it, when the rows
+  have actually been removed and the line count has moved.
 - An empty vector is the common case and must not allocate (return
   `SmallVec<[GameEvent; 4]>` or reuse a caller-supplied buffer).
 - Events are a **notification**, never a mechanism: the core's own behaviour must
