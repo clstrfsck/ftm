@@ -1210,10 +1210,12 @@ Version 1.0 implements a single mode, **Marathon**:
 
 `color_depth = "auto"` selects, in order:
 
-1. `truecolor` if `$COLORTERM` is `truecolor` or `24bit`.
-2. `256` if `$TERM` contains `256color`.
-3. `16` otherwise.
-4. `mono` if `$NO_COLOR` is set (any value) or stdout is not a TTY.
+1. `mono` if `$NO_COLOR` is set (any value) or stdout is not a TTY. This test
+   comes first because it *overrides* the others: a terminal that advertises
+   truecolor and sets `$NO_COLOR` wants no colour.
+2. `truecolor` if `$COLORTERM` is `truecolor` or `24bit`.
+3. `256` if `$TERM` contains `256color`.
+4. `16` otherwise.
 
 In `mono`, cells are drawn as the piece's mono glyph (§9.2) — `I`, `O`, `T`, `S`,
 `Z`, `J`, `L` — doubled (`II`), the ghost as `..`, and all emphasis uses bold and
