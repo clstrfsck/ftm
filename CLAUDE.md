@@ -3,14 +3,15 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 5 of `PLAN.md` complete — milestone M1.** The core plays itself:
-a scripted input log drives a complete game headlessly and deterministically,
-with no terminal. `Game::tick(&TickInput, &mut Vec<GameEvent>)` is the single
-entry point, `Game::view()` the only way to see the result. T1-T8, T11, T14-T17
-and I1 pass, and the batch-invariance canary is in CI. There is no score, hold
-or ghost yet — the view's fields for them are present but inert. Stage 6 (the
-vertical slice: first playable) is next, and it is the highest-uncertainty stage
-in the plan.
+**Status: Stage 6 of `PLAN.md` complete — milestone M2.** It is playable:
+`cargo run --release` gives a bare bordered field where pieces move, rotate,
+soft drop, hard drop, clear rows and top out. `Game::tick(&TickInput, &mut
+Vec<GameEvent>)` is still the single entry point and `Game::view()` still the
+only way to see the result; the shell is `main.rs` (terminal), `app.rs` (the
+§15.2 loop), `input.rs` (§10) and `ui/` (§12). T1-T8, T11, T13-T17 and I1 pass,
+and the batch-invariance canary is in CI. There is no score, hold, ghost, next
+box, pause or menu yet — the view's fields for them are present but inert.
+Stage 7 (scoring) is next.
 
 ## Read these first
 
@@ -48,7 +49,14 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   encoded as `(255, 255)`.
 - **`RulesConfig` and `PresentationConfig` are separate structs** (§6.5). Do not
   merge them into one `Config`.
-- **DAS/ARR live in the shell**, not the core (§10.3).
+- **DAS/ARR live in the shell**, not the core (§10.3). The core is told a
+  direction and a whole number of cells; it has no notion of a key being down.
+  Input the shell has resolved is held until a tick consumes it, because a frame
+  may legitimately run zero ticks (§15.2 step 6 wakes the loop early on a key).
+- **Terminal teardown is idempotent and runs from three places** (§8.3): normal
+  exit, an error, and the panic hook — which is installed *before* raw mode, so
+  a crash restores the terminal before it prints. Both §8.2 input paths are
+  live; do not let one of them rot.
 - **T-spin**: the "last action was a rotation" flag must survive a hard drop, and
   kick test 5 always means a proper T-spin (§9.13). This is the most commonly
   botched rule in the spec.
@@ -85,6 +93,13 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   it, then iterate. Do not gold-plate it before it has been seen.
 
 ## Open decisions
+
+- **The legacy key path's feel (§8.2).** Measured over two seconds of holding
+  left: enhanced moves at 0 ms then every 33 ms from 166 ms; legacy moves at
+  0 ms, stalls until the OS's first auto-repeat (~500 ms on macOS defaults),
+  then runs identically from ~670 ms. Releasing a held direction overshoots by
+  two or three cells. Both are inherent to a 90 ms hold timeout, not tuning.
+  Whether §8.2 should say so is undecided — ask before amending it.
 
 - **The `TETRIS` banner.** The game is called Termino and must not use the Tetris
   logo (§1.3), but "Tetris" is still the on-screen name of a four-line clear
