@@ -4,14 +4,18 @@
 //! fixed 1/60 s tick at a time. Given the same `RulesConfig`, seed and input
 //! sequence the state is byte-identical, however the ticks are batched (§19.4).
 
+use serde::{Deserialize, Serialize};
+
 use crate::config::RulesConfig;
 use crate::core::bag::Bag;
+use crate::core::events::{ClearKind, GameEvent, TopOutCause};
 use crate::core::geometry::{Point, Rotation};
 use crate::core::gravity::{self, Gravity};
 use crate::core::lockdown::{LockDown, LockOutcome};
 use crate::core::matrix::{ClearedRows, Matrix, VISIBLE_TOP};
 use crate::core::piece::PieceKind;
 use crate::core::srs;
+use crate::core::view::to_visible;
 
 /// An edge-triggered input, acted on once per press (§10.2).
 ///
@@ -110,7 +114,7 @@ impl TickInput {
 }
 
 /// What the game is doing right now (§12.7).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlayState {
     /// A piece is in play.
     #[default]
@@ -176,6 +180,11 @@ pub struct Game {
 
 impl Game {
     /// A new game at `start_level`, with the first piece already spawned.
+    ///
+    /// The `PieceSpawned` of that first piece is discarded: construction is not
+    /// a tick, and the piece is in the very first `view()` regardless. Events
+    /// are a notification, never a mechanism (§12.8), so losing one costs
+    /// nothing but an animation that had nothing to animate over.
     pub fn new(rules: RulesConfig, seed: u64) -> Self {
         let level = rules.start_level;
         let mut game = Self {
@@ -195,7 +204,7 @@ impl Game {
             back_to_back: false,
             rules,
         };
-        game.spawn();
+        game.spawn(&mut Vec::new());
         game
     }
 
@@ -233,49 +242,75 @@ impl Game {
         self.pieces
     }
 
+    pub fn combo(&self) -> i32 {
+        self.combo
+    }
+
+    pub fn back_to_back(&self) -> bool {
+        self.back_to_back
+    }
+
+    /// The upcoming pieces the player can see: exactly `preview_count` of them
+    /// (§12.7).
+    pub fn preview(&self) -> impl Iterator<Item = PieceKind> + '_ {
+        self.bag.preview()
+    }
+
     pub fn is_over(&self) -> bool {
         self.state == PlayState::ToppedOut
     }
 
     // -- the tick ----------------------------------------------------------
 
-    /// Advance exactly one tick (§15.1).
-    // TODO(stage 5): takes `out: &mut Vec<GameEvent>` and emits §12.8 events.
-    pub fn tick(&mut self, input: &TickInput) {
+    /// Advance exactly one tick (§15.1), appending what happened to `out`.
+    ///
+    /// The buffer is supplied by the caller and appended to, never cleared: the
+    /// common tick raises nothing, and the core must not allocate in order to do
+    /// nothing (§12.8). The core writes to `out` and never reads it back, so
+    /// whatever the caller does with the events cannot change the game (T16).
+    pub fn tick(&mut self, input: &TickInput, out: &mut Vec<GameEvent>) {
         if self.state == PlayState::ToppedOut {
             return;
         }
         self.ticks += 1;
         match self.state {
-            PlayState::Clearing => self.tick_clearing(),
-            PlayState::Entry => self.tick_entry(),
-            PlayState::Falling => self.tick_falling(input),
+            PlayState::Clearing => self.tick_clearing(out),
+            PlayState::Entry => self.tick_entry(out),
+            PlayState::Falling => self.tick_falling(input, out),
             PlayState::ToppedOut => {}
         }
     }
 
     /// Wait out the line-clear delay, then collapse the rows (§9.12 steps 5-7).
-    fn tick_clearing(&mut self) {
+    fn tick_clearing(&mut self, out: &mut Vec<GameEvent>) {
         self.state_timer = self.state_timer.saturating_sub(1);
         if self.state_timer > 0 {
             return;
         }
         self.matrix.clear_rows(&self.clearing_rows);
+        // §9.15: a perfect clear is judged once the rows have gone.
+        if self.matrix.is_empty() {
+            out.push(GameEvent::PerfectClear);
+        }
         self.lines += self.clearing_rows.len() as u32;
-        self.gravity.set_level(gravity::level_after_clear(
+        let level = gravity::level_after_clear(
             self.gravity.level(),
             self.lines,
             self.rules.lines_per_level,
-        ));
+        );
+        if level != self.gravity.level() {
+            out.push(GameEvent::LevelUp(level));
+        }
+        self.gravity.set_level(level);
         self.clearing_rows = ClearedRows::default();
-        self.begin_entry_delay();
+        self.begin_entry_delay(out);
     }
 
     /// Wait out the entry delay, then spawn (§9.12 steps 8-9).
-    fn tick_entry(&mut self) {
+    fn tick_entry(&mut self, out: &mut Vec<GameEvent>) {
         self.state_timer = self.state_timer.saturating_sub(1);
         if self.state_timer == 0 {
-            self.spawn();
+            self.spawn(out);
         }
     }
 
@@ -284,14 +319,14 @@ impl Game {
     /// Order matters and is fixed: the player's actions, then their movement,
     /// then gravity, then the lock-down timer. Input first is what lets a piece
     /// be steered on the tick it would otherwise lock.
-    fn tick_falling(&mut self, input: &TickInput) {
+    fn tick_falling(&mut self, input: &TickInput, out: &mut Vec<GameEvent>) {
         for action in input.actions.iter() {
             match action {
-                Action::RotateCw => self.rotate(Rotation::cw),
-                Action::RotateCcw => self.rotate(Rotation::ccw),
-                Action::Rotate180 => self.rotate_180(),
+                Action::RotateCw => self.rotate(Rotation::cw, out),
+                Action::RotateCcw => self.rotate(Rotation::ccw, out),
+                Action::Rotate180 => self.rotate_180(out),
                 Action::HardDrop => {
-                    self.hard_drop();
+                    self.hard_drop(out);
                     return;
                 }
                 // TODO(stage 8): Action::Hold, gated on `hold_enabled` (§9.7).
@@ -304,21 +339,27 @@ impl Game {
                 Shift::Left => -1,
                 Shift::Right => 1,
             };
+            let mut moved = false;
             for _ in 0..input.shift_cells {
                 if !self.try_move(dx, 0) {
                     break;
                 }
+                moved = true;
+            }
+            if moved {
+                out.push(GameEvent::PieceMoved);
             }
         }
 
-        self.apply_gravity(input.soft_drop);
-        self.settle();
+        self.apply_gravity(input.soft_drop, out);
+        self.settle(out);
     }
 
     /// Accrue gravity and fall as far as it allows (§9.9, §9.10).
-    fn apply_gravity(&mut self, soft_drop: bool) {
+    fn apply_gravity(&mut self, soft_drop: bool, out: &mut Vec<GameEvent>) {
         let factor = soft_drop.then_some(self.rules.soft_drop_factor);
         let rows = self.gravity.accrue(factor);
+        let mut fell = false;
         for _ in 0..rows {
             if !self.try_move(0, 1) {
                 // §9.9: a blocked step clears the accumulator and hands over to
@@ -326,12 +367,16 @@ impl Game {
                 self.gravity.reset_accumulator();
                 break;
             }
+            fell = true;
+        }
+        if fell {
+            out.push(GameEvent::PieceMoved);
         }
         // TODO(stage 7): 1 point per row descended under soft drop (§9.10).
     }
 
     /// Update the lock-down timer and lock if it expires (§9.11).
-    fn settle(&mut self) {
+    fn settle(&mut self, out: &mut Vec<GameEvent>) {
         let resting = !self.can_move(0, 1);
         if resting {
             self.lock.land();
@@ -339,7 +384,7 @@ impl Game {
             self.lock.lift();
         }
         if self.lock.tick(resting) == LockOutcome::Lock {
-            self.lock_piece();
+            self.lock_piece(out);
         }
     }
 
@@ -375,7 +420,7 @@ impl Game {
     }
 
     /// Rotate a quarter turn, honouring the kick table (§9.5).
-    fn rotate(&mut self, turn: fn(Rotation) -> Rotation) {
+    fn rotate(&mut self, turn: fn(Rotation) -> Rotation, out: &mut Vec<GameEvent>) {
         let Some(piece) = self.current else { return };
         let to = turn(piece.rotation);
         let Some((origin, kick_index)) =
@@ -383,9 +428,10 @@ impl Game {
         else {
             // §9.5 step 4: a failed rotation changes nothing and resets no
             // timer.
+            out.push(GameEvent::RotationFailed);
             return;
         };
-        self.accept_rotation(origin, to, kick_index);
+        self.accept_rotation(origin, to, kick_index, out);
     }
 
     /// Rotate 180 degrees, if the rules allow it (§9.5).
@@ -393,21 +439,30 @@ impl Game {
     /// The gate is also enforced at the input boundary (§10.1) so a disabled key
     /// never reaches the core; this is the backstop for a caller that ignores
     /// that, and it must return before touching any timer.
-    fn rotate_180(&mut self) {
+    fn rotate_180(&mut self, out: &mut Vec<GameEvent>) {
         if !self.rules.allow_180_rotation {
+            // An inert key is not a failed rotation: it raises nothing, exactly
+            // as it resets nothing.
             return;
         }
         let Some(piece) = self.current else { return };
         let Some((origin, kick_index)) =
             srs::try_rotate_180(&self.matrix, piece.kind, piece.origin, piece.rotation)
         else {
+            out.push(GameEvent::RotationFailed);
             return;
         };
-        self.accept_rotation(origin, piece.rotation.opposite(), kick_index);
+        self.accept_rotation(origin, piece.rotation.opposite(), kick_index, out);
     }
 
     /// Commit a successful rotation and its lock-down consequences.
-    fn accept_rotation(&mut self, origin: Point, rotation: Rotation, kick_index: u8) {
+    fn accept_rotation(
+        &mut self,
+        origin: Point,
+        rotation: Rotation,
+        kick_index: u8,
+        out: &mut Vec<GameEvent>,
+    ) {
         let Some(piece) = self.current.as_mut() else {
             return;
         };
@@ -418,6 +473,7 @@ impl Game {
         let lowest = piece.lowest_row();
         self.lock.observe_row(lowest);
         self.lock.on_move();
+        out.push(GameEvent::PieceRotated { kick_index });
     }
 
     /// Drop to the floor and lock immediately, skipping lock delay (§9.10).
@@ -426,25 +482,25 @@ impl Game {
     /// drop: a T rotated into its slot and then hard-dropped is still a T-spin.
     /// Every `try_move` clears that flag, so it is carried across by hand here.
     /// This is the rule everybody gets wrong.
-    fn hard_drop(&mut self) {
+    fn hard_drop(&mut self, out: &mut Vec<GameEvent>) {
         let Some(before) = self.current else { return };
-        let mut rows = 0;
+        let mut rows = 0u8;
         while self.try_move(0, 1) {
-            rows += 1;
+            rows = rows.saturating_add(1);
         }
-        let _ = rows;
+        out.push(GameEvent::HardDropped { rows });
         // TODO(stage 7): 2 points per row descended (§9.10).
         if let Some(piece) = self.current.as_mut() {
             piece.last_action_was_rotation = before.last_action_was_rotation;
             piece.last_kick_index = before.last_kick_index;
         }
-        self.lock_piece();
+        self.lock_piece(out);
     }
 
     // -- locking and spawning ----------------------------------------------
 
     /// Write the piece into the matrix and deal with what follows (§9.12).
-    fn lock_piece(&mut self) {
+    fn lock_piece(&mut self, out: &mut Vec<GameEvent>) {
         let Some(piece) = self.current.take() else {
             return;
         };
@@ -456,6 +512,10 @@ impl Game {
             self.matrix.set(mino.x, mino.y, Some(piece.kind));
         }
         self.pieces += 1;
+        out.push(GameEvent::PieceLocked {
+            cells: std::array::from_fn(|i| to_visible(minos[i].x, minos[i].y)),
+            kind: piece.kind,
+        });
         // TODO(stage 7): classify the T-spin here, *before* clearing rows
         // (§9.12 step 2), and award the score (§9.14).
         // TODO(stage 8): clear the hold lock-out here -- on lock, not on spawn
@@ -463,25 +523,51 @@ impl Game {
 
         if locked_out {
             self.state = PlayState::ToppedOut;
+            out.push(GameEvent::ToppedOut(TopOutCause::LockOut));
             return;
         }
 
         self.clearing_rows = self.matrix.full_rows();
         if self.clearing_rows.is_empty() {
-            self.begin_entry_delay();
+            self.begin_entry_delay(out);
         } else {
+            // §12.8: raised as the rows are found, so the §12.5 flash covers
+            // the clear pause exactly. The rows are still in the matrix, and
+            // still drawn, until the pause runs out.
+            if let Some(clear) = ClearKind::plain(self.clearing_rows.len()) {
+                // TODO(stage 7): the T-spin variants, and the B2B and combo
+                // state that goes with them (§9.13, §9.15).
+                out.push(GameEvent::LinesCleared {
+                    rows: self.visible_clearing_rows(),
+                    clear,
+                    b2b: self.back_to_back,
+                    combo: self.combo,
+                });
+            }
             self.state = PlayState::Clearing;
             self.state_timer = self.rules.line_clear_delay_ticks;
         }
+    }
+
+    /// The clearing rows in visible-field coordinates (§12.8).
+    ///
+    /// A completed row inside the buffer zone cannot be drawn, so it is left
+    /// out: the list may be shorter than the number of rows being removed.
+    fn visible_clearing_rows(&self) -> Vec<u8> {
+        self.clearing_rows
+            .as_slice()
+            .iter()
+            .filter_map(|&y| u8::try_from(y - VISIBLE_TOP).ok())
+            .collect()
     }
 
     /// Start the entry delay, or spawn at once when it is zero (§9.12 step 8).
     ///
     /// `entry_delay_ticks` may legitimately be 0 (§6.6), which means the next
     /// piece enters on this very tick rather than one tick later.
-    fn begin_entry_delay(&mut self) {
+    fn begin_entry_delay(&mut self, out: &mut Vec<GameEvent>) {
         if self.rules.entry_delay_ticks == 0 {
-            self.spawn();
+            self.spawn(out);
         } else {
             self.state = PlayState::Entry;
             self.state_timer = self.rules.entry_delay_ticks;
@@ -489,9 +575,10 @@ impl Game {
     }
 
     /// Take the next piece from the queue and place it (§9.4).
-    fn spawn(&mut self) {
+    fn spawn(&mut self, out: &mut Vec<GameEvent>) {
         let kind = self.bag.next_piece();
         let origin = kind.spawn_origin();
+        out.push(GameEvent::PieceSpawned(kind));
         if self.matrix.collides(kind, origin, Rotation::North) {
             // §9.16 Block Out. The drop-one attempt is skipped, and the piece is
             // still shown where it could not fit.
@@ -503,6 +590,7 @@ impl Game {
                 last_kick_index: 0,
             });
             self.state = PlayState::ToppedOut;
+            out.push(GameEvent::ToppedOut(TopOutCause::BlockOut));
             return;
         }
 
@@ -533,13 +621,13 @@ impl Game {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::config::{GameplaySettings, TimingSettings};
     use crate::core::matrix::{HEIGHT, WIDTH, tests::from_bottom_rows};
 
     /// A game with the default rules under a fixed seed.
-    fn new_game(seed: u64) -> Game {
+    pub fn new_game(seed: u64) -> Game {
         Game::new(RulesConfig::default(), seed)
     }
 
@@ -548,17 +636,31 @@ mod tests {
         Game::new(RulesConfig::from_settings(&gameplay, &timing), seed)
     }
 
+    /// Advance one tick, discarding the events. The event stream has its own
+    /// tests; every other test in this module is about the state it leaves
+    /// behind, and by §12.8 that state is the same either way.
+    fn tick(game: &mut Game, input: &TickInput) {
+        game.tick(input, &mut Vec::new());
+    }
+
+    /// Advance one tick, keeping the events it raised.
+    fn tick_events(game: &mut Game, input: &TickInput) -> Vec<GameEvent> {
+        let mut events = Vec::new();
+        game.tick(input, &mut events);
+        events
+    }
+
     /// Run `n` ticks with nothing held.
     fn idle(game: &mut Game, n: u32) {
         let input = TickInput::default();
         for _ in 0..n {
-            game.tick(&input);
+            tick(game, &input);
         }
     }
 
     /// Force a particular piece into play at a particular place, bypassing the
     /// bag. Board fixtures need a known piece, and the bag is not steerable.
-    fn place(game: &mut Game, kind: PieceKind, origin: Point, rotation: Rotation) {
+    pub fn place(game: &mut Game, kind: PieceKind, origin: Point, rotation: Rotation) {
         game.current = Some(ActivePiece {
             kind,
             origin,
@@ -571,7 +673,13 @@ mod tests {
         game.lock.observe_row(game.current.unwrap().lowest_row());
     }
 
-    fn bottom_rows(game: &Game, n: usize) -> Vec<String> {
+    /// Replace the board wholesale. `Game`'s fields are private to this module,
+    /// so the fixtures other modules' tests need are handed out from here.
+    pub fn set_matrix(game: &mut Game, matrix: Matrix) {
+        game.matrix = matrix;
+    }
+
+    pub fn bottom_rows(game: &Game, n: usize) -> Vec<String> {
         ((HEIGHT - n as i32)..HEIGHT)
             .map(|y| {
                 (0..WIDTH)
@@ -657,7 +765,7 @@ mod tests {
         // §9.10: lock delay is skipped entirely.
         let mut game = new_game(9);
         let kind = game.current().unwrap().kind;
-        game.tick(&TickInput::action(Action::HardDrop));
+        tick(&mut game, &TickInput::action(Action::HardDrop));
         assert_eq!(game.pieces(), 1);
         assert!(
             game.current().is_some(),
@@ -680,7 +788,7 @@ mod tests {
         game.matrix = matrix;
         place(&mut game, PieceKind::O, Point::new(4, 19), Rotation::North);
         assert!(!game.can_move(0, 1), "already resting");
-        game.tick(&TickInput::action(Action::HardDrop));
+        tick(&mut game, &TickInput::action(Action::HardDrop));
         assert_eq!(game.pieces(), 1);
         assert_eq!(game.matrix().get(4, 20), Some(PieceKind::O));
     }
@@ -692,7 +800,7 @@ mod tests {
         // arrive at the lock still marked as a rotation.
         let mut game = new_game(13);
         place(&mut game, PieceKind::T, Point::new(3, 20), Rotation::North);
-        game.tick(&TickInput::action(Action::RotateCw));
+        tick(&mut game, &TickInput::action(Action::RotateCw));
         let rotated = game.current().unwrap();
         assert!(rotated.last_action_was_rotation);
 
@@ -705,7 +813,7 @@ mod tests {
             "a plain descent clears the flag, which is why hard_drop restores it",
         );
 
-        game.tick(&TickInput::action(Action::HardDrop));
+        tick(&mut game, &TickInput::action(Action::HardDrop));
         assert_eq!(game.pieces(), 1);
     }
 
@@ -715,9 +823,9 @@ mod tests {
         // T slid into a slot cannot claim a T-spin.
         let mut game = new_game(17);
         place(&mut game, PieceKind::T, Point::new(3, 20), Rotation::North);
-        game.tick(&TickInput::action(Action::RotateCw));
+        tick(&mut game, &TickInput::action(Action::RotateCw));
         assert!(game.current().unwrap().last_action_was_rotation);
-        game.tick(&TickInput::shift(Shift::Left));
+        tick(&mut game, &TickInput::shift(Shift::Left));
         assert!(!game.current().unwrap().last_action_was_rotation);
     }
 
@@ -735,10 +843,10 @@ mod tests {
             "###...####",
         ]);
         place(&mut game, PieceKind::T, Point::new(3, 38), Rotation::North);
-        game.tick(&TickInput::default());
+        tick(&mut game, &TickInput::default());
         let landed_at = game.lock.remaining();
         assert_eq!(landed_at, Some(29), "landed and counting");
-        game.tick(&TickInput::action(Action::RotateCw));
+        tick(&mut game, &TickInput::action(Action::RotateCw));
         assert_eq!(game.lock.remaining(), Some(28), "no reset was granted");
         assert_eq!(game.lock.resets_used(), 0);
     }
@@ -747,9 +855,9 @@ mod tests {
     fn a_shift_while_landed_resets_the_timer() {
         let mut game = new_game(23);
         place(&mut game, PieceKind::O, Point::new(4, 38), Rotation::North);
-        game.tick(&TickInput::default());
+        tick(&mut game, &TickInput::default());
         assert_eq!(game.lock.remaining(), Some(29));
-        game.tick(&TickInput::shift(Shift::Left));
+        tick(&mut game, &TickInput::shift(Shift::Left));
         assert_eq!(
             game.lock.remaining(),
             Some(29),
@@ -764,7 +872,7 @@ mod tests {
         let mut game = new_game(29);
         game.matrix = from_bottom_rows(&["####.#####"]);
         place(&mut game, PieceKind::I, Point::new(2, 36), Rotation::East);
-        game.tick(&TickInput::action(Action::HardDrop));
+        tick(&mut game, &TickInput::action(Action::HardDrop));
 
         assert_eq!(game.state(), PlayState::Clearing);
         assert_eq!(game.lines(), 0, "the count waits for the collapse");
@@ -803,7 +911,7 @@ mod tests {
             },
             31,
         );
-        game.tick(&TickInput::action(Action::HardDrop));
+        tick(&mut game, &TickInput::action(Action::HardDrop));
         assert_eq!(game.state(), PlayState::Entry);
         assert!(game.current().is_none(), "nothing is in play during ARE");
         idle(&mut game, 5);
@@ -826,7 +934,7 @@ mod tests {
         );
         game.matrix = from_bottom_rows(&["####.#####", "####.#####", "####.#####", "####.#####"]);
         place(&mut game, PieceKind::I, Point::new(2, 32), Rotation::East);
-        game.tick(&TickInput::action(Action::HardDrop));
+        tick(&mut game, &TickInput::action(Action::HardDrop));
         assert_eq!(game.state(), PlayState::Clearing);
         idle(&mut game, 15);
         assert_eq!(game.lines(), 4);
@@ -834,22 +942,40 @@ mod tests {
         assert!(game.matrix().is_empty(), "a perfect clear, as it happens");
     }
 
-    #[test]
-    fn block_out_ends_the_game() {
-        // T11: a newly spawned piece overlaps a locked mino at its spawn
-        // position (§9.16).
-        let mut game = new_game(41);
+    /// A board that block-outs the *next* piece, whatever it turns out to be.
+    ///
+    /// A tower filling columns 3, 4 and 5 from row 19 to the floor covers every
+    /// cell the §9.4 spawn table can put a mino in, so the spawn collides no
+    /// matter which piece the bag deals. Columns 6-9 are left open, so nothing
+    /// here is a completed row, and column 0 is left clear for the piece that
+    /// has to lock first -- that piece must reach row 20 or below, or the game
+    /// would end in a Lock Out before the spawn was ever attempted.
+    fn tower_over_the_spawn_columns() -> Matrix {
         let mut matrix = Matrix::new();
-        for x in 0..WIDTH {
-            for y in 18..=19 {
+        for y in 19..HEIGHT {
+            for x in 3..=5 {
                 matrix.set(x, y, Some(PieceKind::I));
             }
         }
-        game.matrix = matrix;
-        place(&mut game, PieceKind::O, Point::new(4, 15), Rotation::North);
-        game.tick(&TickInput::action(Action::HardDrop));
+        matrix
+    }
+
+    #[test]
+    fn block_out_ends_the_game() {
+        // T11: a newly spawned piece overlaps a locked mino at its spawn
+        // position (§9.16). The piece that triggers it locks in the visible
+        // field, so this is a Block Out and not a Lock Out wearing its name.
+        let mut game = new_game(41);
+        game.matrix = tower_over_the_spawn_columns();
+        place(&mut game, PieceKind::O, Point::new(0, 36), Rotation::North);
+        let events = tick_events(&mut game, &TickInput::action(Action::HardDrop));
         assert!(game.is_over(), "the next piece cannot spawn");
         assert_eq!(game.state(), PlayState::ToppedOut);
+        assert_eq!(
+            events.last(),
+            Some(&GameEvent::ToppedOut(TopOutCause::BlockOut)),
+            "the O itself locked on the floor, in plain view",
+        );
     }
 
     #[test]
@@ -873,7 +999,7 @@ mod tests {
         // An O resting on row 20's stack sits entirely in rows 18 and 19.
         place(&mut game, PieceKind::O, Point::new(4, 18), Rotation::North);
         assert!(!game.can_move(0, 1));
-        game.tick(&TickInput::action(Action::HardDrop));
+        tick(&mut game, &TickInput::action(Action::HardDrop));
         assert!(
             game.is_over(),
             "all four minos locked inside the buffer zone"
@@ -904,7 +1030,7 @@ mod tests {
         // A vertical I in column 0 comes to rest with minos in rows 17, 18, 19
         // and 20: three inside the buffer zone and one just visible.
         place(&mut game, PieceKind::I, Point::new(-2, 14), Rotation::East);
-        game.tick(&TickInput::action(Action::HardDrop));
+        tick(&mut game, &TickInput::action(Action::HardDrop));
         assert!(!game.is_over(), "one mino reached row 20");
         assert_eq!(game.matrix().get(0, 20), Some(PieceKind::I));
         assert_eq!(game.matrix().get(0, 17), Some(PieceKind::I));
@@ -914,15 +1040,18 @@ mod tests {
     /// so the caller is handed back a game with the next piece already in play.
     fn drop_piece(game: &mut Game, shift: Option<Shift>, cells: u8) {
         if let Some(shift) = shift {
-            game.tick(&TickInput {
-                shift: Some(shift),
-                shift_cells: cells,
-                ..TickInput::default()
-            });
+            tick(
+                game,
+                &TickInput {
+                    shift: Some(shift),
+                    shift_cells: cells,
+                    ..TickInput::default()
+                },
+            );
         }
-        game.tick(&TickInput::action(Action::HardDrop));
+        tick(game, &TickInput::action(Action::HardDrop));
         while game.current().is_none() && !game.is_over() {
-            game.tick(&TickInput::default());
+            tick(game, &TickInput::default());
         }
     }
 
@@ -963,14 +1092,11 @@ mod tests {
         assert_ne!(bottom_rows(&other, 20), bottom_rows(&game, 20));
     }
 
-    #[test]
-    fn a_scripted_game_is_unaffected_by_how_its_ticks_are_batched() {
-        // A first look at §19.4, the desync canary. Stage 5 makes this an
-        // integration test over GameView; asserting it here means a regression
-        // is caught in the stage that introduced it.
-        let mut single = new_game(42);
-        let mut batched = new_game(42);
-        let script: Vec<TickInput> = (0..600)
+    /// A script long enough to spawn, steer, lock, clear and level up several
+    /// times over. Deliberately dense: a desync has to have somewhere to show
+    /// itself.
+    fn script(ticks: u32) -> Vec<TickInput> {
+        (0..ticks)
             .map(|i: u32| match i % 30 {
                 0 => TickInput::action(Action::HardDrop),
                 7 => TickInput::action(Action::RotateCw),
@@ -982,20 +1108,62 @@ mod tests {
                     ..TickInput::default()
                 },
             })
-            .collect();
-        for input in &script {
-            single.tick(input);
+            .collect()
+    }
+
+    #[test]
+    fn two_games_from_the_same_seed_agree_on_every_tick() {
+        // T14, the first half: same `RulesConfig`, same seed, same inputs, and
+        // the views must match at every tick -- not merely at the end, where a
+        // divergence could have cancelled itself out.
+        let mut a = new_game(42);
+        let mut b = new_game(42);
+        assert_eq!(a.view(), b.view(), "before either has ticked");
+        for (i, input) in script(900).iter().enumerate() {
+            tick(&mut a, input);
+            tick(&mut b, input);
+            assert_eq!(a.view(), b.view(), "at tick {i}");
         }
-        for chunk in script.chunks(6) {
-            for input in chunk {
-                batched.tick(input);
+    }
+
+    #[test]
+    fn a_recorded_log_replays_to_the_same_state() {
+        // T14, the second half. A different seed must not reproduce it, or the
+        // test would pass for a core that ignored the seed entirely.
+        let log = script(900);
+        let replay = |seed| {
+            let mut game = new_game(seed);
+            for input in &log {
+                tick(&mut game, input);
             }
+            game.view()
+        };
+        assert_eq!(replay(42), replay(42));
+        assert_ne!(replay(42), replay(43));
+    }
+
+    #[test]
+    fn a_scripted_game_is_unaffected_by_how_its_ticks_are_batched() {
+        // T14 and §19.4, the desync canary, at the level of the view. `tests/`
+        // repeats it end to end against a checked-in snapshot; having it here
+        // as well means a regression names the stage that introduced it.
+        //
+        // One game is looked at every tick, the other only every sixth: if any
+        // rules decision depended on how the shell batched its calls, or on
+        // `view` being called, the two would part company.
+        let mut single = new_game(42);
+        let mut batched = new_game(42);
+        let script = script(900);
+        for (chunk_index, chunk) in script.chunks(6).enumerate() {
+            for input in chunk {
+                tick(&mut single, input);
+                let _ = single.view();
+            }
+            for input in chunk {
+                tick(&mut batched, input);
+            }
+            assert_eq!(single.view(), batched.view(), "after batch {chunk_index}",);
         }
-        assert_eq!(bottom_rows(&batched, 20), bottom_rows(&single, 20));
-        assert_eq!(batched.ticks(), single.ticks());
-        assert_eq!(batched.pieces(), single.pieces());
-        assert_eq!(batched.lines(), single.lines());
-        assert_eq!(batched.current(), single.current());
     }
 
     #[test]
@@ -1005,9 +1173,9 @@ mod tests {
         let mut game = new_game(101);
         let mut guard = 0;
         while !game.is_over() {
-            game.tick(&TickInput::action(Action::HardDrop));
+            tick(&mut game, &TickInput::action(Action::HardDrop));
             while game.current().is_none() && !game.is_over() {
-                game.tick(&TickInput::default());
+                tick(&mut game, &TickInput::default());
             }
             guard += 1;
             assert!(guard < 1000, "a stack of dropped pieces should top out");
@@ -1029,10 +1197,10 @@ mod tests {
             59,
         );
         place(&mut game, PieceKind::T, Point::new(3, 38), Rotation::North);
-        game.tick(&TickInput::default());
+        tick(&mut game, &TickInput::default());
         let before = game.current().unwrap();
         assert_eq!(game.lock.remaining(), Some(29));
-        game.tick(&TickInput::action(Action::Rotate180));
+        tick(&mut game, &TickInput::action(Action::Rotate180));
         assert_eq!(game.current().unwrap().rotation, before.rotation);
         assert_eq!(game.lock.resets_used(), 0, "an inert key resets no timer");
     }
@@ -1041,10 +1209,172 @@ mod tests {
     fn a_180_rotation_turns_the_piece_over_when_allowed() {
         let mut game = new_game(61);
         place(&mut game, PieceKind::T, Point::new(3, 25), Rotation::North);
-        game.tick(&TickInput::action(Action::Rotate180));
+        tick(&mut game, &TickInput::action(Action::Rotate180));
         let piece = game.current().unwrap();
         assert_eq!(piece.rotation, Rotation::South);
         assert!(piece.last_action_was_rotation);
         assert_eq!(piece.last_kick_index, 0, "180 takes no kick tests");
+    }
+
+    // -- T16: the event stream (§12.8) -------------------------------------
+
+    #[test]
+    fn a_clearing_tick_reports_the_rows_it_is_about_to_clear() {
+        // T16. The rows are named in visible-field coordinates, the clear is
+        // classified, and the event arrives as the flash starts -- one tick
+        // before the rows actually go.
+        let mut game = new_game(29);
+        game.matrix = from_bottom_rows(&["####.#####", "####.#####"]);
+        place(&mut game, PieceKind::I, Point::new(2, 34), Rotation::East);
+        let events = tick_events(&mut game, &TickInput::action(Action::HardDrop));
+
+        assert_eq!(
+            events,
+            vec![
+                GameEvent::HardDropped { rows: 2 },
+                GameEvent::PieceLocked {
+                    cells: [(4, 16), (4, 17), (4, 18), (4, 19)],
+                    kind: PieceKind::I,
+                },
+                GameEvent::LinesCleared {
+                    rows: vec![18, 19],
+                    clear: ClearKind::Double,
+                    b2b: false,
+                    combo: -1,
+                },
+            ],
+        );
+        assert_eq!(game.lines(), 0, "the rows are still on screen");
+    }
+
+    #[test]
+    fn a_clear_that_empties_the_board_reports_a_perfect_clear() {
+        // §9.15, judged once the rows have gone, and followed by the level and
+        // the next piece in that order (§9.12 steps 6-9).
+        let mut game = new_game_with(
+            GameplaySettings {
+                lines_per_level: 1,
+                ..GameplaySettings::default()
+            },
+            TimingSettings::default(),
+            31,
+        );
+        // Six filled cells and a four-wide gap: a flat I completes the row
+        // and leaves nothing behind, which is what makes it a perfect clear.
+        game.matrix = from_bottom_rows(&["######...."]);
+        place(&mut game, PieceKind::I, Point::new(6, 30), Rotation::North);
+        tick(&mut game, &TickInput::action(Action::HardDrop));
+        idle(&mut game, 14);
+        let events = tick_events(&mut game, &TickInput::default());
+
+        assert_eq!(events[0], GameEvent::PerfectClear, "the board is empty");
+        assert_eq!(events[1], GameEvent::LevelUp(2));
+        assert!(
+            matches!(events[2], GameEvent::PieceSpawned(_)),
+            "and the next piece follows, entry delay being 0",
+        );
+        assert_eq!(events.len(), 3);
+    }
+
+    #[test]
+    fn the_common_tick_says_nothing_and_allocates_nothing() {
+        // T16: "the common tick emits no events and allocates nothing". The
+        // buffer is the caller's and is never cleared by the core, so a run of
+        // quiet ticks must leave both its length and its capacity alone.
+        let mut game = new_game(37);
+        let mut events = Vec::with_capacity(4);
+        let capacity = events.capacity();
+        for _ in 0..59 {
+            game.tick(&TickInput::default(), &mut events);
+        }
+        assert!(events.is_empty(), "nothing happened, so nothing was said");
+        assert_eq!(events.capacity(), capacity, "and nothing was allocated");
+
+        // The sixtieth tick is the one gravity moves the piece on (§9.9).
+        game.tick(&TickInput::default(), &mut events);
+        assert_eq!(events, vec![GameEvent::PieceMoved]);
+    }
+
+    #[test]
+    fn a_failed_rotation_is_reported_but_an_inert_key_is_not() {
+        // §9.5 step 4 raises `RotationFailed` so the shell can buzz; a key
+        // switched off in the config never reaches the rules at all (§10.1).
+        let mut game = new_game(41);
+        // A flat I in a slot one row high. Every kick test lands it across a
+        // filled row, so the rotation has nowhere to go. Column 9 is left open
+        // so that no row here is complete.
+        game.matrix = from_bottom_rows(&["#########.", "###....##.", "#########."]);
+        place(&mut game, PieceKind::I, Point::new(3, 37), Rotation::North);
+        assert_eq!(
+            tick_events(&mut game, &TickInput::action(Action::RotateCw)),
+            vec![GameEvent::RotationFailed],
+        );
+
+        let mut off = new_game_with(
+            GameplaySettings {
+                allow_180_rotation: false,
+                ..GameplaySettings::default()
+            },
+            TimingSettings::default(),
+            41,
+        );
+        assert_eq!(
+            tick_events(&mut off, &TickInput::action(Action::Rotate180)),
+            vec![],
+            "an inert key raises nothing, exactly as it resets nothing",
+        );
+    }
+
+    #[test]
+    fn topping_out_names_its_cause() {
+        // §9.16, both ways round.
+        let mut lock_out = new_game(47);
+        let mut matrix = Matrix::new();
+        for x in 0..WIDTH {
+            matrix.set(x, 20, Some(PieceKind::I));
+        }
+        lock_out.matrix = matrix;
+        place(
+            &mut lock_out,
+            PieceKind::O,
+            Point::new(4, 18),
+            Rotation::North,
+        );
+        let events = tick_events(&mut lock_out, &TickInput::action(Action::HardDrop));
+        assert_eq!(
+            events.last(),
+            Some(&GameEvent::ToppedOut(TopOutCause::LockOut)),
+        );
+
+        let mut block_out = new_game(53);
+        block_out.matrix = tower_over_the_spawn_columns();
+        place(
+            &mut block_out,
+            PieceKind::O,
+            Point::new(0, 36),
+            Rotation::North,
+        );
+        let events = tick_events(&mut block_out, &TickInput::action(Action::HardDrop));
+        assert_eq!(
+            events.last(),
+            Some(&GameEvent::ToppedOut(TopOutCause::BlockOut)),
+        );
+    }
+
+    #[test]
+    fn what_the_caller_does_with_the_events_cannot_change_the_game() {
+        // T16: "discarding every event leaves the game state bit-identical."
+        // One game's events are thrown away every tick, the other's pile up in
+        // a buffer that is never cleared. If the core ever read `out` back --
+        // branching on its length, say -- the two would diverge.
+        let mut discarded = new_game(59);
+        let mut hoarded = new_game(59);
+        let mut pile = Vec::new();
+        for input in &script(900) {
+            discarded.tick(input, &mut Vec::new());
+            hoarded.tick(input, &mut pile);
+            assert_eq!(discarded.view(), hoarded.view());
+        }
+        assert!(!pile.is_empty(), "the script did something worth reporting");
     }
 }

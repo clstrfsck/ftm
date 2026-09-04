@@ -20,5 +20,9 @@ pub mod srs;
 pub mod tspin;
 pub mod view;
 
-// TODO(stage 5): re-export the `Game` façade and the view/event types — and
-// nothing else (§19.2, acceptance A10).
+// The core's façade. The shell is expected to reach for these and nothing else:
+// `Game` to advance the rules, `GameView` to draw them, `GameEvent` to animate
+// them (§3.1, §19.2). Acceptance A10 audits that in Stage 12.
+pub use events::{ClearKind, GameEvent, ScoreReason, TopOutCause};
+pub use game::{Action, Actions, Game, PlayState, Shift, TickInput};
+pub use view::{GameView, PieceView};
