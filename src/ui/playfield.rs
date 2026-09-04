@@ -1,12 +1,14 @@
 //! The in-game screen (§12.4).
 //!
 //! Stage 6 draws the bare minimum: the playfield box, the locked cells and the
-//! falling piece. Everything is taken from [`GameView`] and nothing reads
-//! `Game` (§12.7).
+//! falling piece, with Stage 7's counters on the bottom border as a debug line
+//! until §12.4's status line exists. Everything is taken from [`GameView`] and
+//! nothing reads `Game` (§12.7).
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::Line;
+use ratatui::widgets::block::Position;
 use ratatui::widgets::{Block, Paragraph};
 
 use crate::core::GameView;
@@ -28,11 +30,28 @@ pub const BOX_HEIGHT: u16 = VIEW_HEIGHT as u16 + 2;
 /// centred over it (§12.6).
 pub fn render(frame: &mut Frame, view: &GameView) -> Rect {
     let area = centred(frame.area(), BOX_WIDTH, BOX_HEIGHT);
-    let block = Block::bordered();
+    // A debug line, not the §12.4 status line: Stage 9 replaces the whole
+    // layout, and until it does this is the only way to see that the score of
+    // §9.14 moves at all.
+    let block = Block::bordered()
+        .title_bottom(counters(view))
+        .title_position(Position::Bottom);
     let interior = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(rows(view)), interior);
     interior
+}
+
+/// The counters, squeezed onto the bottom border (§9.14, §9.15).
+fn counters(view: &GameView) -> String {
+    let mut line = format!(" {} L{} {} ", view.score, view.level, view.lines);
+    if view.back_to_back {
+        line.push_str("B2B ");
+    }
+    if view.combo >= 1 {
+        line.push_str(&format!("x{} ", view.combo));
+    }
+    line
 }
 
 /// The visible rows, with the falling piece composited in.

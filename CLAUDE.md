@@ -3,15 +3,16 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 6 of `PLAN.md` complete — milestone M2.** It is playable:
+**Status: Stage 7 of `PLAN.md` complete.** It is playable and it keeps score:
 `cargo run --release` gives a bare bordered field where pieces move, rotate,
-soft drop, hard drop, clear rows and top out. `Game::tick(&TickInput, &mut
-Vec<GameEvent>)` is still the single entry point and `Game::view()` still the
-only way to see the result; the shell is `main.rs` (terminal), `app.rs` (the
-§15.2 loop), `input.rs` (§10) and `ui/` (§12). T1-T8, T11, T13-T17 and I1 pass,
-and the batch-invariance canary is in CI. There is no score, hold, ghost, next
-box, pause or menu yet — the view's fields for them are present but inert.
-Stage 7 (scoring) is next.
+soft drop, hard drop, clear rows, spin, chain and top out, with the counters on
+the bottom border as a debug line until §12.4's status line lands in Stage 9.
+`Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
+and `Game::view()` still the only way to see the result; the shell is `main.rs`
+(terminal), `app.rs` (the §15.2 loop), `input.rs` (§10) and `ui/` (§12). T1-T11
+and T13-T17 pass, plus I1, and the batch-invariance canary is in CI. There is no
+hold, ghost, next box, pause or menu yet — the view's fields for them are
+present but inert. Stage 8 (hold, ghost, preview queue) is next.
 
 ## Read these first
 
@@ -62,6 +63,15 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **T-spin**: the "last action was a rotation" flag must survive a hard drop, and
   kick test 5 always means a proper T-spin (§9.13). This is the most commonly
   botched rule in the spec.
+- **Scoring reads the level at the lock**, before §9.12 step 7 advances it, and
+  the perfect-clear bonus reads the same level and the same back-to-back flag as
+  the clear that earned it — not the chain state afterwards, which the clear may
+  just have switched on. `Game::clearing_b2b` is what carries that flag across
+  the clear pause.
+- **`back_to_back` is two different questions.** `GameView::back_to_back` is
+  whether the chain is *live*; `LinesCleared::b2b` is whether *that clear* was
+  paid at the chained rate. They differ on the clear that starts a chain (§9.15,
+  §12.8).
 - **Hold** clears its lock-out when the next piece **locks**, not when it spawns
   (§9.7).
 - **A four-line clear is a `QUAD`** (§1.3, §2, §9.14), never a `TETRIS` — in the
