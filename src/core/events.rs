@@ -10,14 +10,12 @@
 //! visible field is omitted, encoded as [`OFF_SCREEN`].
 
 use crate::core::piece::PieceKind;
+use crate::core::tspin::TSpin;
 
 /// A mino that lies above the visible field and cannot be drawn (§12.7).
 pub const OFF_SCREEN: (u8, u8) = (255, 255);
 
 /// The classification of a lock, one row of the §9.14 score table.
-///
-/// The variants that name a T-spin are produced from Stage 7 onwards; until the
-/// classifier of §9.13 exists, every clear is a plain one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ClearKind {
     Single,
@@ -46,6 +44,43 @@ impl ClearKind {
             4 => Some(ClearKind::Quad),
             _ => None,
         }
+    }
+
+    /// The classification of a lock, from its T-spin status (§9.13) and the
+    /// number of rows it completed.
+    ///
+    /// `None` for the lock that neither spun nor cleared: the one that scores
+    /// nothing, breaks the combo and leaves the back-to-back chain alone.
+    pub fn of(spin: TSpin, lines: usize) -> Option<Self> {
+        let named = match spin {
+            TSpin::None => return Self::plain(lines),
+            TSpin::Proper => match lines {
+                0 => Some(ClearKind::TSpin),
+                1 => Some(ClearKind::TSpinSingle),
+                2 => Some(ClearKind::TSpinDouble),
+                3 => Some(ClearKind::TSpinTriple),
+                _ => None,
+            },
+            TSpin::Mini => match lines {
+                0 => Some(ClearKind::TSpinMini),
+                1 => Some(ClearKind::TSpinMiniSingle),
+                2 => Some(ClearKind::TSpinMiniDouble),
+                _ => None,
+            },
+        };
+        // The §9.14 table stops where the geometry does, and the gaps are
+        // unreachable rather than unspecified. A T spans at most three rows, so
+        // it can never clear four. Three is a whole row from each of the outer
+        // two, and a T contributes one cell to each of those, which leaves the
+        // rest of both rows filled -- so all four corners are occupied and a
+        // three-row clear is always proper, never mini.
+        //
+        // If one of those ever happens anyway, scoring it as the plain clear it
+        // also is beats scoring it as nothing.
+        named.or_else(|| {
+            debug_assert!(false, "{spin:?} cannot clear {lines} rows");
+            Self::plain(lines)
+        })
     }
 
     /// How many rows this clear removed.
