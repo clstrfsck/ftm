@@ -399,7 +399,9 @@ take back to §8.2, not something to fix by tuning constants forever.
 
 **Goal:** everything in §6 reachable without a text editor.
 
-**Spec:** §6.1, §6.2, §6.4, §13.5 (options panel), §16
+**Spec:** §6.1, §6.2, §6.4, §13.5 (options panel), §16, and the two `[display]`
+settings Stage 9 could not reach: §12.2 (cell glyphs) and §12.4 (the debug
+stats box).
 
 **Deliverables**
 
@@ -410,6 +412,18 @@ take back to §8.2, not something to fix by tuning constants forever.
 - The warning vector and the §16 error-handling contract, including the
   print-after-teardown rule.
 - The Options panel (§13.5) writing back on exit.
+- The configured `cell_filled` / `cell_empty` / `cell_ghost` glyphs, rejected
+  with a warning and replaced by the default unless they are exactly two display
+  columns wide (§12.2). The check belongs to the loader, not the renderer —
+  `ui::cells` assumes two columns everywhere.
+- **The §12.4 debug stats box**, which `show_debug` turns on and which nothing
+  could reach until this stage. Frame rate, ticks elapsed, dropped ticks and the
+  input mode are the shell's own; gravity in G, `fall_period`, lock-delay ticks
+  remaining and the bag contents are **core state that `GameView` does not
+  carry**. Decide deliberately how they get out: a `debug: Option<DebugView>`
+  on the view is the obvious answer, and it widens §19's wire format, so it is a
+  design decision rather than a plumbing job. Do not let the renderer reach into
+  `Game` for them (§12.7) — that is the one answer the layering rule forbids.
 
 **Exit criteria**
 
@@ -417,6 +431,10 @@ take back to §8.2, not something to fix by tuning constants forever.
 - **A5** passes: `preview_count` honoured for all six values from both the file
   and the flag.
 - A malformed config produces exactly one warning and a playable game.
+- Every `[display]` setting changes the screen: `show_grid`, `show_debug`, each
+  of the three glyphs, and `color_depth` in all five of its values.
+- A glyph that is not two columns wide is rejected and the field stays a
+  rectangle.
 
 **Size:** M
 
