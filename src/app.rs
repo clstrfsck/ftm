@@ -249,10 +249,16 @@ impl App {
     /// first tick of the batch only; the held soft drop applies to every tick
     /// in it.
     fn advance(&mut self, ticks: u32, now: Instant) {
-        // Cleared unconditionally: the events of a frame belong to that frame,
-        // and a frame that ran no ticks produced none.
+        // Cleared unconditionally, and *before* the early return: the events of
+        // a frame belong to that frame, and the cosmetics absorb this buffer
+        // every frame (§12.5). Leaving the last frame's events in it would
+        // restart their animations sixty times a second.
         self.events.clear();
-        if !self.phase.running() {
+        // §15.2 step 6 wakes the loop early on a key press, so a frame can
+        // legitimately run no ticks at all. Input the shell has already
+        // resolved is held until a tick consumes it -- clearing `pending` here
+        // would swallow every tap that landed between two ticks.
+        if ticks == 0 || !self.phase.running() {
             return;
         }
         for tick in 0..ticks {
@@ -449,6 +455,45 @@ mod tests {
 
     fn press(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn a_frame_that_runs_no_ticks_keeps_the_input_it_resolved() {
+        // §15.2 step 6: the loop wakes early on a key press, so a frame can
+        // legitimately run zero ticks. Input the shell has already resolved
+        // must survive until a tick consumes it, or every tap that lands
+        // between two ticks -- which is most of them -- is silently lost.
+        let mut app = app();
+        let now = Instant::now();
+        app.pending.shift = Some(Shift::Left);
+        app.pending.cells = 1;
+        let _ = app.pending.actions.push(Action::RotateCw);
+
+        app.advance(0, now);
+        assert_eq!(app.pending.cells, 1, "the cell is still owed");
+        assert_ne!(
+            app.pending.actions,
+            Actions::default(),
+            "and so is the turn"
+        );
+
+        app.advance(1, now);
+        assert_eq!(app.pending.cells, 0, "and one tick consumes both");
+        assert_eq!(app.pending.actions, Actions::default());
+    }
+
+    #[test]
+    fn a_frame_that_runs_no_ticks_reports_no_events() {
+        // The other half of the same guard: `events` is what the §12.5
+        // animations are fed, so a frame that did nothing must say nothing.
+        let mut app = app();
+        let now = Instant::now();
+        let _ = app.pending.actions.push(Action::HardDrop);
+        app.advance(1, now);
+        assert!(!app.events.is_empty(), "a hard drop is eventful");
+
+        app.advance(0, now);
+        assert!(app.events.is_empty(), "the next frame did nothing");
     }
 
     #[test]
