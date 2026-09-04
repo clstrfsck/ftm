@@ -16,7 +16,7 @@ use std::io::IsTerminal;
 
 use ratatui::style::{Color, Modifier, Style};
 
-use crate::config::ColorDepth;
+use crate::config::{CELL_COLUMNS, ColorDepth, DisplaySettings, display_columns};
 use crate::core::piece::{Colour, PieceKind};
 
 /// Full brightness: the §9.2 colour as written.
@@ -37,15 +37,67 @@ pub enum Depth {
     Mono,
 }
 
+/// The three configured cell glyphs of §12.2, each exactly
+/// [`CELL_COLUMNS`] display columns wide.
+///
+/// `&'static str` rather than `String` so that [`Theme`] stays `Copy`, which
+/// every caller in `ui` relies on. The strings come from the config file, so
+/// [`Glyphs::configured`] leaks them — three allocations that live as long as
+/// the process, made once at start-up. The alternative is a lifetime parameter
+/// on `Theme` threaded through every screen, to save three strings.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Glyphs {
+    filled: &'static str,
+    empty: &'static str,
+    ghost: &'static str,
+}
+
+impl Glyphs {
+    /// The §6.3 defaults.
+    pub const DEFAULT: Self = Self {
+        filled: "\u{2588}\u{2588}",
+        empty: "  ",
+        ghost: "\u{2592}\u{2592}",
+    };
+
+    /// The configured glyphs (§12.2). **Call this once**, at start-up: it
+    /// leaks whatever the player configured.
+    ///
+    /// The width rule is the loader's (§6.2), which has already replaced
+    /// anything that is not two columns wide with the default and warned about
+    /// it. The check here is the belt to that braces: a glyph that reached this
+    /// far without being validated would make the playfield ragged, and there
+    /// is no way to notice that from inside `ui`.
+    pub fn configured(display: &DisplaySettings) -> Self {
+        let intern = |text: &str, default: &'static str| -> &'static str {
+            if text == default || display_columns(text) != Some(CELL_COLUMNS) {
+                default
+            } else {
+                Box::leak(text.to_string().into_boxed_str())
+            }
+        };
+        Self {
+            filled: intern(&display.cell_filled, Self::DEFAULT.filled),
+            empty: intern(&display.cell_empty, Self::DEFAULT.empty),
+            ghost: intern(&display.cell_ghost, Self::DEFAULT.ghost),
+        }
+    }
+}
+
 /// The palette, at one colour depth.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Theme {
     depth: Depth,
+    glyphs: Glyphs,
 }
 
 impl Theme {
+    /// A theme with the §6.3 default glyphs.
     pub const fn new(depth: Depth) -> Self {
-        Self { depth }
+        Self {
+            depth,
+            glyphs: Glyphs::DEFAULT,
+        }
     }
 
     /// Resolve `color_depth` against the environment (§12.3).
@@ -54,17 +106,19 @@ impl Theme {
     /// a positive answer from `$COLORTERM` rather than being reached only when
     /// every other test has failed, which is the only reading under which it
     /// can ever apply.
-    pub fn resolve(requested: ColorDepth) -> Self {
-        if !std::io::stdout().is_terminal() || env::var_os("NO_COLOR").is_some() {
-            return Self::new(Depth::Mono);
-        }
-        Self::new(match requested {
-            ColorDepth::Truecolor => Depth::Truecolor,
-            ColorDepth::Ansi256 => Depth::Ansi256,
-            ColorDepth::Ansi16 => Depth::Ansi16,
-            ColorDepth::Mono => Depth::Mono,
-            ColorDepth::Auto => detect(),
-        })
+    pub fn resolve(requested: ColorDepth, glyphs: Glyphs) -> Self {
+        let depth = if !std::io::stdout().is_terminal() || env::var_os("NO_COLOR").is_some() {
+            Depth::Mono
+        } else {
+            match requested {
+                ColorDepth::Truecolor => Depth::Truecolor,
+                ColorDepth::Ansi256 => Depth::Ansi256,
+                ColorDepth::Ansi16 => Depth::Ansi16,
+                ColorDepth::Mono => Depth::Mono,
+                ColorDepth::Auto => detect(),
+            }
+        };
+        Self { depth, glyphs }
     }
 
     pub const fn depth(self) -> Depth {
@@ -150,6 +204,10 @@ impl Theme {
 
     /// The glyph for one occupied cell (§12.2, §12.3): two display columns,
     /// always.
+    ///
+    /// `mono` overrides the configured glyph, because there §12.3 asks for the
+    /// piece's own letter and a single block character would leave the seven
+    /// pieces indistinguishable — which is the one thing colour was doing.
     pub fn filled_glyph(self, kind: PieceKind) -> &'static str {
         match self.depth {
             Depth::Mono => match kind {
@@ -161,7 +219,7 @@ impl Theme {
                 PieceKind::J => "JJ",
                 PieceKind::L => "LL",
             },
-            _ => "\u{2588}\u{2588}",
+            _ => self.glyphs.filled,
         }
     }
 
@@ -169,13 +227,19 @@ impl Theme {
     pub fn ghost_glyph(self) -> &'static str {
         match self.depth {
             Depth::Mono => "..",
-            _ => "\u{2592}\u{2592}",
+            _ => self.glyphs.ghost,
         }
     }
 
-    /// The glyph for one empty cell — dotted when `show_grid` (§12.2).
+    /// The glyph for one empty cell — the dotted grid of §12.2 when
+    /// `show_grid` is on, which overrides `cell_empty` for the same reason
+    /// `mono` overrides `cell_filled`: it is what the setting is for.
     pub fn empty_glyph(self, grid: bool) -> &'static str {
-        if grid { "\u{b7}\u{b7}" } else { "  " }
+        if grid {
+            "\u{b7}\u{b7}"
+        } else {
+            self.glyphs.empty
+        }
     }
 }
 
@@ -374,5 +438,62 @@ mod tests {
             assert_eq!(theme.filled_glyph(kind), doubled);
         }
         assert_eq!(theme.ghost_glyph(), "..");
+    }
+    #[test]
+    fn the_configured_glyphs_replace_the_defaults() {
+        // §12.2: `cell_filled`, `cell_empty` and `cell_ghost` are the player's,
+        // and every depth but `mono` honours them.
+        let theme = Theme::resolve(
+            ColorDepth::Truecolor,
+            Glyphs::configured(&DisplaySettings {
+                cell_filled: "[]".to_string(),
+                cell_empty: "..".to_string(),
+                cell_ghost: "()".to_string(),
+                ..DisplaySettings::default()
+            }),
+        );
+        // Under a test harness stdout is not a terminal, so §12.3 step 1 makes
+        // the depth `mono` whatever was asked for -- which is the environment
+        // rule working, not a failure. The glyphs travel regardless.
+        let theme = Theme {
+            depth: Depth::Truecolor,
+            ..theme
+        };
+        assert_eq!(theme.filled_glyph(PieceKind::T), "[]");
+        assert_eq!(theme.empty_glyph(false), "..");
+        assert_eq!(theme.ghost_glyph(), "()");
+        assert_eq!(
+            theme.empty_glyph(true),
+            "\u{b7}\u{b7}",
+            "show_grid overrides cell_empty, which is what the setting is for",
+        );
+    }
+
+    #[test]
+    fn mono_keeps_its_letters_whatever_the_glyphs_say() {
+        // §12.3: in `mono` the piece letter is all that distinguishes the seven
+        // pieces, so a configured block character must not replace it.
+        let glyphs = Glyphs::configured(&DisplaySettings {
+            cell_filled: "[]".to_string(),
+            cell_ghost: "()".to_string(),
+            ..DisplaySettings::default()
+        });
+        let theme = Theme {
+            depth: Depth::Mono,
+            glyphs,
+        };
+        assert_eq!(theme.filled_glyph(PieceKind::S), "SS");
+        assert_eq!(theme.ghost_glyph(), "..");
+    }
+
+    #[test]
+    fn a_glyph_the_loader_would_have_rejected_falls_back() {
+        // Belt to the loader's braces (§6.2, §12.2): `ui` assumes two columns
+        // everywhere and has no way to notice a ragged field from inside.
+        let glyphs = Glyphs::configured(&DisplaySettings {
+            cell_filled: "###".to_string(),
+            ..DisplaySettings::default()
+        });
+        assert_eq!(glyphs.filled, Glyphs::DEFAULT.filled);
     }
 }

@@ -16,7 +16,7 @@ use crate::config::{MAX_CATCH_UP_TICKS, PresentationConfig, RulesConfig, TICK};
 use crate::core::{Action, Actions, Game, GameEvent, GameView, Shift, TickInput};
 use crate::input::{Bindings, InputMode, InputState};
 use crate::ui::overlays::PauseChoice;
-use crate::ui::theme::Theme;
+use crate::ui::theme::{Glyphs, Theme};
 use crate::ui::{self, Chrome, Cosmetics, Overlay, Tui};
 
 // TODO(stage 11): the rest of the §7 state machine — attract, restart and name
@@ -327,7 +327,12 @@ pub fn run(
     seed: u64,
 ) -> Result<()> {
     let chrome = Chrome {
-        theme: Theme::resolve(presentation.display.color_depth),
+        // §12.2's glyphs are interned once, here: the theme is `Copy` and
+        // carries them by reference for the life of the process.
+        theme: Theme::resolve(
+            presentation.display.color_depth,
+            Glyphs::configured(&presentation.display),
+        ),
         show_grid: presentation.display.show_grid,
         hold_enabled: rules.hold_enabled,
     };

@@ -16,9 +16,6 @@ use crate::ui::theme::{self, Theme};
 /// The character width of one matrix cell (§12.2).
 pub const CELL_WIDTH: u16 = 2;
 
-// TODO(stage 10): the configured `cell_filled` / `cell_empty` / `cell_ghost`
-// glyphs, once the loader has checked they are two columns wide (§12.2).
-
 /// What one composited cell shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Paint {
