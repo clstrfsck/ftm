@@ -124,6 +124,14 @@ impl Bindings {
     }
 }
 
+/// Whether `name` is a key name §10.1 recognises.
+///
+/// The grammar lives here, with the parser that owns it, and the config loader
+/// asks rather than keeping a second copy that could drift (§6.2).
+pub fn is_key_name(name: &str) -> bool {
+    parse_key(name).is_some()
+}
+
 /// A key name from §10.1 as a `KeyCode`.
 ///
 /// `Left`, `Right`, `Up`, `Down`, `Space`, `Enter`, `Tab`, `Esc`, `Backspace`,
