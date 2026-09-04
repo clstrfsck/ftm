@@ -10,6 +10,7 @@ use std::io::{self, Stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
+use clap::Parser;
 use crossterm::cursor::{Hide, Show};
 use crossterm::event::{
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
@@ -22,7 +23,7 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use termino::app;
-use termino::config::ConfigFile;
+use termino::config::{self, Cli, Startup};
 use termino::input::InputMode;
 use termino::ui::Tui;
 
@@ -31,13 +32,17 @@ use termino::ui::Tui;
 /// hook — and has to be idempotent (§8.3).
 static ENHANCED: AtomicBool = AtomicBool::new(false);
 
-// TODO(stage 10): clap CLI (§6.4), the config file at the §6.2 path, and the
-// warnings the loader collects along the way.
-
 fn main() -> Result<()> {
-    // §8.1 step 1: config first, before anything touches the terminal.
-    let (rules, presentation) = ConfigFile::default().resolve();
-    let mut warnings: Vec<String> = Vec::new();
+    // §8.1 step 1: arguments and config first, before anything touches the
+    // terminal — including `--print-config`, which never opens one at all.
+    let cli = Cli::parse();
+    let mut startup = Startup::resolve(&cli, rand::random::<u64>);
+    if cli.print_config {
+        print!("{}", config::document(&startup.file));
+        report(&startup.warnings);
+        return Ok(());
+    }
+    let (rules, presentation) = startup.file.resolve();
 
     // §8.1 step 2: the panic hook goes in *before* raw mode, so that a crash
     // between here and the first frame still leaves a usable shell.
@@ -47,25 +52,37 @@ fn main() -> Result<()> {
     if mode == InputMode::Legacy {
         // §16: an unsupported enhancement degrades to a documented default and
         // adds a line to the warnings printed at exit.
-        warnings.push(format!(
+        startup.warnings.push(format!(
             "keyboard enhancement unsupported: using {} key handling, \
              so a held key expires 90 ms after its last repeat (§8.2)",
             mode.name(),
         ));
     }
 
-    // TODO(stage 10): --seed, which also excludes the run from the high-score
-    // table (§6.4, §14).
-    let seed = rand::random::<u64>();
-    let result = app::run(&mut terminal, rules, &presentation, mode, seed);
+    let result = app::run(&mut terminal, rules, &presentation, mode, startup.seed);
 
     restore();
-    // §8.3: warnings are printed after teardown, on stderr, where they will
-    // still be on screen once the alternate screen has gone.
-    for warning in &warnings {
+    // §6.2: the commented default file is written on the first clean exit, and
+    // never over a file the player already has. What is written is the file
+    // without the command line applied: a flag is for one run (§6.1).
+    if let (false, Some(path), true) = (startup.existed, startup.path.as_deref(), result.is_ok()) {
+        if let Err(error) = config::save(path, &startup.on_disk) {
+            // §16: an unwritable config never aborts.
+            startup
+                .warnings
+                .push(format!("{}: {error}", path.display()));
+        }
+    }
+    report(&startup.warnings);
+    result
+}
+
+/// §8.3, §16: warnings go to stderr **after** teardown, where they will still
+/// be on screen once the alternate screen has gone.
+fn report(warnings: &[String]) {
+    for warning in warnings {
         eprintln!("termino: {warning}");
     }
-    result
 }
 
 /// §8.1 steps 3-8, in that order.

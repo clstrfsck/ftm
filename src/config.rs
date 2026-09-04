@@ -19,6 +19,7 @@ use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use clap::{Parser, ValueEnum};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
@@ -79,7 +80,7 @@ pub const fn ms_to_ticks_at_least_one(ms: u32) -> u32 {
 }
 
 /// The lock-down rule (§9.11).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum LockDownRule {
     /// Extended placement: 15 resets, restored on reaching a new lowest row.
@@ -92,7 +93,7 @@ pub enum LockDownRule {
 }
 
 /// The requested colour depth (§12.3).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum ColorDepth {
     /// Detect from `$COLORTERM`, `$TERM` and `$NO_COLOR` (§12.3).
@@ -100,8 +101,10 @@ pub enum ColorDepth {
     Auto,
     Truecolor,
     #[serde(rename = "256")]
+    #[value(name = "256")]
     Ansi256,
     #[serde(rename = "16")]
+    #[value(name = "16")]
     Ansi16,
     Mono,
 }
@@ -960,6 +963,149 @@ fn range_text<T: std::fmt::Display>(range: &RangeInclusive<T>) -> String {
     format!("{}..={}", range.start(), range.end())
 }
 
+// ---------------------------------------------------------------------------
+// §6.4: the command line
+// ---------------------------------------------------------------------------
+
+/// The §6.4 command line.
+///
+/// Every flag here overrides the config file for one run and is never written
+/// back (§6.1): the file is the player's, and a flag is an experiment.
+#[derive(Debug, Default, Parser)]
+#[command(
+    name = "termino",
+    version,
+    about = "A guideline-conformant falling-block game for the terminal",
+    // The struct's doc comment explains the type, not the program; without
+    // this clap would print it as the long help.
+    long_about = None,
+    disable_help_subcommand = true
+)]
+pub struct Cli {
+    /// Pieces shown in the preview window [1-6]
+    #[arg(long, value_name = "N")]
+    pub preview: Option<u8>,
+    /// Starting level [1-15]
+    #[arg(long, value_name = "N")]
+    pub level: Option<u32>,
+    /// Disable the ghost piece
+    #[arg(long)]
+    pub no_ghost: bool,
+    /// Enable the hold mechanic
+    #[arg(long, overrides_with = "no_hold")]
+    hold: bool,
+    /// Disable the hold mechanic
+    #[arg(long, overrides_with = "hold")]
+    no_hold: bool,
+    /// Enable 180-degree rotation
+    #[arg(long, overrides_with = "no_rot180")]
+    rot180: bool,
+    /// Disable 180-degree rotation
+    #[arg(long, overrides_with = "rot180")]
+    no_rot180: bool,
+    /// Lock-down rule
+    #[arg(long, value_name = "RULE")]
+    pub lock_down: Option<LockDownRule>,
+    /// Colour depth
+    #[arg(long = "color", value_name = "MODE")]
+    pub color: Option<ColorDepth>,
+    /// Seed the randomiser (implies no high-score recording)
+    #[arg(long, value_name = "N")]
+    pub seed: Option<u64>,
+    /// Use an alternative config file
+    #[arg(long, value_name = "PATH")]
+    pub config: Option<PathBuf>,
+    /// Write the effective config to stdout and exit
+    #[arg(long)]
+    pub print_config: bool,
+}
+
+impl Cli {
+    /// §6.4: "each paired flag overrides the corresponding config key in both
+    /// directions, so a setting turned off in the config file can still be
+    /// turned on for one run". The two halves override each other, so the last
+    /// one written on the command line is the one that counts.
+    fn paired(yes: bool, no: bool) -> Option<bool> {
+        match (yes, no) {
+            (true, _) => Some(true),
+            (_, true) => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Overlay the flags on a loaded file (§6.1 step 3).
+    pub fn apply(&self, file: &mut ConfigFile) {
+        let g = &mut file.gameplay;
+        if let Some(preview) = self.preview {
+            g.preview_count = preview;
+        }
+        if let Some(level) = self.level {
+            g.start_level = level;
+        }
+        if self.no_ghost {
+            g.ghost_piece = false;
+        }
+        if let Some(hold) = Self::paired(self.hold, self.no_hold) {
+            g.hold_enabled = hold;
+        }
+        if let Some(rot180) = Self::paired(self.rot180, self.no_rot180) {
+            g.allow_180_rotation = rot180;
+        }
+        if let Some(rule) = self.lock_down {
+            g.lock_down = rule;
+        }
+        if let Some(depth) = self.color {
+            file.display.color_depth = depth;
+        }
+    }
+}
+
+/// Everything start-up resolved: what to play by, where it came from, and what
+/// went wrong on the way (§6.1, §16).
+///
+/// `file` is the effective configuration — defaults, then the file, then the
+/// command line. `on_disk` is the file *without* the command line, because
+/// that is what §6.2 writes out on a first clean exit: a flag is for one run
+/// and is never written back.
+#[derive(Clone, Debug)]
+pub struct Startup {
+    pub file: ConfigFile,
+    pub on_disk: ConfigFile,
+    pub path: Option<PathBuf>,
+    pub existed: bool,
+    pub seed: u64,
+    /// §6.4: a seeded run is reproducible and is never written to the
+    /// high-score table (§14).
+    pub seeded: bool,
+    /// Printed after terminal teardown, on stderr (§16).
+    pub warnings: Vec<String>,
+}
+
+impl Startup {
+    /// Resolve the three sources of §6.1, in order.
+    pub fn resolve(cli: &Cli, seed: impl FnOnce() -> u64) -> Self {
+        let mut warnings = Vec::new();
+        let loaded = load(cli.config.as_deref(), &mut warnings);
+        let mut file = loaded.file.clone();
+        cli.apply(&mut file);
+        // The command line is not validated the way the file is: clap has
+        // already rejected what it cannot parse, and §6.3's ranges still apply
+        // through `RulesConfig::from_settings`. What is worth saying is when a
+        // flag asked for something outside them.
+        let mut clamped = ConfigFile::clone(&file);
+        validate(&mut clamped, &mut warnings);
+        Self {
+            file: clamped,
+            on_disk: loaded.file,
+            path: loaded.path,
+            existed: loaded.existed,
+            seed: cli.seed.unwrap_or_else(seed),
+            seeded: cli.seed.is_some(),
+            warnings,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1485,5 +1631,150 @@ x = 1
         assert!(loaded.existed);
         assert!(warnings.is_empty(), "{warnings:?}");
         let _ = fs::remove_dir_all(path.parent().expect("a parent"));
+    }
+    // -- §6.4: the command line ---------------------------------------------
+
+    fn cli(args: &[&str]) -> Cli {
+        let mut argv = vec!["termino"];
+        argv.extend_from_slice(args);
+        Cli::try_parse_from(argv).expect("parses")
+    }
+
+    #[test]
+    fn the_command_line_matches_the_spec_synopsis() {
+        // §6.4, flag by flag. `try_parse_from` fails on a name that is not
+        // there, so this is a transcription check of the whole synopsis.
+        let all = cli(&[
+            "--preview",
+            "3",
+            "--level",
+            "9",
+            "--no-ghost",
+            "--no-hold",
+            "--no-rot180",
+            "--lock-down",
+            "classic",
+            "--color",
+            "256",
+            "--seed",
+            "42",
+            "--config",
+            "/tmp/x.toml",
+            "--print-config",
+        ]);
+        let mut file = ConfigFile::default();
+        all.apply(&mut file);
+        assert_eq!(file.gameplay.preview_count, 3);
+        assert_eq!(file.gameplay.start_level, 9);
+        assert!(!file.gameplay.ghost_piece);
+        assert!(!file.gameplay.hold_enabled);
+        assert!(!file.gameplay.allow_180_rotation);
+        assert_eq!(file.gameplay.lock_down, LockDownRule::Classic);
+        assert_eq!(file.display.color_depth, ColorDepth::Ansi256);
+        assert_eq!(all.seed, Some(42));
+        assert_eq!(all.config.as_deref(), Some(Path::new("/tmp/x.toml")));
+        assert!(all.print_config);
+    }
+
+    #[test]
+    fn a_paired_flag_overrides_the_file_in_both_directions() {
+        // §6.4: "a setting turned off in the config file can still be turned on
+        // for one run", which is the whole reason the pairs exist. A9 turns
+        // each of them both ways.
+        let off = ConfigFile {
+            gameplay: GameplaySettings {
+                hold_enabled: false,
+                allow_180_rotation: false,
+                ..GameplaySettings::default()
+            },
+            ..ConfigFile::default()
+        };
+        let mut file = off.clone();
+        cli(&["--hold", "--rot180"]).apply(&mut file);
+        assert!(file.gameplay.hold_enabled);
+        assert!(file.gameplay.allow_180_rotation);
+
+        let mut file = ConfigFile::default();
+        cli(&["--no-hold", "--no-rot180"]).apply(&mut file);
+        assert!(!file.gameplay.hold_enabled);
+        assert!(!file.gameplay.allow_180_rotation);
+
+        // Neither half given leaves the file's own answer alone.
+        let mut file = off.clone();
+        cli(&[]).apply(&mut file);
+        assert_eq!(file, off);
+    }
+
+    #[test]
+    fn the_last_half_of_a_pair_written_is_the_one_that_counts() {
+        for (args, expected) in [
+            (["--hold", "--no-hold"], false),
+            (["--no-hold", "--hold"], true),
+        ] {
+            let mut file = ConfigFile::default();
+            cli(&args).apply(&mut file);
+            assert_eq!(file.gameplay.hold_enabled, expected, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_three_sources_resolve_in_order() {
+        // §6.1: defaults, then the file, then the command line. And the file
+        // written on a first clean exit is the file *without* the flags.
+        let dir = std::env::temp_dir().join("termino-precedence-test");
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join(FILE_NAME);
+        save(
+            &path,
+            &ConfigFile {
+                gameplay: GameplaySettings {
+                    preview_count: 2,
+                    start_level: 4,
+                    ..GameplaySettings::default()
+                },
+                ..ConfigFile::default()
+            },
+        )
+        .expect("writes");
+
+        let cli = cli(&["--config", path.to_str().expect("utf-8"), "--preview", "6"]);
+        let startup = Startup::resolve(&cli, || 7);
+        assert_eq!(startup.file.gameplay.preview_count, 6, "the flag wins");
+        assert_eq!(
+            startup.file.gameplay.start_level, 4,
+            "the file is still read"
+        );
+        assert_eq!(
+            startup.file.gameplay.lines_per_level, 10,
+            "and the default underneath it",
+        );
+        assert_eq!(
+            startup.on_disk.gameplay.preview_count, 2,
+            "a flag is for one run and is never written back (§6.1)",
+        );
+        assert!(startup.existed);
+        assert!(startup.warnings.is_empty(), "{:?}", startup.warnings);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_seed_is_taken_from_the_flag_and_marks_the_run() {
+        // §6.4: `--seed` makes a run reproducible, and such a run is never
+        // written to the high-score table (§14).
+        let startup = Startup::resolve(&cli(&["--seed", "1234"]), || 9999);
+        assert_eq!(startup.seed, 1234);
+        assert!(startup.seeded);
+        let startup = Startup::resolve(&cli(&[]), || 9999);
+        assert_eq!(startup.seed, 9999, "otherwise the randomiser is seeded");
+        assert!(!startup.seeded);
+    }
+
+    #[test]
+    fn a_flag_outside_its_range_is_clamped_and_reported() {
+        // §6.3's ranges belong to the setting, not to where it was written.
+        let startup = Startup::resolve(&cli(&["--preview", "9", "--level", "0"]), || 1);
+        assert_eq!(startup.file.gameplay.preview_count, 6);
+        assert_eq!(startup.file.gameplay.start_level, 1);
+        assert_eq!(startup.warnings.len(), 2, "{:?}", startup.warnings);
     }
 }
