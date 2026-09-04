@@ -175,6 +175,11 @@ pub struct Game {
     /// Whether the clear waiting out that delay was paid at the back-to-back
     /// rate, kept for the perfect-clear bonus that may follow it (§9.15).
     clearing_b2b: bool,
+    /// The piece in the hold slot, if any (§9.7).
+    hold: Option<PieceKind>,
+    /// Whether hold has already been used for the piece in play. Cleared when
+    /// the next piece **locks**, not when it spawns (§9.7).
+    hold_locked: bool,
     ticks: u64,
     pieces: u32,
     lines: u32,
@@ -200,6 +205,8 @@ impl Game {
             state_timer: 0,
             clearing_rows: ClearedRows::default(),
             clearing_b2b: false,
+            hold: None,
+            hold_locked: false,
             ticks: 0,
             pieces: 0,
             lines: 0,
@@ -256,6 +263,17 @@ impl Game {
     /// (§12.7).
     pub fn preview(&self) -> impl Iterator<Item = PieceKind> + '_ {
         self.bag.preview()
+    }
+
+    /// The piece in the hold slot (§9.7).
+    pub fn held(&self) -> Option<PieceKind> {
+        self.hold
+    }
+
+    /// Whether hold has been spent on the piece in play (§9.7). The box is
+    /// drawn dimmed while this is true.
+    pub fn hold_locked(&self) -> bool {
+        self.hold_locked
     }
 
     pub fn is_over(&self) -> bool {
@@ -339,9 +357,15 @@ impl Game {
                     self.hard_drop(out);
                     return;
                 }
-                // TODO(stage 8): Action::Hold, gated on `hold_enabled` (§9.7).
+                Action::Hold => self.hold(out),
                 _ => {}
             }
+        }
+        // A hold spawns, and a spawn can end the game by Block Out (§9.16).
+        // Once it has, this is no longer a falling tick and there is nothing
+        // left to move.
+        if self.state != PlayState::Falling {
+            return;
         }
 
         if let Some(shift) = input.shift {
@@ -491,6 +515,38 @@ impl Game {
         out.push(GameEvent::PieceRotated { kick_index });
     }
 
+    /// Swap the falling piece with the hold slot (§9.7).
+    ///
+    /// Like the 180 gate, `hold_enabled` is enforced at the input boundary
+    /// (§10.1) so a disabled key never reaches the core; this is the backstop,
+    /// and like that one it must return before touching any timer.
+    fn hold(&mut self, out: &mut Vec<GameEvent>) {
+        if !self.rules.hold_enabled {
+            // An inert key raises nothing, exactly as it resets nothing.
+            return;
+        }
+        if self.hold_locked {
+            // Once per piece (§9.7). Refused, but worth announcing: §12.5 has
+            // the hold box to shake.
+            out.push(GameEvent::HoldRejected);
+            return;
+        }
+        let Some(piece) = self.current.take() else {
+            return;
+        };
+        let incoming = self.hold.replace(piece.kind);
+        self.hold_locked = true;
+        out.push(GameEvent::HoldUsed);
+        // Either way the replacement is spawned *normally* (§9.4): orientation
+        // `North`, at its spawn origin, and not where the outgoing piece was.
+        // `spawn` also resets the gravity accumulator and rebuilds the lock-down
+        // machine, which is how the incoming piece begins fresh.
+        match incoming {
+            Some(kind) => self.spawn_kind(kind, out),
+            None => self.spawn(out),
+        }
+    }
+
     /// Drop to the floor and lock immediately, skipping lock delay (§9.10).
     ///
     /// §9.13 requires the "last action was a rotation" flag to **survive** the
@@ -535,8 +591,10 @@ impl Game {
         });
         // §9.12 step 2: the T-spin status is decided before any row is removed.
         let spin = tspin::classify(&self.matrix, &piece);
-        // TODO(stage 8): clear the hold lock-out here -- on lock, not on spawn
-        // (§9.7).
+        // §9.7: hold is spent once per piece, and the piece is over now. On
+        // the *lock*, not on the spawn: clearing it a moment earlier would let
+        // a piece taken out of hold be held straight back, twice per turn.
+        self.hold_locked = false;
 
         if locked_out {
             self.state = PlayState::ToppedOut;
@@ -600,6 +658,13 @@ impl Game {
     /// Take the next piece from the queue and place it (§9.4).
     fn spawn(&mut self, out: &mut Vec<GameEvent>) {
         let kind = self.bag.next_piece();
+        self.spawn_kind(kind, out);
+    }
+
+    /// Place a particular piece (§9.4), for the one coming back out of hold.
+    ///
+    /// The queue is not touched: a hold swap does not consume a preview.
+    fn spawn_kind(&mut self, kind: PieceKind, out: &mut Vec<GameEvent>) {
         let origin = kind.spawn_origin();
         out.push(GameEvent::PieceSpawned(kind));
         if self.matrix.collides(kind, origin, Rotation::North) {
@@ -1688,6 +1753,165 @@ pub mod tests {
             events.last(),
             Some(&GameEvent::ToppedOut(TopOutCause::BlockOut)),
         );
+    }
+
+    // -- T12: hold (§9.7) --------------------------------------------------
+
+    /// Default gameplay with hold switched off (§9.7).
+    fn without_hold() -> GameplaySettings {
+        GameplaySettings {
+            hold_enabled: false,
+            ..GameplaySettings::default()
+        }
+    }
+
+    /// Timing with a visible entry delay, so the gap between a lock and the
+    /// next spawn can be looked at. The default is zero ticks (§6.6), which
+    /// closes that gap entirely.
+    fn with_entry_delay() -> TimingSettings {
+        TimingSettings {
+            entry_delay_ms: 100,
+            ..TimingSettings::default()
+        }
+    }
+
+    #[test]
+    fn holding_an_empty_slot_banks_the_piece_and_takes_the_next() {
+        // §9.7: the current piece goes to the slot and the queue supplies its
+        // replacement, which is therefore one shorter than it was.
+        let mut game = new_game(101);
+        let banked = game.current().unwrap().kind;
+        let queue: Vec<PieceKind> = game.preview().collect();
+        let events = tick_events(&mut game, &TickInput::action(Action::Hold));
+
+        assert_eq!(game.held(), Some(banked));
+        assert_eq!(game.current().unwrap().kind, queue[0]);
+        assert!(game.hold_locked());
+        assert_eq!(
+            game.preview().take(queue.len() - 1).collect::<Vec<_>>(),
+            queue[1..],
+            "the queue advanced by exactly one piece",
+        );
+        assert!(events.contains(&GameEvent::HoldUsed));
+        assert!(events.contains(&GameEvent::PieceSpawned(queue[0])));
+        assert_eq!(game.pieces(), 0, "a hold places nothing");
+        assert_eq!(game.score(), 0, "and scores nothing");
+    }
+
+    #[test]
+    fn holding_an_occupied_slot_exchanges_and_spawns_normally() {
+        // §9.7: the piece coming out of hold arrives in `North` at its spawn
+        // origin -- not at the outgoing piece's position or orientation.
+        let mut game = new_game(103);
+        let banked = game.current().unwrap().kind;
+        tick(&mut game, &TickInput::action(Action::Hold));
+        // A lock frees hold again; the replacement is then steered somewhere
+        // thoroughly unlike a spawn before it is swapped out.
+        drop_piece(&mut game, None, 0);
+        let outgoing = game.current().unwrap().kind;
+        tick(&mut game, &TickInput::action(Action::RotateCw));
+        tick(&mut game, &TickInput::shift(Shift::Left));
+        idle(&mut game, 120);
+        assert_ne!(game.current().unwrap().origin, outgoing.spawn_origin());
+
+        tick(&mut game, &TickInput::action(Action::Hold));
+        let piece = game.current().unwrap();
+        assert_eq!(piece.kind, banked, "the two pieces changed places");
+        assert_eq!(game.held(), Some(outgoing));
+        assert_eq!(piece.rotation, Rotation::North);
+        assert_eq!(
+            piece.origin,
+            banked.spawn_origin().translate(0, 1),
+            "spawned normally (§9.4), including the drop of one row",
+        );
+    }
+
+    #[test]
+    fn hold_is_spent_once_per_piece_and_returns_on_the_lock() {
+        // §9.7, and the rule that is easiest to get a tick wrong: the lock-out
+        // is cleared when the next piece *locks*, not when it spawns. With an
+        // entry delay in force there is a moment between the two to look at.
+        let mut game = new_game_with(GameplaySettings::default(), with_entry_delay(), 107);
+        tick(&mut game, &TickInput::action(Action::Hold));
+        let held = game.held();
+        let current = game.current().unwrap();
+
+        let events = tick_events(&mut game, &TickInput::action(Action::Hold));
+        assert_eq!(
+            events,
+            vec![GameEvent::HoldRejected],
+            "refused, and said so"
+        );
+        assert_eq!(game.held(), held, "and nothing moved");
+        assert_eq!(game.current(), Some(current));
+
+        tick(&mut game, &TickInput::action(Action::HardDrop));
+        assert_eq!(game.state(), PlayState::Entry);
+        assert_eq!(game.current(), None, "the next piece has not spawned yet");
+        assert!(!game.hold_locked(), "the lock alone cleared it");
+    }
+
+    #[test]
+    fn the_piece_out_of_hold_begins_fresh() {
+        // §9.7: a hold clears the outgoing piece's lock-delay state entirely,
+        // so a piece swapped away while grounded does not hand its spent
+        // budget -- or its running timer -- to the one arriving at the top.
+        let mut game = new_game(109);
+        place(&mut game, PieceKind::T, Point::new(3, 38), Rotation::North);
+        tick(&mut game, &TickInput::default());
+        tick(&mut game, &TickInput::shift(Shift::Left));
+        assert!(game.lock.remaining().is_some(), "grounded and counting");
+        assert_eq!(game.lock.resets_used(), 1, "with one reset spent");
+
+        tick(&mut game, &TickInput::action(Action::Hold));
+        assert_eq!(game.lock.remaining(), None, "the new piece is airborne");
+        assert_eq!(game.lock.resets_used(), 0, "with its budget untouched");
+    }
+
+    #[test]
+    fn an_obstructed_hold_swap_is_a_block_out() {
+        // T11, §9.16: "a newly spawned piece (from the queue **or from hold**)".
+        let mut game = new_game(113);
+        tick(&mut game, &TickInput::action(Action::Hold));
+        game.matrix = tower_over_the_spawn_columns();
+        // As the next lock would, so the second hold is allowed to happen.
+        game.hold_locked = false;
+
+        let events = tick_events(&mut game, &TickInput::action(Action::Hold));
+        assert!(game.is_over(), "the held piece had nowhere to spawn");
+        assert_eq!(
+            events.last(),
+            Some(&GameEvent::ToppedOut(TopOutCause::BlockOut)),
+        );
+    }
+
+    #[test]
+    fn a_disabled_hold_is_a_no_op_and_leaves_the_sequence_alone() {
+        // T12: "with `hold_enabled = false` the hold action is a no-op and the
+        // piece sequence is unaffected." The key is dropped at the input
+        // boundary (§10.1); this is the core's backstop for a caller that
+        // hands one over anyway, and the sequence is what would give it away.
+        let mut pressed = new_game_with(without_hold(), TimingSettings::default(), 127);
+        let mut untouched = new_game_with(without_hold(), TimingSettings::default(), 127);
+        for i in 0..600u32 {
+            let held_down = i % 7 == 0;
+            let input = if held_down {
+                TickInput::action(Action::Hold)
+            } else {
+                TickInput::default()
+            };
+            let events = tick_events(&mut pressed, &input);
+            tick(&mut untouched, &TickInput::default());
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| matches!(e, GameEvent::HoldUsed | GameEvent::HoldRejected)),
+                "an inert key raises nothing on tick {i}",
+            );
+            assert_eq!(pressed.view(), untouched.view(), "diverged on tick {i}");
+        }
+        assert_eq!(pressed.held(), None, "nothing was ever banked");
+        assert!(!pressed.hold_locked());
     }
 
     #[test]

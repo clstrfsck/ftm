@@ -104,9 +104,8 @@ impl Game {
             current: self.current().as_ref().map(PieceView::of),
             // TODO(stage 8): the ghost (§9.8), when `ghost_enabled`.
             ghost: None,
-            // TODO(stage 8): the hold piece and its lock-out (§9.7).
-            hold: None,
-            hold_locked: false,
+            hold: self.held(),
+            hold_locked: self.hold_locked(),
             next: self.preview().collect(),
             score: self.score(),
             level: self.level(),
@@ -206,9 +205,10 @@ mod tests {
         assert!(!view.back_to_back);
         assert_eq!(view.next.len(), 5, "the default preview_count (§6.3)");
         assert!(view.current.is_some());
-        // TODO(stage 8): the ghost and the hold box.
+        // TODO(stage 8): the ghost.
         assert_eq!(view.ghost, None);
-        assert_eq!(view.hold, None);
+        assert_eq!(view.hold, None, "the hold slot starts empty (§9.7)");
+        assert!(!view.hold_locked);
     }
 
     #[test]
