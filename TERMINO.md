@@ -832,6 +832,18 @@ that bag before play begins. This applies only to the very first bag of a game.
   accumulator is ≥ `fall_period` the piece attempts to move down one row and
   `fall_period` is subtracted. The accumulator carries over across level changes.
 
+  The accumulator is a **remainder**: it is always less than the period in
+  force. Subtraction maintains that on its own while the period is constant, so
+  the rule only bites when the period **shortens under it** — soft drop being
+  pressed (§9.10), or a level-up — and there the accumulator is capped at one
+  row's worth of the new period before the tick is accrued. The accrued
+  fraction of a row is therefore kept, but a fraction can never pay out more
+  than a row. Without the cap, charge banked at the slower period is re-read as
+  whole rows at the faster one: fifty ticks of level-1 charge is seventeen rows
+  at the default soft-drop period, so pressing `Down` late in a fall lands the
+  piece on the floor — an accidental hard drop — and a level-up mid-fall pays
+  out a hundred and forty-one rows at level 15.
+
 | Level | `fall_period` | ticks per row | rows per tick |
 |---|---|---|---|
 | 1 | 3 932 160 | 60.000 | 0.02 |
@@ -868,6 +880,10 @@ that bag before play begins. This applies only to the very first bag of a game.
   never makes the piece slower, since dividing a period can only shorten it. At
   level 1 this gives one row every 3 ticks; at level 15, roughly 47 rows per
   tick, which is a hard drop in all but name.
+- Pressing soft drop part-way through a fall owes **at most one row** on the
+  tick it is pressed, because the accumulator is capped at the shorter period
+  first (§9.9). Soft drop is a faster fall, never a way to cash in the charge
+  banked while the piece was falling slowly.
 - Awards **1 point per row** actually descended under soft drop, unmultiplied by
   level.
 - Soft drop does not lock the piece. Landing while soft-dropping begins normal

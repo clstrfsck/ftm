@@ -62,6 +62,10 @@ pub fn soft_drop_period(fall_period: u32, soft_drop_factor: u32) -> u32 {
 /// full period, the piece owes another row and the period is subtracted. The
 /// accumulator **carries over across level changes**, so a level-up mid-fall
 /// neither loses nor gains the fraction of a row already accrued.
+///
+/// It is a remainder, so it is always **less than the period in force**. That
+/// is what keeps a period that shortens under it -- soft drop, or a level-up --
+/// from cashing in charge banked at the slower rate.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Gravity {
     level: u32,
@@ -108,6 +112,14 @@ impl Gravity {
             Some(factor) => soft_drop_period(self.period, factor),
             None => self.period,
         };
+        // The accumulator is a *remainder* and must stay below the period in
+        // force (§9.9). Subtraction leaves it that way on its own, so this bites
+        // only when the period shortens under it -- soft drop being pressed, or
+        // a level-up. Without it, charge banked at the slow rate is re-read as
+        // whole rows at the fast one: fifty ticks of level-1 charge is 17 rows
+        // at the soft-drop period, which lands as a hard drop the player did not
+        // ask for.
+        self.accumulator = self.accumulator.min(period.saturating_sub(1));
         self.accumulator = self.accumulator.saturating_add(ONE_ROW);
         let rows = self.accumulator / period;
         self.accumulator -= rows * period;
@@ -248,6 +260,59 @@ mod tests {
             let rows = gravity.accrue(Some(20));
             assert_eq!(rows, u32::from(tick % 3 == 0), "tick {tick}");
         }
+    }
+
+    #[test]
+    fn soft_drop_pressed_mid_fall_is_not_a_hard_drop() {
+        // T6, and the reason the accumulator is clamped to the period in force.
+        // At level 1 a tick banks 65 536 against a period of 3 932 160, and the
+        // soft-drop period is 196 608 -- so fifty ticks of banked charge reads
+        // as 17 rows the moment the key goes down. A player pressing Down late
+        // in a fall got a hard drop they did not ask for.
+        for pressed_at in [0, 10, 30, 50, 59] {
+            let mut gravity = Gravity::new(1);
+            for _ in 0..pressed_at {
+                assert_eq!(gravity.accrue(None), 0, "pressed_at {pressed_at}");
+            }
+            assert!(
+                gravity.accrue(Some(20)) <= 1,
+                "{pressed_at} ticks of charge cashed in at once",
+            );
+        }
+    }
+
+    #[test]
+    fn soft_drop_pressed_mid_fall_still_falls_every_third_tick() {
+        // The clamp must not cost the piece its rate afterwards: §9.10's one
+        // row every three ticks resumes from the press.
+        let mut gravity = Gravity::new(1);
+        for _ in 0..50 {
+            gravity.accrue(None);
+        }
+        let rows: Vec<u32> = (0..9).map(|_| gravity.accrue(Some(20))).collect();
+        assert_eq!(rows, vec![1, 0, 0, 1, 0, 0, 1, 0, 0]);
+    }
+
+    #[test]
+    fn a_level_up_mid_fall_owes_at_most_one_row() {
+        // The same clamp, on the other way a period shortens under a piece.
+        // §9.9 keeps the accrued fraction, but a fraction is at most a row: a
+        // level-up must not pay out several.
+        let mut gravity = Gravity::new(1);
+        for _ in 0..59 {
+            gravity.accrue(None);
+        }
+        gravity.set_level(15);
+        assert_eq!(
+            gravity.accrue(None),
+            3,
+            "one row of carry, then the level-15 rate"
+        );
+        assert_eq!(
+            fall_period(15),
+            27_756,
+            "which is 2.36 rows a tick on its own"
+        );
     }
 
     #[test]

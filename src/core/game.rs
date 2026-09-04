@@ -761,6 +761,29 @@ pub mod tests {
     }
 
     #[test]
+    fn soft_drop_pressed_late_in_a_fall_moves_one_row() {
+        // Reported from play: soft drop "occasionally executed a hard drop".
+        // It was gravity, not the keyboard -- the accumulator had banked most
+        // of a level-1 row, and dividing the period by `soft_drop_factor` cashed
+        // it in as seventeen rows on the tick the key went down (§9.9, §9.10).
+        let mut game = new_game(5);
+        place(&mut game, PieceKind::O, Point::new(4, 19), Rotation::North);
+        idle(&mut game, 50);
+        let before = game.current().expect("still falling").lowest_row();
+
+        tick(
+            &mut game,
+            &TickInput {
+                soft_drop: true,
+                ..TickInput::default()
+            },
+        );
+
+        let after = game.current().expect("still falling").lowest_row();
+        assert_eq!(after - before, 1, "one row on the press, not a plummet");
+    }
+
+    #[test]
     fn a_hard_drop_locks_at_once() {
         // §9.10: lock delay is skipped entirely.
         let mut game = new_game(9);

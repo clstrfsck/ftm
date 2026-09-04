@@ -38,7 +38,9 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   byte-identical state.
 - **No floating point in the rules** (§9.9, §6.6). Gravity is an integer *fall
   period* in 16.16 ticks-per-row — a period, not a rate, so level 1 falls on tick
-  60 exactly. Durations are integer ticks, converted once at config load.
+  60 exactly. The accumulator is a **remainder**: always below the period in
+  force, so a period that shortens under it (soft drop, a level-up) cannot cash
+  in charge banked at the slower rate. Durations are integer ticks, converted once at config load.
 - **The renderer draws only from `GameView`** (§12.7) and never reads `Game`.
   Cosmetics are driven by `GameEvent` (§12.8); dropping every event must change
   nothing about the game. The core appends to the caller's event buffer and
