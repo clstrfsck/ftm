@@ -276,6 +276,29 @@ impl Game {
         self.hold_locked
     }
 
+    /// Where the current piece would come to rest after a hard drop (§9.8).
+    ///
+    /// Derived on demand rather than stored: "recomputed after any movement,
+    /// rotation, hold or gravity step" is a cache-invalidation rule if the
+    /// answer is kept, and no rule at all if it is not. Absent when the ghost
+    /// is switched off, and whenever no piece is in play.
+    ///
+    /// The ghost never affects collision, scoring or lock down, so this takes
+    /// `&self` and touches nothing.
+    pub fn ghost(&self) -> Option<ActivePiece> {
+        if !self.rules.ghost_piece {
+            return None;
+        }
+        let mut piece = self.current?;
+        while !self
+            .matrix
+            .collides(piece.kind, piece.origin.translate(0, 1), piece.rotation)
+        {
+            piece.origin = piece.origin.translate(0, 1);
+        }
+        Some(piece)
+    }
+
     pub fn is_over(&self) -> bool {
         self.state == PlayState::ToppedOut
     }
@@ -1755,7 +1778,7 @@ pub mod tests {
         );
     }
 
-    // -- T12: hold (§9.7) --------------------------------------------------
+    // -- T12: hold and the ghost (§9.7, §9.8) ------------------------------
 
     /// Default gameplay with hold switched off (§9.7).
     fn without_hold() -> GameplaySettings {
@@ -1912,6 +1935,76 @@ pub mod tests {
         }
         assert_eq!(pressed.held(), None, "nothing was ever banked");
         assert!(!pressed.hold_locked());
+    }
+
+    #[test]
+    fn the_ghost_stands_where_a_hard_drop_would_leave_the_piece() {
+        // §9.8: same columns, same orientation, moved down as far as it will
+        // go. Hard dropping the piece is the definition, so it is the oracle.
+        let mut game = new_game(137);
+        // A three-wide shelf over a one-cell notch, which a T pointing down
+        // fills exactly -- so the answer is a landing and not just a floor.
+        set_matrix(&mut game, from_bottom_rows(&["###...####", "####.#####"]));
+        place(&mut game, PieceKind::T, Point::new(3, 22), Rotation::South);
+        let ghost = game.ghost().expect("the ghost is on by default");
+        assert_eq!(ghost.kind, PieceKind::T);
+        assert_eq!(ghost.rotation, Rotation::South);
+        assert_eq!(ghost.origin, Point::new(3, 37), "the box, not the body");
+
+        tick(&mut game, &TickInput::action(Action::HardDrop));
+        assert_eq!(
+            bottom_rows(&game, 2),
+            ["IIITTTIIII", "IIIITIIIII"],
+            "the piece landed exactly where the ghost stood",
+        );
+    }
+
+    #[test]
+    fn the_ghost_follows_every_change_to_the_piece() {
+        // §9.8: recomputed after any movement, rotation, hold or gravity step.
+        // Deriving it on demand is what makes that true by construction; this
+        // is the test that it actually is.
+        let mut game = new_game(139);
+        let mut seen = Vec::new();
+        for input in &script(300) {
+            tick(&mut game, input);
+            let Some(piece) = game.current() else {
+                continue;
+            };
+            let ghost = game.ghost().expect("a piece in play has a ghost");
+            assert_eq!(ghost.kind, piece.kind);
+            assert_eq!(ghost.rotation, piece.rotation);
+            assert_eq!(ghost.origin.x, piece.origin.x, "same columns");
+            assert!(ghost.origin.y >= piece.origin.y, "never above the piece");
+            assert!(
+                game.matrix
+                    .collides(ghost.kind, ghost.origin.translate(0, 1), ghost.rotation),
+                "and as far down as it will go",
+            );
+            seen.push(ghost.origin.y - piece.origin.y);
+        }
+        assert!(seen.iter().any(|&gap| gap > 0), "the ghost was ever apart");
+    }
+
+    #[test]
+    fn the_ghost_is_absent_when_it_is_switched_off_and_costs_nothing_either_way() {
+        // §9.8: "the ghost never affects collision, scoring or lock down." Two
+        // games differing only in `ghost_piece` must play out identically.
+        let dark = GameplaySettings {
+            ghost_piece: false,
+            ..GameplaySettings::default()
+        };
+        let mut off = new_game_with(dark, TimingSettings::default(), 149);
+        let mut on = new_game(149);
+        assert_eq!(off.ghost(), None, "nothing to draw");
+        assert!(on.ghost().is_some());
+        for input in &script(600) {
+            tick(&mut off, input);
+            tick(&mut on, input);
+            assert_eq!(off.matrix(), on.matrix());
+            assert_eq!(off.score(), on.score());
+            assert_eq!(off.current(), on.current());
+        }
     }
 
     #[test]

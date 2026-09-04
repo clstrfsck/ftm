@@ -102,8 +102,7 @@ impl Game {
         GameView {
             rows,
             current: self.current().as_ref().map(PieceView::of),
-            // TODO(stage 8): the ghost (§9.8), when `ghost_enabled`.
-            ghost: None,
+            ghost: self.ghost().as_ref().map(PieceView::of),
             hold: self.held(),
             hold_locked: self.hold_locked(),
             next: self.preview().collect(),
@@ -205,8 +204,7 @@ mod tests {
         assert!(!view.back_to_back);
         assert_eq!(view.next.len(), 5, "the default preview_count (§6.3)");
         assert!(view.current.is_some());
-        // TODO(stage 8): the ghost.
-        assert_eq!(view.ghost, None);
+        assert!(view.ghost.is_some(), "the ghost is on by default (§6.3)");
         assert_eq!(view.hold, None, "the hold slot starts empty (§9.7)");
         assert!(!view.hold_locked);
     }

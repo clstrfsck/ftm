@@ -16,9 +16,15 @@ pub const CELL_WIDTH: u16 = 2;
 pub const FILLED: &str = "██";
 /// The default `cell_empty` glyph (§6.3).
 pub const EMPTY: &str = "  ";
+/// The default `cell_ghost` glyph (§6.3). Exactly two display columns.
+pub const GHOST: &str = "\u{2592}\u{2592}";
 
-// TODO(stage 9): take the colour from `ui::theme` so the §12.3 depths and the
-// ghost's dimming apply.
+/// The truecolor dimming factor for ghosts and inactive UI (§12.3).
+const DIM: f32 = 0.45;
+
+// TODO(stage 9): take the colour from `ui::theme` so the §12.3 depth fallback
+// applies -- at 256 colours dimming is a darker palette entry and at 16 it is
+// the DIM attribute, neither of which this scaling can express.
 // TODO(stage 10): the configured `cell_filled` / `cell_empty` / `cell_ghost`
 // glyphs, once the loader has checked they are two columns wide (§12.2).
 
@@ -39,4 +45,14 @@ pub fn filled(kind: PieceKind) -> Span<'static> {
 /// One empty cell.
 pub fn empty() -> Span<'static> {
     Span::raw(EMPTY)
+}
+
+/// One ghost cell: the landing position, in the piece's colour, dimmed (§12.2).
+///
+/// Drawn *behind* the falling piece (§9.8), which the caller arranges by
+/// compositing the ghost first.
+pub fn ghost(kind: PieceKind) -> Span<'static> {
+    let (r, g, b) = kind.colour().rgb();
+    let dim = |c: u8| (f32::from(c) * DIM) as u8;
+    Span::styled(GHOST, Style::new().fg(Color::Rgb(dim(r), dim(g), dim(b))))
 }

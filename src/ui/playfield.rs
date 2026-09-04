@@ -1,8 +1,8 @@
 //! The in-game screen (§12.4).
 //!
-//! Stage 6 draws the bare minimum: the playfield box, the locked cells and the
-//! falling piece, with Stage 7's counters on the bottom border as a debug line
-//! until §12.4's status line exists. Everything is taken from [`GameView`] and
+//! Stage 6 draws the bare minimum: the playfield box, the locked cells, the
+//! falling piece and Stage 8's ghost, with Stage 7's counters on the bottom
+//! border as a debug line until §12.4's status line exists. Everything is taken from [`GameView`] and
 //! nothing reads `Game` (§12.7).
 
 use ratatui::Frame;
@@ -54,30 +54,50 @@ fn counters(view: &GameView) -> String {
     line
 }
 
-/// The visible rows, with the falling piece composited in.
+/// What one cell of the composited field shows.
+#[derive(Clone, Copy)]
+enum Cell {
+    Empty,
+    Filled(PieceKind),
+    Ghost(PieceKind),
+}
+
+/// The visible rows, with the ghost and the falling piece composited in.
 ///
 /// The view arrives already clipped to rows 20..=39 with the buffer zone
 /// removed (§12.7), so there is no clipping to do here — that is the point of
 /// the view model.
 fn rows(view: &GameView) -> Vec<Line<'static>> {
-    let mut grid = view.rows;
-    if let Some(piece) = &view.current {
+    let mut grid = view.rows.map(|row| {
+        row.map(|cell| match cell {
+            Some(kind) => Cell::Filled(kind),
+            None => Cell::Empty,
+        })
+    });
+    // §9.8: the ghost goes down first, so that where the two overlap the
+    // falling piece is what is drawn.
+    for (piece, cell) in [
+        (&view.ghost, Cell::Ghost as fn(PieceKind) -> Cell),
+        (&view.current, Cell::Filled as fn(PieceKind) -> Cell),
+    ] {
+        let Some(piece) = piece else { continue };
         for &(col, row) in &piece.cells {
             if (col, row) == OFF_SCREEN {
                 continue;
             }
-            grid[row as usize][col as usize] = Some(piece.kind);
+            grid[row as usize][col as usize] = cell(piece.kind);
         }
     }
     grid.iter().map(|row| line(row)).collect()
 }
 
-fn line(row: &[Option<PieceKind>; VIEW_WIDTH]) -> Line<'static> {
+fn line(row: &[Cell; VIEW_WIDTH]) -> Line<'static> {
     Line::from(
         row.iter()
             .map(|cell| match cell {
-                Some(kind) => cells::filled(*kind),
-                None => cells::empty(),
+                Cell::Filled(kind) => cells::filled(*kind),
+                Cell::Ghost(kind) => cells::ghost(*kind),
+                Cell::Empty => cells::empty(),
             })
             .collect::<Vec<_>>(),
     )
