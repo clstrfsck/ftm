@@ -3,10 +3,14 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 4 of `PLAN.md` complete.** The core plays: pieces spawn, fall,
-are steered, lock, clear rows and top out, driven by `Game::tick`. T1-T8, T11
-and T17 pass. There is no score, hold, ghost, view model or event stream yet.
-Stage 5 (view, events, determinism) is next, and closes milestone M1.
+**Status: Stage 5 of `PLAN.md` complete — milestone M1.** The core plays itself:
+a scripted input log drives a complete game headlessly and deterministically,
+with no terminal. `Game::tick(&TickInput, &mut Vec<GameEvent>)` is the single
+entry point, `Game::view()` the only way to see the result. T1-T8, T11, T14-T17
+and I1 pass, and the batch-invariance canary is in CI. There is no score, hold
+or ghost yet — the view's fields for them are present but inert. Stage 6 (the
+vertical slice: first playable) is next, and it is the highest-uncertainty stage
+in the plan.
 
 ## Read these first
 
@@ -36,7 +40,12 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   60 exactly. Durations are integer ticks, converted once at config load.
 - **The renderer draws only from `GameView`** (§12.7) and never reads `Game`.
   Cosmetics are driven by `GameEvent` (§12.8); dropping every event must change
-  nothing about the game.
+  nothing about the game. The core appends to the caller's event buffer and
+  never reads it back.
+- **View and event coordinates are visible-field coordinates** — `(col, row)`
+  with row 0 the topmost *visible* row, matrix row 20. Clipping happens in
+  `core/view.rs`, never in the renderer; a cell above the field is omitted,
+  encoded as `(255, 255)`.
 - **`RulesConfig` and `PresentationConfig` are separate structs** (§6.5). Do not
   merge them into one `Config`.
 - **DAS/ARR live in the shell**, not the core (§10.3).
@@ -58,9 +67,13 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - `#![forbid(unsafe_code)]`.
 - One coherent change per commit; every commit builds.
 - **The batch-invariance test is the canary** (§19.4): the same input log fed as
-  1 × 6 ticks and as 6 × 1 ticks must produce identical snapshots. It goes into
-  CI at Stage 5 and must never be marked ignored. If it fails, stop and find the
-  desync — do not proceed.
+  1 × 6 ticks and as 6 × 1 ticks must produce identical snapshots. It lives in
+  `tests/scripted_game.rs`, has been in CI since Stage 5, and must never be
+  marked ignored. If it fails, stop and find the desync — do not proceed.
+- **The I1 snapshot** (`tests/snapshots/scripted_game.txt`) is regenerated with
+  `UPDATE_SNAPSHOT=1 cargo test --test scripted_game`. Stage 7 has to, when the
+  score stops being zero. Read the diff before committing it: a snapshot that
+  moves for no reason is exactly the bug the test exists to catch.
 
 ## Scope discipline
 
