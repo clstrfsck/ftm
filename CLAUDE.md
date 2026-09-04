@@ -3,8 +3,9 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 1 of `PLAN.md` complete.** Geometry, piece data and the matrix
-exist and T1 passes; nothing moves yet. Stage 2 (SRS rotation) is next.
+**Status: Stage 2 of `PLAN.md` complete.** Geometry, piece data, the matrix and
+SRS rotation exist; T1-T3 pass. Nothing falls yet. Stage 3 (config and timing)
+is next.
 
 ## Read these first
 

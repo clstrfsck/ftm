@@ -95,14 +95,15 @@ impl Matrix {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    /// Build a matrix from a picture of its bottom rows, `#` filled and `.`
-    /// empty, the last string being row 39. Every fixture in the later stages is
-    /// written this way, so it lives here rather than in each test.
-    #[cfg(test)]
-    pub fn from_bottom_rows(rows: &[&str]) -> Matrix {
+    /// Build a matrix from a picture of its bottom rows, the last string being
+    /// row 39. `.` is empty; `#` is an anonymous filled cell; a piece letter
+    /// fills the cell with that kind, for the fixtures where colour matters.
+    /// Every fixture in the later stages is written this way, so it lives here
+    /// rather than in each test.
+    pub(crate) fn from_bottom_rows(rows: &[&str]) -> Matrix {
         let mut matrix = Matrix::new();
         for (i, row) in rows.iter().rev().enumerate() {
             let y = HEIGHT - 1 - i as i32;
@@ -112,9 +113,17 @@ mod tests {
                 "row {row:?} is not 10 wide"
             );
             for (x, c) in row.chars().enumerate() {
-                if c == '#' {
-                    matrix.set(x as i32, y, Some(PieceKind::I));
-                }
+                let kind = match c {
+                    '.' => None,
+                    '#' => Some(PieceKind::I),
+                    _ => Some(
+                        *PieceKind::ALL
+                            .iter()
+                            .find(|k| k.glyph() == c)
+                            .unwrap_or_else(|| panic!("{c:?} is not a piece letter")),
+                    ),
+                };
+                matrix.set(x as i32, y, kind);
             }
         }
         matrix
