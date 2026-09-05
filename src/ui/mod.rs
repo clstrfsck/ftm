@@ -24,9 +24,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{Clear, Paragraph};
 
 use crate::config::ConfigFile;
-use crate::core::events::OFF_SCREEN;
-use crate::core::piece::PieceKind;
-use crate::core::{ClearKind, DebugView, GameEvent, GameView, ScoreReason};
+use crate::core::{ClearKind, DebugView, GameEvent, GameView, OFF_SCREEN, PieceKind, ScoreReason};
 use crate::input::InputMode;
 use crate::ui::theme::Theme;
 

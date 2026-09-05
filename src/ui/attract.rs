@@ -19,8 +19,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
 use crate::config::ConfigFile;
-use crate::core::geometry::Rotation;
-use crate::core::piece::PieceKind;
+use crate::core::{PieceKind, Rotation};
 use crate::highscore::{Entry, Table};
 use crate::input::InputMode;
 use crate::ui::cells::CELL_WIDTH;

@@ -54,16 +54,23 @@ impl LockDown {
         }
     }
 
-    /// Whether the piece is currently counting down to a lock.
-    pub fn is_landed(&self) -> bool {
-        self.timer.is_some()
-    }
-
     /// Ticks remaining, for the debug overlay (§6.3 `show_debug`).
     pub fn remaining(&self) -> Option<u32> {
         self.timer
     }
 
+    /// Whether the piece is currently counting down to a lock.
+    ///
+    /// Nothing in the rules asks: the timer's own `tick` is what acts on it.
+    /// This and [`LockDown::resets_used`] exist for T7 (§17.1), which has to
+    /// see the reset budget to check that the 16th does not extend it.
+    #[cfg(test)]
+    pub fn is_landed(&self) -> bool {
+        self.timer.is_some()
+    }
+
+    /// Resets spent on the current landing (§9.11), for T7.
+    #[cfg(test)]
     pub fn resets_used(&self) -> u32 {
         self.resets_used
     }

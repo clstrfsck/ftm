@@ -17,7 +17,7 @@ use std::io::IsTerminal;
 use ratatui::style::{Color, Modifier, Style};
 
 use crate::config::{CELL_COLUMNS, ColorDepth, DisplaySettings, display_columns};
-use crate::core::piece::{Colour, PieceKind};
+use crate::core::{Colour, PieceKind};
 
 /// Full brightness: the §9.2 colour as written.
 pub const FULL: u8 = 100;

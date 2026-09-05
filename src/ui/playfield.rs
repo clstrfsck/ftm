@@ -15,10 +15,7 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 
-use crate::core::GameView;
-use crate::core::geometry::Rotation;
-use crate::core::piece::PieceKind;
-use crate::core::view::{VIEW_HEIGHT, VIEW_WIDTH};
+use crate::core::{GameView, PieceKind, Rotation, VIEW_HEIGHT, VIEW_WIDTH};
 use crate::ui::cells::{CELL_WIDTH, Paint, span};
 use crate::ui::theme;
 use crate::ui::{Banner, Chrome, Cosmetics, Debug, Hud, centred};
@@ -489,8 +486,7 @@ mod tests {
             restart: None,
         }
     }
-    use crate::core::PlayState;
-    use crate::core::view::PieceView;
+    use crate::core::{PieceView, PlayState};
     use crate::ui::theme::{Depth, Theme};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;

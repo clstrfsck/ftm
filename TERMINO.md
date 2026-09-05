@@ -1888,9 +1888,23 @@ The implementation is complete when:
    command line and the Options screen; when off, the key does nothing and the
    binding disappears from the hold box, the controls overlay and the attract
    screen's controls panel.
-10. The renderer compiles against `GameView` alone: removing every `pub` item
-    from the core except `Game::tick`, `Game::view` and the view/event types
-    still builds the UI. This is the check that §19 stays reachable.
+10. The renderer compiles against `GameView` alone. This is enforced by the
+    compiler rather than audited: every module inside `core` is `pub(crate)`,
+    so the core's whole public surface is its façade, and nothing under `ui/`
+    can name `Game` or a rules module even by accident.
+
+    The façade is `Game` itself (`new`, `tick`, `view`, `debug`), the input
+    types `Action`, `Actions`, `Shift` and `TickInput` — which only `app` and
+    `input` use — and the view and event types with the vocabulary they are
+    written in: `GameView`, `PieceView`, `DebugView`, `VIEW_WIDTH`,
+    `VIEW_HEIGHT`, `PlayState`, `GameEvent`, `ClearKind`, `ScoreReason`,
+    `TopOutCause`, `OFF_SCREEN`, `PieceKind`, `Colour` and `Rotation`.
+
+    The last three are in the list because a client handed a `GameView` has to
+    *draw* it: the view's cells and its hold and next slots are `PieceKind`s,
+    and turning one into minos on a screen needs §9.3's cell patterns and the
+    `Rotation` they are indexed by, and §9.2's `Colour`. None of them is a
+    rule. This is the check that §19 stays reachable.
 
 ---
 

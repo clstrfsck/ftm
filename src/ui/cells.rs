@@ -10,7 +10,7 @@
 
 use ratatui::text::Span;
 
-use crate::core::piece::PieceKind;
+use crate::core::PieceKind;
 use crate::ui::theme::{self, Theme};
 
 /// The character width of one matrix cell (§12.2).

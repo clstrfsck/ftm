@@ -14,17 +14,16 @@ use std::time::Duration;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::config::{KeyBindings, RulesConfig, TICK};
-use crate::core::matrix::WIDTH;
-use crate::core::{Action, Shift};
+use crate::core::{Action, Shift, VIEW_WIDTH};
 
 /// How long a key is considered held after its last event in legacy mode
 /// (§8.2). Longer than any common terminal auto-repeat interval (30-50 ms) and
 /// shorter than a deliberate re-press.
 pub const HOLD_TIMEOUT: Duration = Duration::from_millis(90);
 
-/// The most cells one tick may shift. Ten is the width of the matrix (§9.1), so
+/// The most cells one tick may shift. Ten is the width of the field (§9.1), so
 /// it is already "as far as the piece can go" — the core stops at the wall.
-const MAX_SHIFT_CELLS: u8 = WIDTH as u8;
+const MAX_SHIFT_CELLS: u8 = VIEW_WIDTH as u8;
 
 /// How the terminal reports keys (§8.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

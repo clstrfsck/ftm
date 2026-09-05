@@ -6,14 +6,11 @@
 //!
 //! The crate is split into a pure `core` (rules, no I/O, no clock — §3.1) and a
 //! shell (`app`, `config`, `input`, `highscore`, `ui`). The shell sees the core
-//! only through `core::GameView` (§12.7) and `core::GameEvent` (§12.8).
+//! only through `core::GameView` (§12.7) and `core::GameEvent` (§12.8), which
+//! since Stage 12 the compiler enforces: every module inside `core` is
+//! `pub(crate)` and its façade is the whole of its public surface (A10).
 
 #![forbid(unsafe_code)]
-// The core is built ahead of the shell that consumes it (PLAN.md sequencing), so
-// items land a stage or two before their first caller and `dead_code` fires on
-// every one of them.
-// TODO(stage 12): remove this; acceptance A10 audits the core's surface by hand.
-#![allow(dead_code)]
 
 pub mod app;
 pub mod config;
