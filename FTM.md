@@ -1,7 +1,7 @@
 # Falling Tetromino Manager — Software Specification
 
-**Version:** 1.0 (draft)
-**Date:** 2026-09-04
+**Version:** 1.0
+**Date:** 2026-09-05
 **Target language:** Rust (edition 2024, MSRV 1.85)
 **Name:** Falling Tetromino Manager (a terminal tetromino game; binary name `ftm`)
 
@@ -1594,9 +1594,12 @@ Rules:
 
 ## 13. Attract screen
 
-> This section is deliberately provisional. It is a considered first design that
-> is expected to be refined; the rest of the specification does not depend on its
-> details, and changes here should not disturb §9.
+> This section is deliberately provisional: it is the one part of the
+> specification expected to be refined (§18), and the only one whose looks
+> §17.3 never judged. It has been built and looked at, and what is written here
+> is what the code draws — §13.3's mock-up is a test — but the rest of the
+> specification does not depend on its details, and changes here should not
+> disturb §9.
 
 ### 13.1 Purpose and behaviour
 
