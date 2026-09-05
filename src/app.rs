@@ -396,7 +396,7 @@ impl App {
                 }
                 Flow::Continue
             }
-            Phase::NameEntry { rank } => self.name_key(session, event, rank),
+            Phase::NameEntry { .. } => self.name_key(session, event),
         }
     }
 
@@ -500,11 +500,13 @@ impl App {
 
     /// §12.6: up to twelve printable ASCII characters, `Backspace` deletes,
     /// `Enter` confirms, `Esc` cancels and discards the score.
-    fn name_key(&mut self, session: &mut Session, event: &KeyEvent, rank: usize) -> Flow {
+    ///
+    /// The rank the box is showing is not read here: it was decided when the
+    /// game ended, and `Table::insert` settles the entry's place for itself.
+    fn name_key(&mut self, session: &mut Session, event: &KeyEvent) -> Flow {
         if event.kind == KeyEventKind::Release {
             return Flow::Continue;
         }
-        let _ = rank;
         // §16: Ctrl-C is a key event in raw mode, and it means leave — not a
         // `c` in the name field.
         if event.modifiers.contains(KeyModifiers::CONTROL) {

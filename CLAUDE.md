@@ -3,22 +3,29 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 10 of `PLAN.md` complete.** It is playable, it keeps score, it
-looks like §12.4, and every setting in §6 is now reachable without a text
-editor: `cargo run --release` gives the full 44 x 23 screen — hold box,
-playfield, preview queue with per-slot dimming, stats box and status line —
-with the pause menu, the 3-2-1 resume countdown, the §12.6 game-over box and
-the §13.5 Options panel over it, the six §12.5 animations running off the event
-stream, and the §12.4 debug strip under it when `show_debug` is on. The config
-file loads and saves at the §6.2 path, the §6.4 CLI is complete, and the §6.2
-warnings reach stderr after teardown. `Game::tick(&TickInput, &mut
-Vec<GameEvent>)` is still the single entry point and `Game::view()` still the
-only way to see the result — with `Game::debug()` beside it for the strip; the
-shell is `main.rs` (terminal), `app.rs` (the §15.2 loop and the part of the §7
-state machine a game needs), `config.rs` (§6), `input.rs` (§10) and `ui/`
-(§12). T1-T17 all pass, plus I1, I2 and I3, and the batch-invariance canary is
-in CI. What is missing is the front door: no attract screen, no high scores, no
-name entry. Stage 11 is next.
+**Status: Stage 11 of `PLAN.md` complete — milestone M3, feature complete.**
+Everything in §1.1 is implemented. `cargo run --release` opens on the §13
+attract screen — wordmark, menu, the six-second cycling panel, the drifting
+background and the sixty-second idle colour cycle — and **PLAY** starts a game
+on the full 44 x 23 screen of §12.4, with the pause menu, the 3-2-1 resume
+countdown, the §12.6 game-over box, and the §13.5 Options and §10.1 controls
+boxes reachable from both the pause menu and the attract screen. A top out
+that earns a top-ten place opens name entry; `Enter` files it and it appears on
+the attract screen. The config file loads and saves at the §6.2 path, the §6.4
+CLI is complete, the §14 table is written atomically to the data directory, and
+the §6.2 and §14 warnings reach stderr after teardown.
+
+`Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
+and `Game::view()` still the only way to see the result — with `Game::debug()`
+beside it for the strip. The shell is `main.rs` (terminal), `app.rs` (§7's
+state machine and both loops of §15), `config.rs` (§6), `highscore.rs` (§14),
+`input.rs` (§10) and `ui/` (§12, §13). T1-T17 all pass, plus I1, I2 and I3, and
+the batch-invariance canary is in CI. A3 and A6 are verified end to end on a
+pty; idle CPU on the attract screen measures 0.2 % against §15.3's 2 %.
+
+Stage 12 is next, and it is the last: resize handling and §8.4's force-to-pause,
+§12.1's terminal-too-small screen, the `mono` / `NO_COLOR` paths played through,
+I4, and A1-A10 signed off one by one.
 
 The mono and `NO_COLOR` paths already work (`NO_COLOR=1 tools/drive.py` shows
 the §9.2 letters and `..` ghosts); Stage 12 owns finishing and playing them.
@@ -120,10 +127,19 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   case I3 pins at exactly one warning.
 - **`ui::theme::Glyphs` are leaked, once, at start-up** so `Theme` stays `Copy`
   (§12.2). `Glyphs::configured` is a start-up call, not a per-frame one.
-- **`App::generation` is the frame's third component.** §15.2 step 5 draws only
-  when the frame changed, and it compares the `GameView` and the `Overlay`.
-  Anything else the screen shows — the Options panel's values are the only case
-  so far — has to bump the counter or it will not be redrawn.
+- **`Session::generation` is one of the frame's four components.** §15.2 step 5
+  draws only when the frame changed, and it compares the `GameView`, the
+  `Overlay`, the generation counter and §10.1's restart bar. Anything else the
+  screen comes to show has to join that tuple or bump the counter, or it will
+  not be redrawn — and, worse, will not be *erased*.
+- **A score of 0 never qualifies, ties keep the older entry above, and a
+  seeded run is never recorded** (§14, §6.4). All three live in
+  `highscore::Table`; the seed rule is `App::finish`'s, because it is the only
+  place that knows the run was seeded.
+- **The attract screen has been seen now.** §13 stays provisional, but its
+  layout is pinned by tests and its mock-up in §13.3 is what the code draws.
+  The panel is four rows, not three: seven control entries do not fit in six
+  slots.
 - **`Chrome` carries what `GameView` cannot.** `hold_enabled` is the one layout
   question the view cannot answer — an empty hold slot and an absent hold
   mechanic are both `hold: None` — so it travels with the theme and `show_grid`
@@ -158,23 +174,34 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   **not work items**. §19 is a list of constraints to honour, already baked into
   Stages 3, 5 and 8. The only networking deliverable in the entire plan is that
   one CI test.
-- The attract screen (§13) is explicitly provisional. Build it plainly, look at
-  it, then iterate. Do not gold-plate it before it has been seen.
+- The attract screen (§13) is explicitly provisional. It has now been built
+  plainly and looked at; iterate on it if it wants it, but it is not Stage 12
+  work and §17.3 does not judge its looks.
 
-## Waiting for Stage 11
+## What Stage 11 settled, and what it left
 
-Two structural pressures Stage 10 left behind. Neither is a bug, and both are
-cheaper to read than to rediscover by hitting them.
-
-- **`App` owns state that a second screen will want.** `config`, `config_path`,
-  `warnings` and `saved` live on `App` because a run is currently one game. The
-  §13.5 Options panel has to be reachable from the attract screen too, so that
-  state most likely moves *above* `App`, alongside the real §7 `AppState`,
-  rather than staying inside it.
-- **`run` borrows `&mut Startup` for a reason.** The Options panel edits the
-  config in place and §16's warnings must survive back to `main`, which is the
-  only thing that prints after teardown. That shape is right for one game; when
-  the loop becomes attract → play → attract it wants rethinking, not copying.
+- **`Session` is the state above a game**, and it is where the config, the
+  config path, §16's warnings, the §14 table and the seed policy live. `App` is
+  one game and the input state that drives it. `run` is a loop over `Next`
+  (`Attract` / `Play` / `Quit`); §15 asks for two loops and there are two —
+  `attract` at 10 fps with no accumulator, `round` at 60 Hz with one.
+- **§7 is two levels, not one enum**, and the spec says so now. `Next` chooses
+  the screen; `Phase` says where inside a game. The phases §7's original list
+  did not have are the ones drawn *over* a game: `Options`, `Controls` and
+  `Resuming`.
+- **The restart key is the only held `Action`.** §10.2's `Held` is the three
+  movement keys and nothing else, so `Confirm` in `app.rs` tracks the
+  restart hold, off the action path entirely (`Bindings::action_of` is what
+  lets the shell pick it out before `InputState` sees it). In legacy mode it
+  survives silence for `RESTART_QUIET` — 700 ms, chosen to outlast the OS's
+  *first* auto-repeat, not the 90 ms `HOLD_TIMEOUT` that separates later ones.
+- **The frame is four components now**, not three: view, overlay, generation
+  and the restart bar's percentage. Anything else the screen shows that is in
+  none of them will not be redrawn — that is the trap `generation` exists for,
+  and the restart bar walked straight into it.
+- **The high-score path is not overridable**, so a `drive.py` run writes to the
+  real data directory unless it is given `--seed` (never recorded) or a
+  throwaway `HOME`. `HOME=/tmp/... tools/drive.py ...` is how A6 was checked.
 
 ## Open decisions
 
@@ -184,6 +211,11 @@ cheaper to read than to rediscover by hitting them.
   then runs identically from ~670 ms. Releasing a held direction overshoots by
   two or three cells. Both are inherent to a 90 ms hold timeout, not tuning.
   Whether §8.2 should say so is undecided — ask before amending it.
+- **`RESTART_QUIET` is a second constant of the same shape**, and it is 700 ms
+  rather than 90 for exactly the reason above: §10.1's restart has to survive
+  the OS's *first* auto-repeat, and a soft drop does not. If §8.2 is ever
+  amended to describe the legacy path's feel, that number belongs in the same
+  paragraph rather than in `app.rs` on its own.
 
 ## Commands
 
@@ -199,6 +231,11 @@ cargo run -- --seed 42         # deterministic run, not recorded to high scores
 tools/drive.py c c             # drive the release binary on a pty
 tools/drive.py --arg=--seed=42 --arg=--config=/tmp/t.toml esc down down enter
 ```
+
+`HOME=/tmp/somewhere tools/drive.py ...` redirects both the §6.2 config path
+and the §14 data path, which is how a full game can be played to a top out and
+its score checked without touching the real files. A `--seed` run is never
+recorded (§14) and so needs no such care.
 
 `tools/drive.py` is the only way to check the terminal layer without a human at
 a terminal: §17.1 is "core, no terminal" by design, so nothing in `cargo test`
