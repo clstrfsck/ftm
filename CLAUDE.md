@@ -193,10 +193,13 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   gets the 3-2-1 countdown for it.
 - **The wordmark has its own palette, and the field does not** (§13.2). §9.2's
   seven are equally saturated but not equally bright — luma 17 for blue against
-  223 for yellow — so purple, red and blue are lifted to orange's 165 by
-  `theme::wordmark_rgb`, and `attract::wordmark_row` calls `Theme::wordmark`,
-  never `Theme::piece`. The lift is the wordmark's alone: a piece on the field
-  is §9.2 exactly.
+  223 for yellow — so `theme::wordmark_rgb` lifts purple, red and blue, and
+  `attract::wordmark_row` calls `Theme::wordmark`, never `Theme::piece`. They
+  do not land on one number: purple reaches orange's 165, red and blue stop at
+  102 and 84 because blending toward white buys brightness with saturation and
+  those two turn into salmon and lavender long before purple stops being
+  purple. The lift is the wordmark's alone: a piece on the field is §9.2
+  exactly.
 
 - **`Chrome` carries what `GameView` cannot.** `hold_enabled` is the one layout
   question the view cannot answer — an empty hold slot and an absent hold

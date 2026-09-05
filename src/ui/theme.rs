@@ -156,7 +156,7 @@ impl Theme {
         }
     }
 
-    /// A wordmark letter's colour: §9.2's hue at §13.2's equal luminance.
+    /// A wordmark letter's colour: §9.2's hue, levelled up (§13.2).
     ///
     /// §9.2's seven are equally *saturated*, not equally *bright*: cyan comes
     /// to a Rec.709 luma of 189 and blue to 17, so the same letterform drawn
@@ -312,20 +312,30 @@ fn scale((r, g, b): (u8, u8, u8), percent: u8) -> (u8, u8, u8) {
 /// Rec.709 luma of §9.2's seven runs from blue's 17 to yellow's 223, so three
 /// of them — purple, red and blue — are far dimmer than the rest and a
 /// wordmark that mixes them looks like it is drawn in two weights. Those three
-/// are raised to 165, the luma of orange, which is the dimmest of the four
-/// that are already bright; the other four are §9.2 exactly.
+/// are lifted; the other four are §9.2 exactly.
 ///
 /// A hue is lifted by blending it toward white, which is the only way up: a
 /// saturated blue or purple *cannot* be as bright as cyan on any display, so
-/// the brightness is bought with saturation and the lifted three come out
-/// pastel. Hardcoded rather than computed, both because the blend is the one
-/// place a float would otherwise appear and because these are a designer's
-/// numbers now — see §13.2, which records the derivation.
+/// the brightness is bought with saturation. How much of that is worth
+/// spending differs by hue, so the three do **not** land on one number:
+///
+/// * Purple already carries two primaries, so it reaches orange's 165 — the
+///   dimmest of the four that were already bright — and is still purple.
+/// * Red and blue carry one primary each and gray out much faster: at 165 they
+///   read as salmon and lavender rather than as red and blue. They are lifted
+///   45% of that far instead, to 102 and 84, keeping about three-quarters of
+///   their saturation. A saturated hue also *looks* brighter than its luma
+///   says (Helmholtz–Kohlrausch), and most so for blue, which closes much of
+///   the gap the number still shows.
+///
+/// Hardcoded rather than computed, both because the blend is the one place a
+/// float would otherwise appear and because these are a designer's numbers
+/// now — see §13.2, which records the derivation.
 const fn wordmark_rgb(colour: Colour) -> (u8, u8, u8) {
     match colour {
         Colour::Purple => (0xD5, 0x8F, 0xF8),
-        Colour::Red => (0xF8, 0x8F, 0x8F),
-        Colour::Blue => (0x9F, 0x9F, 0xF9),
+        Colour::Red => (0xF4, 0x40, 0x40),
+        Colour::Blue => (0x48, 0x48, 0xF4),
         other => other.rgb(),
     }
 }
@@ -435,25 +445,46 @@ mod tests {
         (2126 * u32::from(r) + 7152 * u32::from(g) + 722 * u32::from(b)) / 10000
     }
 
+    /// HSV saturation as a percentage: how much hue a lift has left behind.
+    fn saturation((r, g, b): (u8, u8, u8)) -> u32 {
+        let (top, bottom) = (r.max(g).max(b), r.min(g).min(b));
+        if top == 0 {
+            return 0;
+        }
+        100 * u32::from(top - bottom) / u32::from(top)
+    }
+
     #[test]
-    fn the_wordmark_palette_is_level() {
-        // §13.2: no wordmark colour is dimmer than orange, which §9.2's own
-        // spread puts at 165 -- against blue's 17 and purple's 51 untouched.
-        assert_eq!(luma(Colour::Blue.rgb()), 17, "§9.2's blue, for contrast");
+    fn the_wordmark_lifts_the_three_dark_hues() {
+        // §13.2: §9.2's own spread runs from blue's 17 to yellow's 223, which
+        // is what the wordmark cannot use as it stands.
+        assert_eq!(luma(Colour::Blue.rgb()), 17);
+        assert_eq!(luma(Colour::Yellow.rgb()), 222);
+        // Purple goes all the way to orange's 165, the dimmest of the four
+        // that were already bright, and is still purple at the end of it.
         let floor = luma(Colour::Orange.rgb());
         assert_eq!(floor, 165);
-        for kind in PALETTE.map(|entry| entry.kind) {
-            let lifted = luma(wordmark_rgb(kind.colour()));
+        assert_eq!(luma(wordmark_rgb(Colour::Purple)), floor);
+        // Red and blue gray out far faster, so they stop short of it on
+        // purpose and keep about three-quarters of their saturation.
+        for colour in [Colour::Red, Colour::Blue] {
+            let lifted = wordmark_rgb(colour);
             assert!(
-                lifted >= floor,
-                "{kind:?} comes to {lifted}, under the floor of {floor}",
+                luma(lifted) > luma(colour.rgb()) * 3 / 2,
+                "{colour:?} is barely lifted at all",
+            );
+            assert!(
+                luma(lifted) < floor,
+                "{colour:?} at {} is back to a pastel",
+                luma(lifted),
+            );
+            assert!(
+                saturation(lifted) >= 70,
+                "{colour:?} keeps only {}% of its hue",
+                saturation(lifted),
             );
         }
-        // And the lift is exactly the three that needed it, to the floor
-        // itself: the other four are §9.2 as written.
-        for colour in [Colour::Purple, Colour::Red, Colour::Blue] {
-            assert_eq!(luma(wordmark_rgb(colour)), floor, "{colour:?} is lifted");
-        }
+        // And the other four are §9.2 as written.
         for colour in [Colour::Cyan, Colour::Green, Colour::Orange, Colour::Yellow] {
             assert_eq!(wordmark_rgb(colour), colour.rgb(), "{colour:?} is §9.2's");
         }
