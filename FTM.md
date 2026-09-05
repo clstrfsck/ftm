@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Date:** 2026-09-05
-**Target language:** Rust (edition 2024, MSRV 1.85)
+**Target language:** Rust (edition 2024, MSRV 1.88)
 **Name:** Falling Tetromino Manager (a terminal tetromino game; binary name `ftm`)
 
 ---
@@ -122,22 +122,23 @@ well-known public rules.
 
 ## 3. Technology and dependencies
 
-The implementation is a single Rust binary crate, **edition 2024**. Edition 2024
-is stable from Rust 1.85, which is therefore the MSRV; the toolchain is pinned no
-further than that.
+The implementation is a single Rust binary crate, **edition 2024**. The MSRV is
+**1.88**, which is `ratatui`'s; edition 2024 itself needs only 1.85, so the floor
+is set by a dependency rather than by the language and moves when one of them
+moves. The toolchain is pinned no further than that.
 
 | Crate | Version | Purpose |
 |---|---|---|
-| `ratatui` | 0.29 | Widget layout and double-buffered terminal drawing. |
-| `crossterm` | 0.28 | Terminal backend: raw mode, alternate screen, key events, keyboard-enhancement flags. |
-| `rand` | 0.8 | `SmallRng` for the bag randomiser; seedable for tests. |
+| `ratatui` | 0.30 | Widget layout and double-buffered terminal drawing. |
+| `crossterm` | 0.29 | Terminal backend: raw mode, alternate screen, key events, keyboard-enhancement flags. |
+| `rand` | 0.10 | `SmallRng` — `Xoshiro256PlusPlus` — as the bag's bit source. Its seeding and its range draw are §9.6's, not `rand`'s. |
 | `serde` + `serde_derive` | 1 | Config and high-score (de)serialisation. |
-| `toml` | 0.8 | Config file format. |
+| `toml` | 1 | Config file format. |
 | `serde_json` | 1 | High-score file format. |
 | `clap` | 4 (derive) | Command-line argument parsing. |
-| `directories` | 5 | Platform config/data directories. |
+| `directories` | 6 | Platform config/data directories. |
 | `anyhow` | 1 | Error propagation in `main` and I/O paths. |
-| `thiserror` | 1 | Typed errors in the config loader. |
+| `thiserror` | 2 | Typed errors in the config loader. |
 | `chrono` | 0.4 | Date stamps on high-score entries. |
 
 No other runtime dependencies. `unsafe` is forbidden
@@ -790,8 +791,20 @@ games but not during one.
   times by drawing from the bag, refilling the bag as needed. Because the queue
   may straddle a bag boundary, the maximum meaningful preview is 6; this is why
   `preview_count` is clamped to `1..=6`.
-- The RNG is `rand::rngs::SmallRng`, seeded from the OS by default or from
-  `--seed`. Given a fixed seed the entire piece sequence must be reproducible.
+- The RNG is `rand::rngs::SmallRng` — `Xoshiro256PlusPlus` on a 64-bit build —
+  seeded from the OS by default or from `--seed`. Given a fixed seed the entire
+  piece sequence must be reproducible, **including across upgrades of `rand`**,
+  so `rand` supplies the generator and nothing else. Two things it would
+  otherwise decide are specified here instead, because it has changed both
+  before and `SmallRng` is documented as non-portable:
+  - **Seeding.** A `u64` seed is expanded to the generator's 32-byte seed with
+    PCG32 (multiplier `6364136223846793005`, increment `11634580027462260723`),
+    four bytes at a time, advancing the state before each output. This is what
+    `rand_core` 0.6 did by default; `rand` 0.10 would instead use SplitMix64.
+  - **The shuffle's draw.** A uniform value in `0..=max` is Lemire's: multiply a
+    full-width draw by `max + 1`, keep the high half, and reject when the low
+    half falls in the short final bucket — below `((max + 1) << leading_zeros(max + 1)) - 1`.
+    This is what `rand` 0.8's `gen_range` did; `rand` 0.9 changed it.
 
 The first piece of a game must never be `S` or `Z` (a guideline courtesy): if the
 first bag's first piece is `S` or `Z`, swap it with the first non-`S`/`Z` piece in

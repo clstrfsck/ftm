@@ -317,10 +317,10 @@ impl InputState {
         match bindings.get(event)? {
             Bound::Act(action) => Some(action),
             Bound::Held(key) => {
-                if let Some(direction) = shift_of(key) {
-                    if !self.key_mut(key).held {
-                        self.priority = Some(direction);
-                    }
+                if let Some(direction) = shift_of(key)
+                    && !self.key_mut(key).held
+                {
+                    self.priority = Some(direction);
                 }
                 self.key_mut(key).press();
                 None

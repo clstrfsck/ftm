@@ -48,6 +48,6 @@ and the spec disagree, the spec is wrong until it is amended.
 [PLAN.md](PLAN.md) sequences the implementation into twelve stages.
 All twelve stages are now complete.
 
-Requires Rust 1.85 or later (edition 2024). `make check` runs everything CI runs:
+Requires Rust 1.88 or later (edition 2024 needs only 1.85; `ratatui` sets the floor). `make check` runs everything CI runs:
 `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` and a release
 build.

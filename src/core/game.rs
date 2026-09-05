@@ -1255,7 +1255,7 @@ pub mod tests {
                 19 => TickInput::action(Action::RotateCcw),
                 23 => TickInput::shift(Shift::Right),
                 _ => TickInput {
-                    soft_drop: i % 3 == 0,
+                    soft_drop: i.is_multiple_of(3),
                     ..TickInput::default()
                 },
             })

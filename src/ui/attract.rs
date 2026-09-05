@@ -11,8 +11,8 @@
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use rand::RngExt;
 use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span, Text};
@@ -384,7 +384,7 @@ impl Background {
             pieces: Vec::new(),
             // Cosmetic, so it is seeded from the environment: nothing here is
             // ever replayed, and §15.4's obligations are the core's alone.
-            rng: SmallRng::from_entropy(),
+            rng: rand::make_rng(),
             spawned: now,
         }
     }
@@ -395,13 +395,15 @@ impl Background {
         if now.saturating_duration_since(self.spawned) >= SPAWN {
             self.spawned = now;
             if self.pieces.len() < DRIFTERS && columns > 4 {
-                let jitter = self.rng.gen_range(0..=FALL_JITTER.as_millis() as u64 * 2);
+                let jitter = self
+                    .rng
+                    .random_range(0..=FALL_JITTER.as_millis() as u64 * 2);
                 self.pieces.push(Drifter {
-                    kind: PieceKind::ALL[self.rng.gen_range(0..PieceKind::ALL.len())],
-                    rotation: Rotation::from_index(self.rng.gen_range(0..4)),
+                    kind: PieceKind::ALL[self.rng.random_range(0..PieceKind::ALL.len())],
+                    rotation: Rotation::from_index(self.rng.random_range(0..4)),
                     col: self
                         .rng
-                        .gen_range(0..i16::try_from(columns - 3).unwrap_or(1)),
+                        .random_range(0..i16::try_from(columns - 3).unwrap_or(1)),
                     row: -4,
                     period: FALL - FALL_JITTER + Duration::from_millis(jitter),
                     since: now,

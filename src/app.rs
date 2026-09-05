@@ -875,10 +875,10 @@ fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
             accumulator = Duration::ZERO;
         }
         // The countdown is the one non-running phase that ends by itself.
-        if let Phase::Resuming { since } = app.phase {
-            if now.saturating_duration_since(since) >= COUNTDOWN {
-                app.phase = Phase::Playing;
-            }
+        if let Phase::Resuming { since } = app.phase
+            && now.saturating_duration_since(since) >= COUNTDOWN
+        {
+            app.phase = Phase::Playing;
         }
 
         // 2. Drain *every* event that is already waiting; reading one per frame

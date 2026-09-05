@@ -37,7 +37,7 @@ Each of these was checked on its own, most of them on a pty through
 | | Criterion | How it was checked |
 |---|---|---|
 | A1 | Build clean | `cargo build --release` and `cargo clippy -- -D warnings`, both silent. `#![allow(dead_code)]` is gone. |
-| A2 | §17.1 and §17.2 pass | `cargo test`: 297 unit, 5 + 5 integration. |
+| A2 | §17.1 and §17.2 pass | `cargo test`: 301 unit, 5 + 5 integration. |
 | A3 | Attract on launch, PLAY starts a game | `tools/drive.py --size 24x60 enter`. |
 | A4 | §10.1 controls, working DAS | A 50 ms kitty tap moves exactly one cell either way; a 0.6 s hold slides to the wall and stops. T13 pins the arithmetic. |
 | A5 | `preview_count` 1-6, both sources | Next-box height measured for all six from `--preview` and from the file: 5, 8, 11, 14, 17, 20 rows, matching §12.4's `2 + 1 + 2n + (n-1)`. |
@@ -203,6 +203,15 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   `theme.rs`** — `Colour::rgb` is still §9.2, which is what a §19 client is
   handed — and it is the *base* the §12.3 dimming scale runs from, so a piece
   and its ghost are one hue.
+
+- **The piece sequence is the spec's, not `rand`'s** (§9.6). `bag::seeded`
+  expands a `u64` seed with PCG32 and `Bag::uniform` draws a range with
+  Lemire's method, both written out. Do **not** "simplify" them back to
+  `SmallRng::seed_from_u64` and `random_range`: `rand` has changed each of them
+  once already — the seeding by 0.10, the range draw by 0.9 — and either change
+  silently makes every recorded seed name a different game. `rand` supplies the
+  generator and nothing else. The I1 snapshot is what catches a mistake here,
+  and it caught this one.
 
 - **`Chrome` carries what `GameView` cannot.** `hold_enabled` is the one layout
   question the view cannot answer — an empty hold slot and an absent hold

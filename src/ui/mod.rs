@@ -392,7 +392,7 @@ impl Cosmetics {
             return None;
         }
         let elapsed = self.now.saturating_duration_since(flash.since);
-        Some(elapsed.as_nanos() / FLASH_PERIOD.as_nanos() % 2 == 0)
+        Some((elapsed.as_nanos() / FLASH_PERIOD.as_nanos()).is_multiple_of(2))
     }
 
     /// The piece a hard drop was, and the cells it passed through (§12.5).

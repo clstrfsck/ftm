@@ -78,13 +78,13 @@ fn main() -> Result<()> {
     // never over a file the player already has. What is written is the file
     // without the command line applied: a flag is for one run (§6.1).
     let write_defaults = !startup.existed && result.is_ok() && !startup.wrote_config;
-    if let (true, Some(path)) = (write_defaults, startup.path.as_deref()) {
-        if let Err(error) = config::save(path, &startup.on_disk) {
-            // §16: an unwritable config never aborts.
-            startup
-                .warnings
-                .push(format!("{}: {error}", path.display()));
-        }
+    if let (true, Some(path)) = (write_defaults, startup.path.as_deref())
+        && let Err(error) = config::save(path, &startup.on_disk)
+    {
+        // §16: an unwritable config never aborts.
+        startup
+            .warnings
+            .push(format!("{}: {error}", path.display()));
     }
     report(&startup.warnings);
     result

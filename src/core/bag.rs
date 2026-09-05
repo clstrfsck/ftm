@@ -7,8 +7,8 @@
 //!
 //! The shuffle is written out rather than delegated, because the piece sequence
 //! is part of the determinism contract (§15.4): the same seed must give the same
-//! game, so the exact order of `gen_range` calls is a rule, not an implementation
-//! detail.
+//! game, so the exact order of draws is a rule, not an implementation detail.
+//! [`Bag::uniform`] is written out for the same reason, one level down.
 
 use std::collections::VecDeque;
 
@@ -16,6 +16,34 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 
 use crate::core::piece::PieceKind;
+
+/// The run's generator, seeded so that a seed always means the same game
+/// (§9.6).
+///
+/// `SmallRng::seed_from_u64` is not this function: it expands the seed
+/// differently in different versions of `rand` — 0.8 used `rand_core`'s own
+/// PCG32 default, and by 0.10 `Xoshiro256PlusPlus` overrides it with SplitMix64
+/// — so a seed recorded under one release names a different game under the
+/// next. The generator itself has not changed and is what `rand` is here for;
+/// only its starting state is ours to fix, so the PCG32 expansion is written
+/// out here and the seed is handed over as 32 bytes.
+fn seeded(mut state: u64) -> SmallRng {
+    // PCG32, four bytes at a time, filling the generator's 32-byte seed.
+    let mut word = || {
+        const MUL: u64 = 6_364_136_223_846_793_005;
+        const INC: u64 = 11_634_580_027_462_260_723;
+        // Advance first, to get away from an input of low Hamming weight.
+        state = state.wrapping_mul(MUL).wrapping_add(INC);
+        let xorshifted = (((state >> 18) ^ state) >> 27) as u32;
+        let rotation = (state >> 59) as u32;
+        xorshifted.rotate_right(rotation).to_le_bytes()
+    };
+    let mut seed = [0u8; 32];
+    for chunk in seed.as_chunks_mut::<4>().0 {
+        *chunk = word();
+    }
+    SmallRng::from_seed(seed)
+}
 
 /// The 7-bag randomiser and the visible next queue.
 #[derive(Clone, Debug)]
@@ -37,7 +65,7 @@ impl Bag {
     /// first piece and the whole preview are decided before the first tick.
     pub fn new(seed: u64, preview_count: u8) -> Self {
         let mut bag = Self {
-            rng: SmallRng::seed_from_u64(seed),
+            rng: seeded(seed),
             bag: VecDeque::with_capacity(7),
             queue: VecDeque::with_capacity(8),
             preview_count,
@@ -87,7 +115,7 @@ impl Bag {
         // Fisher-Yates, high to low: for i from n-1 down to 1, swap i with a
         // uniform j in 0..=i.
         for i in (1..pieces.len()).rev() {
-            let j = self.rng.gen_range(0..=i);
+            let j = self.uniform(i);
             pieces.swap(i, j);
         }
         if self.first_bag {
@@ -95,6 +123,34 @@ impl Bag {
             self.first_bag = false;
         }
         self.bag.extend(pieces);
+    }
+
+    /// A uniform `0..=max`, drawn the way the shuffle must always have drawn it
+    /// (§9.6).
+    ///
+    /// Written out rather than left to `rand`'s own range sampling, because
+    /// that is **not stable across versions** — `SmallRng` is documented as
+    /// non-portable, and `rand` 0.9 changed how a draw is mapped onto a range —
+    /// while §9.6 requires a seed to give the same game. The generator's stream
+    /// is one thing and what the shuffle makes of it is another; only the
+    /// second is ours to promise, so it lives here.
+    ///
+    /// The method is Lemire's: multiply a full-width draw by the range, keep
+    /// the high half, and reject the low half's short final bucket so every
+    /// value is equally likely. `max` is at most 6 here, so the rejection loop
+    /// effectively never runs a second time.
+    fn uniform(&mut self, max: usize) -> usize {
+        let range = max as u64 + 1;
+        // `range << leading_zeros` always lands in `2^63..2^64`, so this is the
+        // largest multiple of the range that fits, less one.
+        let zone = (range << range.leading_zeros()).wrapping_sub(1);
+        loop {
+            let wide = u128::from(self.rng.next_u64()) * u128::from(range);
+            let (high, low) = ((wide >> 64) as u64, wide as u64);
+            if low <= zone {
+                return high as usize;
+            }
+        }
     }
 
     /// §9.6: the first piece of a game is never `S` or `Z`. If it is, swap it
@@ -157,6 +213,20 @@ mod tests {
             all.sort_by_key(|k| format!("{k:?}"));
             assert_eq!(seen, all, "bag {i} is not a permutation: {bag:?}");
         }
+    }
+
+    #[test]
+    fn seed_42_deals_the_bag_it_has_always_dealt() {
+        // §9.6: a seed names the same game across releases, which means across
+        // upgrades of `rand` too -- so the sequence is written down, not just
+        // asserted to be self-consistent. These are the seven `rand` 0.8 dealt
+        // before its seeding and its range draw both moved under us; `seeded`
+        // and `uniform` exist to keep them.
+        //
+        // If this fails after a dependency bump, the fix is in those two
+        // functions, never in this list. The I1 snapshot fails with it.
+        use PieceKind::{I, J, L, O, S, T, Z};
+        assert_eq!(sequence(42, 7), vec![J, T, S, I, L, Z, O]);
     }
 
     #[test]
