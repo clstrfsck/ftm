@@ -29,10 +29,13 @@ jobs:
       - run: make check
 
   # Not a Makefile target: it is the one command here that means nothing
-  # without the pinned toolchain the step above installs.
+  # without a pinned toolchain of its own. The version is `rust-version` in
+  # Cargo.toml and the MSRV of FTM.md §3 -- currently `ratatui`'s floor, not
+  # the language's -- and it moves when a dependency moves it. Change it in
+  # all three places or this job stops checking what it claims to.
   msrv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: dtolnay/rust-toolchain@1.88.0
       - run: cargo check --all-targets
