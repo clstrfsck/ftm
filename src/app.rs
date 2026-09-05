@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::layout::Size;
 
 use crate::config::{self, ConfigFile, DisplaySettings, MAX_CATCH_UP_TICKS, Startup, TICK};
 use crate::core::{Action, Actions, Game, GameEvent, GameView, Shift, TickInput};
@@ -107,6 +108,26 @@ struct Pending {
     actions: Actions,
     shift: Option<Shift>,
     cells: u8,
+}
+
+/// Everything on the playing screen that the loop compares between frames
+/// (§15.2 step 5).
+///
+/// The loop draws only when this has changed, so anything the screen comes to
+/// show that is in none of these fields will not be redrawn — and, worse, will
+/// not be *erased*. `generation` is the escape hatch for what genuinely cannot
+/// be a field (the Options panel's values); `restart` and `cramped` are here
+/// because they are both on screen and in neither the view nor the overlay.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Frame {
+    view: GameView,
+    overlay: Overlay,
+    generation: u32,
+    /// §10.1's restart hold, as a percentage of the second it needs.
+    restart: Option<u8>,
+    /// §12.1: the terminal's size, while it is below the minimum. `None` is
+    /// the ordinary case of a terminal with room for the screen.
+    cramped: Option<Size>,
 }
 
 /// §10.1's "hold 1 s" confirmation on the restart key.
@@ -554,6 +575,19 @@ impl App {
         self.input.binding(event, &self.bindings) == Some(Action::Pause)
     }
 
+    /// §8.4: a terminal that has shrunk below §12.1's minimum forces a game in
+    /// progress into `Paused`, so the player is never killed by a window
+    /// resize.
+    ///
+    /// Nothing here undoes itself when the terminal grows again: §9.17's pause
+    /// is left for the player to leave, which also gives them the 3-2-1
+    /// countdown before the clock starts again.
+    fn cramp(&mut self) {
+        if self.phase.running() {
+            self.pause(0);
+        }
+    }
+
     fn pause(&mut self, selected: usize) {
         self.phase = Phase::Paused { selected };
         // In legacy mode a key is held until it falls quiet (§8.2), and nothing
@@ -740,6 +774,10 @@ fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
     let mut state = Attract::new(Instant::now());
     let mut chrome = session.chrome(session.config.gameplay.hold_enabled);
     let mut dirty = true;
+    // §8.4: the size is tracked from the resize events rather than asked for
+    // every frame. It is the same answer, and it is the event that says the
+    // whole frame is invalid.
+    let mut area = terminal.size()?;
     loop {
         let now = Instant::now();
         // Drain every event that is already waiting; reading one per frame
@@ -761,13 +799,28 @@ fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
                     }
                 }
                 // §8.4: a resize invalidates the whole frame.
-                Event::Resize(..) => dirty = true,
+                Event::Resize(width, height) => {
+                    area = Size { width, height };
+                    dirty = true;
+                }
                 _ => {}
             }
         }
 
-        let size = terminal.size()?;
-        let cells = (size.width / 2, size.height);
+        // §12.1: below the minimum the attract screen is replaced by the
+        // message, and the drifting background is not stepped — there is
+        // nowhere to draw it, and it would only make the frame look dirty.
+        if !ui::fits(area) {
+            if dirty {
+                dirty = terminal
+                    .draw(|frame| ui::too_small(frame, chrome.theme))
+                    .is_err();
+            }
+            event::poll(ATTRACT_FRAME)?;
+            continue;
+        }
+
+        let cells = (area.width / 2, area.height);
         // §13.4 is disabled in `mono` and when `show_debug` is on; asking the
         // theme rather than the config is what makes `NO_COLOR` count too.
         let animate = chrome.theme.depth() != crate::ui::theme::Depth::Mono
@@ -800,11 +853,14 @@ fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
     let clear_delay = TICK * session.config.resolve().0.line_clear_delay_ticks;
     let mut chrome = session.chrome(app.hold_enabled);
     let mut fx = Cosmetics::new(clear_delay, Instant::now());
-    let mut previous: Option<(GameView, Overlay, u32, Option<u8>)> = None;
+    let mut previous: Option<Frame> = None;
     let mut accumulator = Duration::ZERO;
     let mut last = Instant::now();
     let mut fps = Fps::new(last);
     let mut settings = session.generation;
+    // §8.4: tracked from the resize events, which are also what invalidates
+    // the frame.
+    let mut area = terminal.size()?;
 
     loop {
         // 1. Wall-clock time since the last iteration. §9.17: while the clock
@@ -837,9 +893,20 @@ fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
                     }
                 }
                 // §8.4: a resize invalidates the whole frame.
-                Event::Resize(..) => invalidated = true,
+                Event::Resize(width, height) => {
+                    area = Size { width, height };
+                    invalidated = true;
+                }
                 _ => {}
             }
+        }
+        // §8.4, §12.1: a terminal that has shrunk below the minimum forces a
+        // game in progress into `Paused` *before* the screen goes, so the
+        // player is never killed by a window resize — and so that no ticks run
+        // behind a screen they cannot see.
+        let room = ui::fits(area);
+        if !room {
+            app.cramp();
         }
         if let Some(next) = leaving {
             return Ok(next);
@@ -880,27 +947,30 @@ fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
         // in neither the view nor the overlay, so a frame that differs only by
         // it — the moment the key is let go, and the bar has to be rubbed out —
         // would otherwise not be drawn at all.
-        let frame = (
-            app.view(),
-            app.overlay(now),
-            session.generation,
-            app.restart.progress(now),
-        );
+        let frame = Frame {
+            view: app.view(),
+            overlay: app.overlay(now),
+            generation: session.generation,
+            restart: app.restart.progress(now),
+            // §12.1's message names the size it has, so the size is on the
+            // screen and belongs in the comparison like everything else.
+            cramped: (!room).then_some(area),
+        };
         // The strip's own figures change every frame, so with it on there is
         // always something new to look at (§12.4).
         if invalidated || show_debug || fx.animating() || previous.as_ref() != Some(&frame) {
             let debug = show_debug.then(|| app.debug(fps.drew(now)));
             let hud = Hud {
-                overlay: &frame.1,
+                overlay: &frame.overlay,
                 config: &session.config,
                 debug: debug.as_ref(),
                 mode: session.mode,
-                restart: frame.3,
+                restart: frame.restart,
             };
             // §16: a frame lost to a write failure is simply lost. Leaving
             // `previous` behind is what makes the next frame try again.
             if terminal
-                .draw(|f| ui::draw(f, &frame.0, &chrome, &fx, &hud))
+                .draw(|f| ui::draw(f, &frame.view, &chrome, &fx, &hud))
                 .is_ok()
             {
                 previous = Some(frame);
@@ -1009,6 +1079,34 @@ mod tests {
         app.advance(1, now);
         assert_eq!(app.pending.cells, 0, "and one tick consumes both");
         assert_eq!(app.pending.actions, Actions::default());
+    }
+
+    #[test]
+    fn a_terminal_below_the_minimum_forces_a_game_into_pause() {
+        // §8.4: "if a game was in progress it is forced into `Paused` first,
+        // so the player is never killed by a window resize". A soft drop that
+        // was being held when the window shrank must not survive it either:
+        // nothing expires a held key while the clock is stopped (§8.2).
+        let (mut app, _session) = app();
+        let now = Instant::now();
+        app.pending.shift = Some(Shift::Left);
+        app.pending.cells = 3;
+        assert!(app.phase.running());
+
+        app.cramp();
+        assert_eq!(app.phase, Phase::Paused { selected: 0 });
+        assert_eq!(app.pending.cells, 0, "and the held input is let go");
+
+        // Still cramped a frame later: the pause is not re-entered, so the
+        // menu selection the player has moved to is left alone.
+        app.phase = Phase::Paused { selected: 2 };
+        app.cramp();
+        assert_eq!(app.phase, Phase::Paused { selected: 2 });
+
+        // And it does not disturb a game that has already ended.
+        app.phase = Phase::GameOver { since: now };
+        app.cramp();
+        assert_eq!(app.phase, Phase::GameOver { since: now });
     }
 
     #[test]

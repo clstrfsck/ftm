@@ -114,9 +114,9 @@ pub fn render(
         stats(view),
     );
 
-    // TODO(stage 12): §12.4's "+N" rule for a layout with too little room for
-    // every slot. At `preview_count` up to 6 the box is 20 rows and the screen
-    // is 23, so within this layout it cannot arise.
+    // §12.4's "+N" rule is for a layout that leaves too little room for every
+    // slot. This is not one: at `preview_count` = 6 the box is 20 rows and the
+    // screen is 23, so every slot always fits and the rule cannot arise.
     let next_height = 3 * view.next.len() as u16 + 2;
     panel(
         frame,

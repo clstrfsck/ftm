@@ -448,6 +448,13 @@ pub struct Context<'a> {
 /// Draw the attract screen (§13.3), with a sub-screen over it if one is open.
 pub fn draw(frame: &mut Frame, state: &Attract, cx: &Context) {
     let theme = cx.chrome.theme;
+    // §12.1: below the minimum this screen is replaced too. The attract loop
+    // asks the same question before it animates, but the guard belongs here as
+    // well: nothing may reach a layout that assumes room it has not got.
+    if !crate::ui::fits(frame.area().as_size()) {
+        crate::ui::too_small(frame, theme);
+        return;
+    }
     // §13.4: the animation is disabled in `mono` and when `show_debug` is on.
     if animated(cx) {
         drift(frame, &state.background, theme);
