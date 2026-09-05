@@ -161,6 +161,21 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - The attract screen (§13) is explicitly provisional. Build it plainly, look at
   it, then iterate. Do not gold-plate it before it has been seen.
 
+## Waiting for Stage 11
+
+Two structural pressures Stage 10 left behind. Neither is a bug, and both are
+cheaper to read than to rediscover by hitting them.
+
+- **`App` owns state that a second screen will want.** `config`, `config_path`,
+  `warnings` and `saved` live on `App` because a run is currently one game. The
+  §13.5 Options panel has to be reachable from the attract screen too, so that
+  state most likely moves *above* `App`, alongside the real §7 `AppState`,
+  rather than staying inside it.
+- **`run` borrows `&mut Startup` for a reason.** The Options panel edits the
+  config in place and §16's warnings must survive back to `main`, which is the
+  only thing that prints after teardown. That shape is right for one game; when
+  the loop becomes attract → play → attract it wants rethinking, not copying.
+
 ## Open decisions
 
 - **The legacy key path's feel (§8.2).** Measured over two seconds of holding
