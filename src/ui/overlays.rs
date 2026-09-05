@@ -367,7 +367,7 @@ const COUNTDOWN_WIDTH: usize = 7;
 const OPTIONS_WIDTH: usize = 28;
 
 /// Draw `lines` in a cleared, double-bordered box centred over `over`.
-fn box_over(frame: &mut Frame, over: Rect, width: usize, lines: Vec<Line<'static>>) {
+pub fn box_over(frame: &mut Frame, over: Rect, width: usize, lines: Vec<Line<'static>>) {
     let area = centred(over, width as u16 + 2, lines.len() as u16 + 2);
     let block = Block::bordered().border_type(BorderType::Double);
     let interior = block.inner(area);
@@ -383,7 +383,7 @@ fn figure(label: &str, value: &str) -> String {
 }
 
 /// `text` centred in `width`, padded on both sides so the line fills the box.
-fn centre(text: &str, width: usize) -> String {
+pub fn centre(text: &str, width: usize) -> String {
     let left = width.saturating_sub(text.chars().count()) / 2;
     format!("{:left$}{text:<pad$}", "", pad = width - left)
 }

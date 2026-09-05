@@ -1562,24 +1562,33 @@ or artwork may be copied (§1.3).
                        OPTIONS
                        QUIT
 
-               ┌───────────────────────────┐
-               │  ←  →  move    ↑  rotate  │
-               │  ↓  soft drop  SPACE drop │
-               │  Z  rotate ccw  C  hold   │
-               └───────────────────────────┘
+            ┌──────────────────────────────────┐
+            │    ←→ move          ↑ rotate     │
+            │     ↓ soft drop SPACE drop       │
+            │     Z rotate ccw    A rotate 180 │
+            │     C hold                       │
+            └──────────────────────────────────┘
 
-               v1.0   ↑↓ select   ENTER start
+              v1.0   ↑↓ select   ENTER start
 ```
+
+The screen is a fixed block **36 characters wide by 20 rows tall** — as wide as
+the wordmark — centred in the terminal like every other screen (§12.1). The
+mock-up above shows it centred in 60 columns.
 
 - The controls panel lists only the bindings that are actually available: the
   `C hold` entry is omitted when `hold_enabled = false`, and the 180° entry is
   shown only when `allow_180_rotation = true`. The remaining entries reflow to
-  fill the panel.
+  fill the panel, two to a row.
+- The panel is **four rows** tall inside its border. Two of the seven control
+  entries are optional, so three rows of two cannot hold them all with every
+  setting turned on; four rows is also what the high-score face wants, which is
+  a heading and the top three.
 - The menu is navigated with `↑`/`↓` (wrapping) and activated with `Enter` or
   `Space`. The selected item is marked `▸` and drawn in the `I`-piece cyan.
 - The panel beneath the menu **cycles every 6 seconds** between three faces:
   1. the quick control summary shown above;
-  2. the top three high scores;
+  2. the top three high scores, under a `HIGH SCORES` heading;
   3. a one-line rules reminder (`Clear 4 rows at once for a QUAD` and similar,
      rotating through a short list).
   The cycle pauses while a menu item other than **PLAY** is selected.
