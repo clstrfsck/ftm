@@ -12,12 +12,15 @@ so the screen can be *seen* without a human at a terminal.
     tools/drive.py c c                    # press hold twice
     tools/drive.py '\\x1b[B' '\\x1b[B' ' '  # down, down, hard drop
     tools/drive.py --legacy left left     # the §8.2 fallback path
+    tools/drive.py enter resize:20x50     # shrink mid-game (§8.4, §12.1)
     tools/drive.py --arg=--seed=42        # the same game every time (§6.4)
 
 Keys are Python string escapes, so '\\x1b[B' is Down and '\\r' is Enter;
 a few names (up, down, left, right, space, enter, esc) are spelled out.
 One frame is printed per keystroke, plus a final one after everything has
-settled.
+settled. A "key" of the form `resize:ROWSxCOLS` is not a key: it resizes
+the pty and signals the child, which is the only way to reach §8.4's
+resize handling and §12.1's too-small screen from here.
 
 Three things to know before believing the output:
 
@@ -50,6 +53,7 @@ import os
 import pty
 import re
 import select
+import signal
 import struct
 import sys
 import termios
@@ -73,8 +77,21 @@ NAMED = {
 QUERIES = [(b"\x1b[?u", b"\x1b[?1u"), (b"\x1b[c", b"\x1b[?62;22c")]
 
 
+def resize(fd, pid, size):
+    """Resize the pty and tell the child, which is what §8.4 reacts to."""
+    rows, cols = size
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    os.kill(pid, signal.SIGWINCH)
+
+
 def run(binary, keys, size, pause, settle, enhanced, argv=()):
-    """Play `keys` through the binary, returning the capture after each one."""
+    """Play `keys` through the binary, returning the capture after each one.
+
+    A key of the form `("resize", (rows, cols))` is not a key at all: it
+    resizes the pty and signals the child, which is the only way to reach
+    §8.4 from here. Each frame is paired with the size in force when it was
+    taken, because that is the geometry it has to be replayed at.
+    """
     rows, cols = size
     pid, fd = pty.fork()
     if pid == 0:
@@ -103,12 +120,16 @@ def run(binary, keys, size, pause, settle, enhanced, argv=()):
 
     frames = []
     pump(1.0)  # startup, and the capability handshake
-    for key in keys:
-        os.write(fd, key.encode())
+    for item in keys:
+        if isinstance(item, tuple):
+            size = item[1]
+            resize(fd, pid, size)
+        else:
+            os.write(fd, item.encode())
         pump(pause)
-        frames.append(bytes(out))
+        frames.append((bytes(out), size))
     pump(settle)
-    frames.append(bytes(out))
+    frames.append((bytes(out), size))
 
     os.write(fd, b"\x1b")  # quit, so the terminal is torn down properly (§8.3)
     pump(0.3)
@@ -163,7 +184,10 @@ def replay(data, size):
 
 
 def key(spec):
-    """A key from a name or a Python string escape."""
+    """A key from a name or a Python string escape, or a resize instruction."""
+    if spec.lower().startswith("resize:"):
+        rows, cols = (int(n) for n in spec.split(":", 1)[1].lower().split("x"))
+        return ("resize", (rows, cols))
     if spec.lower() in NAMED:
         return NAMED[spec.lower()]
     return spec.encode("latin1", "backslashreplace").decode("unicode_escape")
@@ -201,10 +225,10 @@ def main():
 
     keys = [key(spec) for spec in args.keys]
     frames = run(args.bin, keys, size, args.pause, args.settle, not args.legacy, args.arg)
-    for n, frame in enumerate(frames):
+    for n, (frame, at) in enumerate(frames):
         label = f"after {args.keys[n]!r}" if n < len(keys) else "settled"
         print(f"--- {label} " + "-" * 40)
-        print(replay(frame, size))
+        print(replay(frame, at))
 
 
 if __name__ == "__main__":

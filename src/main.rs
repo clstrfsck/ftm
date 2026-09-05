@@ -37,15 +37,25 @@ fn main() -> Result<()> {
     // terminal — including `--print-config`, which never opens one at all.
     let cli = Cli::parse();
     let mut startup = Startup::resolve(&cli, rand::random::<u64>);
+
+    // §8.1 step 2: the panic hook goes in *before* raw mode, so that a crash
+    // between here and the first frame still leaves a usable shell. It is also
+    // before the §8.2 query below, which is the first thing that touches the
+    // terminal at all.
+    install_panic_hook();
+
     if cli.print_config {
         print!("{}", config::document(&startup.file));
+        // §8.2: "the active mode must be reported by `--print-config`". As a
+        // comment, because what this prints is a config file the player can
+        // save, and the input mode is detected rather than configured.
+        println!(
+            "\n# Input mode: {} (§8.2). Detected at start-up, not a setting.",
+            detect_mode().name(),
+        );
         report(&startup.warnings);
         return Ok(());
     }
-
-    // §8.1 step 2: the panic hook goes in *before* raw mode, so that a crash
-    // between here and the first frame still leaves a usable shell.
-    install_panic_hook();
 
     let (mut terminal, mode) = setup()?;
     if mode == InputMode::Legacy {
@@ -96,23 +106,33 @@ fn setup() -> Result<(Tui, InputMode)> {
     // enabled, which is how crossterm leaves them.
 
     // §8.2: query first, and push only what the terminal admits to supporting.
-    let mode = match supports_keyboard_enhancement() {
-        Ok(true) => {
-            execute!(
-                stdout,
-                PushKeyboardEnhancementFlags(
-                    KeyboardEnhancementFlags::REPORT_EVENT_TYPES
-                        | KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-                )
-            )?;
-            ENHANCED.store(true, Ordering::SeqCst);
-            InputMode::Enhanced
-        }
-        _ => InputMode::Legacy,
-    };
+    let mode = detect_mode();
+    if mode == InputMode::Enhanced {
+        execute!(
+            stdout,
+            PushKeyboardEnhancementFlags(
+                KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                    | KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+            )
+        )?;
+        ENHANCED.store(true, Ordering::SeqCst);
+    }
 
     let terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     Ok((terminal, mode))
+}
+
+/// Which of §8.2's two paths this terminal can take.
+///
+/// A query, not a change: it pushes nothing and is safe to call from the
+/// `--print-config` path, which never opens a screen. A terminal that does not
+/// answer is timed out inside crossterm and treated as unsupported, which is
+/// the same answer as declining.
+fn detect_mode() -> InputMode {
+    match supports_keyboard_enhancement() {
+        Ok(true) => InputMode::Enhanced,
+        _ => InputMode::Legacy,
+    }
 }
 
 /// §8.3, in that order, and safe to run twice.
