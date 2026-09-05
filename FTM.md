@@ -1574,8 +1574,10 @@ letterforms doubled horizontally so that three letters still carry the screen:
 The three letters take the `I`, `S` and `T` tetromino colours — cyan, green and
 purple — left to right.
 
-Directly beneath it, separated by one blank row, the full name is spelled out in
-ordinary text, centred and at the same brightness as the menu — not dimmed:
+Directly beneath it, separated by one blank row, the full name is spelled out
+centred and **bold**, in the terminal's own foreground colour — emphasis rather
+than a fixed white, so it is the brightest text on the screen whatever the
+terminal's background is (§12.3):
 
 ```
    FALLING TETROMINO MANAGER

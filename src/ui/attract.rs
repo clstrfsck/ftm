@@ -466,10 +466,14 @@ pub fn draw(frame: &mut Frame, state: &Attract, cx: &Context) {
     }
     lines.push(pad(String::new()));
     // §13.2: the full name under the wordmark. `FTM` is what the wordmark
-    // says; this is what it stands for, and it is drawn in ordinary text —
-    // `faint` put it a clear step below the menu and the panel border, which
-    // made the joke hard to read at the moment it wants reading.
-    lines.push(Line::styled(centre(SUBTITLE, BLOCK_WIDTH), theme.plain()));
+    // says; this is what it stands for, and it is emphasised rather than
+    // merely present — it is the line the screen is named after.
+    //
+    // `bold` rather than a white: §12.3 keeps to the terminal's own palette,
+    // and a hard white would be brighter only on a dark background and close
+    // to invisible on a light one. Bold is brighter everywhere, and it is the
+    // one emphasis `mono` has as well.
+    lines.push(Line::styled(centre(SUBTITLE, BLOCK_WIDTH), theme.bold()));
     lines.push(pad(String::new()));
     for (index, choice) in MenuChoice::ALL.iter().enumerate() {
         let selected = index == state.selected && state.sub.is_none();
