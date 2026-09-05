@@ -3,9 +3,10 @@
 A guideline-conformant falling-block game for the terminal, in Rust. Single
 binary, no server, no unsafe.
 
-**Status: Stage 11 of `PLAN.md` complete — milestone M3, feature complete.**
-Everything in §1.1 is implemented. `cargo run --release` opens on the §13
-attract screen — wordmark, menu, the six-second cycling panel, the drifting
+**Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted.** All
+twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
+below). Everything in §1.1 is implemented. `cargo run --release` opens on the
+§13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
 background and the sixty-second idle colour cycle — and **PLAY** starts a game
 on the full 44 x 23 screen of §12.4, with the pause menu, the 3-2-1 resume
 countdown, the §12.6 game-over box, and the §13.5 Options and §10.1 controls
@@ -13,22 +14,51 @@ boxes reachable from both the pause menu and the attract screen. A top out
 that earns a top-ten place opens name entry; `Enter` files it and it appears on
 the attract screen. The config file loads and saves at the §6.2 path, the §6.4
 CLI is complete, the §14 table is written atomically to the data directory, and
-the §6.2 and §14 warnings reach stderr after teardown.
+the §6.2 and §14 warnings reach stderr after teardown. Below §12.1's 60 x 24 a
+resize replaces every screen with the too-small message and forces a game in
+progress into `Paused` (§8.4).
 
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
 and `Game::view()` still the only way to see the result — with `Game::debug()`
 beside it for the strip. The shell is `main.rs` (terminal), `app.rs` (§7's
 state machine and both loops of §15), `config.rs` (§6), `highscore.rs` (§14),
-`input.rs` (§10) and `ui/` (§12, §13). T1-T17 all pass, plus I1, I2 and I3, and
-the batch-invariance canary is in CI. A3 and A6 are verified end to end on a
-pty; idle CPU on the attract screen measures 0.2 % against §15.3's 2 %.
+`input.rs` (§10) and `ui/` (§12, §13). T1-T17 all pass, plus I1-I4, and the
+batch-invariance canary is in CI.
 
-Stage 12 is next, and it is the last: resize handling and §8.4's force-to-pause,
-§12.1's terminal-too-small screen, the `mono` / `NO_COLOR` paths played through,
-I4, and A1-A10 signed off one by one.
+There is no Stage 13. Further work is §18 and §19, and both are out of scope
+until somebody decides otherwise — see **Scope discipline** below.
 
-The mono and `NO_COLOR` paths already work (`NO_COLOR=1 tools/drive.py` shows
-the §9.2 letters and `..` ghosts); Stage 12 owns finishing and playing them.
+## The §17.3 sign-off
+
+Each of these was checked on its own, most of them on a pty through
+`tools/drive.py`. Re-run any of them the same way.
+
+| | Criterion | How it was checked |
+|---|---|---|
+| A1 | Build clean | `cargo build --release` and `cargo clippy -- -D warnings`, both silent. `#![allow(dead_code)]` is gone. |
+| A2 | §17.1 and §17.2 pass | `cargo test`: 297 unit, 5 + 5 integration. |
+| A3 | Attract on launch, PLAY starts a game | `tools/drive.py --size 24x60 enter`. |
+| A4 | §10.1 controls, working DAS | A 50 ms kitty tap moves exactly one cell either way; a 0.6 s hold slides to the wall and stops. T13 pins the arithmetic. |
+| A5 | `preview_count` 1-6, both sources | Next-box height measured for all six from `--preview` and from the file: 5, 8, 11, 14, 17, 20 rows, matching §12.4's `2 + 1 + 2n + (n-1)`. |
+| A6 | Full game recorded, on the attract screen | `HOME=<throwaway> tools/drive.py enter <40 x space> enter`; the JSON is written, and a fresh process shows it on the panel and the sub-screen. |
+| A7 | Terminal restored | `stty -a` byte-identical either side of a run on the same pty, and the teardown emits §8.3's sequence in order. |
+| A8 | `mono` and `NO_COLOR` | Both play, with §9.2's letters and `..` ghosts. Counting SGR sequences in the raw capture: truecolor 16, `256` 17, `16` 8, `mono` 0, `NO_COLOR=1` 0. |
+| A9 | Hold and 180 off/on, three ways | Off from the file and from `--no-hold`/`--no-rot180`: the key is inert, the hold box is gone, and both bindings vanish from the controls overlay and the attract panel. On from the Options panel, which writes the file. |
+| A10 | UI builds against the view alone | The compiler's job now: every module in `core` is `pub(crate)`. See the invariant below. |
+
+Two things A8 turned up that are worth knowing. `--color 16` reaches the
+terminal as `38;5;N`, not as `30`-`37`: that is crossterm's encoding of a named
+colour and not ours, and §12.3 does not specify a wire form. And a `--legacy`
+run pays about two seconds before its first frame, waiting for a capability
+query the terminal will never answer — crossterm's timeout, not the game's, and
+the same two seconds `--print-config` now pays on such a terminal.
+
+§16's failure paths were exercised deliberately, each end to end on a pty:
+an unwritable config (the Options panel over a read-only file), unwritable high
+scores (a top out over a read-only data directory), a config that is not TOML
+(I3: exactly one warning), and a panic mid-frame — patched in temporarily,
+which restored the terminal *before* printing, left `stty -a` unchanged, gave a
+readable backtrace and exited 101.
 
 ## Read these first
 
@@ -127,11 +157,14 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   case I3 pins at exactly one warning.
 - **`ui::theme::Glyphs` are leaked, once, at start-up** so `Theme` stays `Copy`
   (§12.2). `Glyphs::configured` is a start-up call, not a per-frame one.
-- **`Session::generation` is one of the frame's four components.** §15.2 step 5
-  draws only when the frame changed, and it compares the `GameView`, the
-  `Overlay`, the generation counter and §10.1's restart bar. Anything else the
-  screen comes to show has to join that tuple or bump the counter, or it will
-  not be redrawn — and, worse, will not be *erased*.
+- **`Session::generation` is one of the frame's five components.** §15.2 step 5
+  draws only when the frame changed, and `app::Frame` compares the `GameView`,
+  the `Overlay`, the generation counter, §10.1's restart bar and §12.1's
+  cramped size. Anything else the screen comes to show has to join that struct
+  or bump the counter, or it will not be redrawn — and, worse, will not be
+  *erased*. Two things have already walked into this: the restart bar, and the
+  too-small message, which names the terminal's size and so changes as the
+  window is dragged.
 - **A score of 0 never qualifies, ties keep the older entry above, and a
   seeded run is never recorded** (§14, §6.4). All three live in
   `highscore::Table`; the seed rule is `App::finish`'s, because it is the only
@@ -140,6 +173,23 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   layout is pinned by tests and its mock-up in §13.3 is what the code draws.
   The panel is four rows, not three: seven control entries do not fit in six
   slots.
+- **The core's public surface is its façade, and the compiler holds it there**
+  (§3.1, §17.3 A10). Every module inside `core` is `pub(crate)`; `core/mod.rs`
+  re-exports exactly what the shell may name. Adding a `pub use` there is a
+  decision about §19's wire vocabulary, not a plumbing convenience — the list
+  and the reasoning are in the amended A10.
+- **§12.1's minimum is 60 x 24 and it is the spec's, not the layout's.** The
+  playing screen's block is 44 x 23 and the attract screen's 36 x 20, so both
+  fit with room to spare; `ui::fits` is the one place that decides, and both
+  `ui::draw` and `attract::draw` check it themselves so no caller can reach a
+  layout that assumes room it has not got. `show_debug`'s strip makes the block
+  44 x 28 and deliberately does *not* move the minimum: a short terminal is
+  drawn without it.
+- **A resize forces a game into `Paused` before the screen goes** (§8.4). That
+  is `App::cramp`, and it releases the held keys the way the pause menu does —
+  nothing expires a held key while the clock is stopped (§8.2). It does not
+  undo itself when the terminal grows again; the player leaves the pause, and
+  gets the 3-2-1 countdown for it.
 - **`Chrome` carries what `GameView` cannot.** `hold_enabled` is the one layout
   question the view cannot answer — an empty hold slot and an absent hold
   mechanic are both `hold: None` — so it travels with the theme and `show_grid`
@@ -175,8 +225,8 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   Stages 3, 5 and 8. The only networking deliverable in the entire plan is that
   one CI test.
 - The attract screen (§13) is explicitly provisional. It has now been built
-  plainly and looked at; iterate on it if it wants it, but it is not Stage 12
-  work and §17.3 does not judge its looks.
+  plainly and looked at; iterate on it if it wants it, but §17.3 never judged
+  its looks and the plan is finished either way.
 
 ## What Stage 11 settled, and what it left
 
@@ -195,13 +245,32 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   lets the shell pick it out before `InputState` sees it). In legacy mode it
   survives silence for `RESTART_QUIET` — 700 ms, chosen to outlast the OS's
   *first* auto-repeat, not the 90 ms `HOLD_TIMEOUT` that separates later ones.
-- **The frame is four components now**, not three: view, overlay, generation
-  and the restart bar's percentage. Anything else the screen shows that is in
-  none of them will not be redrawn — that is the trap `generation` exists for,
-  and the restart bar walked straight into it.
 - **The high-score path is not overridable**, so a `drive.py` run writes to the
   real data directory unless it is given `--seed` (never recorded) or a
   throwaway `HOME`. `HOME=/tmp/... tools/drive.py ...` is how A6 was checked.
+
+## What Stage 12 settled
+
+- **A10 is the compiler's now, not an audit's.** Performing a one-off audit
+  proves nothing about the commit after it, so every module in `core` became
+  `pub(crate)`. Doing it found one real leak — `input.rs` reaching for
+  `core::matrix::WIDTH` where it wanted `VIEW_WIDTH`, the same ten in the
+  vocabulary the shell is entitled to — and one imprecision in A10's own
+  wording, which §17.3 is amended for: `PieceKind`, `Colour` and `Rotation` are
+  view vocabulary, because a client handed a `GameView` cannot draw it without
+  §9.3's cell patterns.
+- **`#![allow(dead_code)]` is gone.** It was there because the core was built
+  stages ahead of its callers. Removing it left exactly two warnings, both
+  honest: `LockDown::is_landed` and `resets_used` are read only by T7, and are
+  `#[cfg(test)]` now.
+- **`tools/drive.py` can resize.** `resize:ROWSxCOLS` is a pseudo-key that
+  resizes the pty and signals the child; each frame is replayed at the size in
+  force when it was taken. §8.4 and §12.1 cannot be reached any other way
+  without a human dragging a window.
+- **§12.1's message is centred in the room there is**, not in the room it
+  wants. Padding it to its full width pushes the first line off the left of a
+  narrow screen, and 1 x 1 — which I4 requires and a dragged window passes
+  through — comes back blank instead of showing a `T`.
 
 ## Open decisions
 
@@ -230,6 +299,7 @@ cargo run -- --print-config    # effective config
 cargo run -- --seed 42         # deterministic run, not recorded to high scores
 tools/drive.py c c             # drive the release binary on a pty
 tools/drive.py --arg=--seed=42 --arg=--config=/tmp/t.toml esc down down enter
+tools/drive.py enter resize:20x50   # §8.4 and §12.1, without a window to drag
 ```
 
 `HOME=/tmp/somewhere tools/drive.py ...` redirects both the §6.2 config path
@@ -245,6 +315,8 @@ printing one frame per keystroke. Two things to know: pass binary arguments thro
 `--arg`, glued on with `=` both times (`--arg=--seed=42`, `--arg=--config=...`)
 or `argparse` claims them — without a seed every run is a different game and
 only frames *within* one run may be compared; and it answers the §8.2
-capability queries, so pass `--legacy` to exercise the fallback path. Its
+capability queries, so pass `--legacy` to exercise the fallback path. A
+"key" of the form `resize:ROWSxCOLS` is not a key: it resizes the pty and
+signals the child, which is how §8.4 and §12.1 are reached. Its
 docstring has the rest. It substitutes for, but
 does not replace, playing the game on a real terminal.
