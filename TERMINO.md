@@ -1364,11 +1364,11 @@ screen's OPTIONS item (§13.5) reaches the same panel.
 ```
 ╔══════════════════════╗
 ║    NEW HIGH SCORE    ║
-║        #3            ║
+║          #3          ║
 ║                      ║
 ║   Name: msandifo_    ║
 ║                      ║
-║  Enter to confirm    ║
+║   Enter to confirm   ║
 ╚══════════════════════╝
 ```
 

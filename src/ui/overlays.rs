@@ -11,10 +11,9 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use crate::config::{ColorDepth, ConfigFile, LockDownRule, range};
 use crate::core::GameView;
+use crate::highscore::NAME_MAX;
 use crate::ui::playfield::clock;
 use crate::ui::{Chrome, centred};
-
-// TODO(stage 11): name entry with the $USER pre-fill (§12.6).
 
 /// The pause menu of §9.17, in the order it is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,6 +101,84 @@ pub fn game_over(frame: &mut Frame, over: Rect, view: &GameView, chrome: &Chrome
         Line::raw(centre("Press any key", OVER_WIDTH)),
     ];
     box_over(frame, over, OVER_WIDTH, lines);
+}
+
+/// The name-entry buffer (§12.6).
+///
+/// The twelve-character rule lives here, beside the field that draws it: the
+/// box is exactly wide enough for the longest name plus its cursor, so a cap
+/// enforced anywhere else would be a cap that could drift from the layout.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NameEntry {
+    name: String,
+}
+
+impl NameEntry {
+    /// Pre-filled from `$USER` (or `$USERNAME` on Windows), truncated (§12.6).
+    pub fn prefilled() -> Self {
+        let user = std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .unwrap_or_default();
+        Self {
+            name: crate::highscore::tidy_name(&user),
+        }
+        .cleared_if_anonymous()
+    }
+
+    /// `tidy_name` turns an absent `$USER` into `ANON`, which is the right
+    /// answer for a name that was *entered* and the wrong one for a field that
+    /// was never filled: the player should be typing into an empty box, not
+    /// deleting four characters first.
+    fn cleared_if_anonymous(mut self) -> Self {
+        if self.name == crate::highscore::ANONYMOUS {
+            self.name.clear();
+        }
+        self
+    }
+
+    /// Accept one printable ASCII character, up to the twelfth (§12.6).
+    pub fn push(&mut self, c: char) -> bool {
+        if self.name.chars().count() >= NAME_MAX || !(c.is_ascii_graphic() || c == ' ') {
+            return false;
+        }
+        self.name.push(c);
+        true
+    }
+
+    /// `Backspace` deletes (§12.6).
+    pub fn backspace(&mut self) -> bool {
+        self.name.pop().is_some()
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
+}
+
+/// Name entry (§12.6), shown only when the score qualifies for the top ten.
+///
+/// `rank` is one-based, as the box prints it.
+pub fn name_entry(frame: &mut Frame, over: Rect, chrome: &Chrome, rank: usize, name: &str) {
+    let blank = Line::raw(" ".repeat(OVER_WIDTH));
+    let lines = vec![
+        Line::styled(centre("NEW HIGH SCORE", OVER_WIDTH), chrome.theme.bold()),
+        Line::raw(centre(&format!("#{rank}"), OVER_WIDTH)),
+        blank.clone(),
+        Line::styled(field(name), chrome.theme.bold()),
+        blank,
+        Line::styled(centre("Enter to confirm", OVER_WIDTH), chrome.theme.faint()),
+    ];
+    box_over(frame, over, OVER_WIDTH, lines);
+}
+
+/// The editable field with its cursor (§12.6), padded so the longest name
+/// still fits inside the box without moving anything.
+fn field(name: &str) -> String {
+    format!(
+        "   Name: {:<width$}",
+        format!("{name}_"),
+        width = NAME_MAX + 1,
+    )
 }
 
 /// One row of the §13.5 Options panel.
@@ -406,6 +483,78 @@ mod tests {
             Line::raw(centre("Press any key", OVER_WIDTH)),
         ];
         assert_eq!(drawn(OVER_WIDTH, &lines), OVER);
+    }
+
+    /// §12.6, transcribed literally.
+    const NAME: &str = "\
+╔══════════════════════╗
+║    NEW HIGH SCORE    ║
+║          #3          ║
+║                      ║
+║   Name: msandifo_    ║
+║                      ║
+║   Enter to confirm   ║
+╚══════════════════════╝";
+
+    #[test]
+    fn the_name_entry_box_matches_the_spec() {
+        let blank = Line::raw(" ".repeat(OVER_WIDTH));
+        let lines = vec![
+            Line::raw(centre("NEW HIGH SCORE", OVER_WIDTH)),
+            Line::raw(centre("#3", OVER_WIDTH)),
+            blank.clone(),
+            Line::raw(field("msandifo")),
+            blank,
+            Line::raw(centre("Enter to confirm", OVER_WIDTH)),
+        ];
+        assert_eq!(drawn(OVER_WIDTH, &lines), NAME);
+    }
+
+    #[test]
+    fn the_longest_name_still_fits_the_field() {
+        // The field is padded to the longest name plus its cursor, so nothing
+        // in the box moves as the player types.
+        let longest = "M".repeat(NAME_MAX);
+        assert_eq!(field(&longest).chars().count(), OVER_WIDTH);
+        assert_eq!(field("").chars().count(), OVER_WIDTH);
+    }
+
+    #[test]
+    fn the_field_takes_twelve_printable_ascii_characters() {
+        // §12.6: "up to 12 printable ASCII characters, Backspace deletes".
+        let mut entry = NameEntry {
+            name: String::new(),
+        };
+        for c in "msandiford".chars() {
+            assert!(entry.push(c));
+        }
+        assert!(!entry.push('\u{e9}'), "not ASCII");
+        assert!(!entry.push('\u{7}'), "not printable");
+        assert!(entry.push(' '), "but a space is both");
+        assert!(entry.push('X'));
+        assert_eq!(entry.as_str().chars().count(), NAME_MAX);
+        assert!(!entry.push('Y'), "and the thirteenth is refused");
+
+        assert!(entry.backspace());
+        assert_eq!(entry.as_str(), "msandiford ");
+        let mut empty = NameEntry {
+            name: String::new(),
+        };
+        assert!(!empty.backspace(), "an empty field has nothing to delete");
+    }
+
+    #[test]
+    fn an_absent_user_leaves_the_field_empty_rather_than_anon() {
+        // §12.6 pre-fills from `$USER`; `ANON` is what an *entered* empty name
+        // becomes (§14), not what an unfilled field should start as.
+        assert_eq!(
+            NameEntry {
+                name: crate::highscore::ANONYMOUS.to_string(),
+            }
+            .cleared_if_anonymous()
+            .as_str(),
+            "",
+        );
     }
 
     #[test]
