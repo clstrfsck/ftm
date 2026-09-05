@@ -377,13 +377,13 @@ pub const FILE_NAME: &str = "config.toml";
 /// The display columns one cell glyph must occupy (§12.2).
 pub const CELL_COLUMNS: usize = 2;
 
-/// `{config_dir}/termino/config.toml` (§6.2).
+/// `{config_dir}/ftm/config.toml` (§6.2).
 ///
 /// `None` only when the platform admits to no config directory at all, which is
 /// a documented degradation rather than a failure: the game runs on defaults
 /// and says so in the warnings (§16).
 pub fn default_path() -> Option<PathBuf> {
-    ProjectDirs::from("", "", "termino").map(|dirs| dirs.config_dir().join(FILE_NAME))
+    ProjectDirs::from("", "", "ftm").map(|dirs| dirs.config_dir().join(FILE_NAME))
 }
 
 /// The outcome of a load (§6.2).
@@ -849,8 +849,8 @@ pub fn document(file: &ConfigFile) -> String {
         .collect();
     format!(
         "\
-# Termino configuration (TERMINO.md §6.3). Every setting here has a default;
-# deleting a line, a table or the whole file simply restores it.
+# Falling Tetromino Manager configuration (FTM.md §6.3). Every setting here
+# has a default; deleting a line, a table or the whole file restores it.
 
 [gameplay]
 # Number of upcoming pieces shown in the preview window.
@@ -973,7 +973,7 @@ fn range_text<T: std::fmt::Display>(range: &RangeInclusive<T>) -> String {
 /// back (§6.1): the file is the player's, and a flag is an experiment.
 #[derive(Debug, Default, Parser)]
 #[command(
-    name = "termino",
+    name = "ftm",
     version,
     about = "A guideline-conformant falling-block game for the terminal",
     // The struct's doc comment explains the type, not the program; without
@@ -1608,7 +1608,7 @@ x = 1
     fn an_absent_file_is_not_a_problem_and_is_not_a_warning() {
         // §6.2: the ordinary first run. The defaults are used and the file is
         // written on the first clean exit, which `existed` is what decides.
-        let path = std::env::temp_dir().join("termino-absent-config-test.toml");
+        let path = std::env::temp_dir().join("ftm-absent-config-test.toml");
         let _ = fs::remove_file(&path);
         let mut warnings = Vec::new();
         let loaded = load(Some(&path), &mut warnings);
@@ -1619,7 +1619,7 @@ x = 1
 
     #[test]
     fn a_saved_file_loads_back_unchanged() {
-        let path = std::env::temp_dir().join("termino-roundtrip-config-test/config.toml");
+        let path = std::env::temp_dir().join("ftm-roundtrip-config-test/config.toml");
         let _ = fs::remove_dir_all(path.parent().expect("a parent"));
         let file = ConfigFile {
             gameplay: GameplaySettings {
@@ -1639,7 +1639,7 @@ x = 1
     // -- §6.4: the command line ---------------------------------------------
 
     fn cli(args: &[&str]) -> Cli {
-        let mut argv = vec!["termino"];
+        let mut argv = vec!["ftm"];
         argv.extend_from_slice(args);
         Cli::try_parse_from(argv).expect("parses")
     }
@@ -1725,7 +1725,7 @@ x = 1
     fn the_three_sources_resolve_in_order() {
         // §6.1: defaults, then the file, then the command line. And the file
         // written on a first clean exit is the file *without* the flags.
-        let dir = std::env::temp_dir().join("termino-precedence-test");
+        let dir = std::env::temp_dir().join("ftm-precedence-test");
         let _ = fs::remove_dir_all(&dir);
         let path = dir.join(FILE_NAME);
         save(
@@ -1786,7 +1786,7 @@ x = 1
         // A5. The layout's half of it is
         // `ui::playfield::tests::the_next_box_is_sized_to_the_preview_count`;
         // this is the config's, over all six values and both sources.
-        let dir = std::env::temp_dir().join("termino-preview-count-test");
+        let dir = std::env::temp_dir().join("ftm-preview-count-test");
         let _ = fs::remove_dir_all(&dir);
         let path = dir.join(FILE_NAME);
         for count in 1..=6u8 {

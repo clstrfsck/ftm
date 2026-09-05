@@ -1,9 +1,9 @@
-# Termino — Software Specification
+# Falling Tetromino Manager — Software Specification
 
 **Version:** 1.0 (draft)
 **Date:** 2026-09-04
 **Target language:** Rust (edition 2024, MSRV 1.85)
-**Name:** Termino (a terminal tetromino game; binary name `termino`)
+**Name:** Falling Tetromino Manager (a terminal tetromino game; binary name `ftm`)
 
 ---
 
@@ -70,7 +70,10 @@ Where this specification and those pages disagree, **this specification wins**.
 
 ### 1.3 Naming and trademark
 
-The game is called **Termino** — a contraction of *terminal* and *tetromino*.
+The game is called **Falling Tetromino Manager**, abbreviated **FTM**, which is
+also the binary's name. The full name is what the attract screen spells out
+under the wordmark (§13.2); `FTM` is what everything shorter uses — the binary,
+the config and data directories, the crate.
 
 "Tetris" and the official Tetris logo are trademarks of Tetris Holding, LLC. The
 game must not be named "Tetris", and **the official logo must not be used,
@@ -89,8 +92,8 @@ The word "Tetris" survives in this document only where it refers to the
 trademark itself (this section, §13.2) or to the Tetris Guideline and the
 tetris.wiki references the rules are drawn from (§1, §3).
 
-Termino is a personal, non-commercial implementation of the well-known public
-rules.
+Falling Tetromino Manager is a personal, non-commercial implementation of the
+well-known public rules.
 
 ---
 
@@ -112,7 +115,7 @@ rules.
 | **DAS** | Delayed Auto Shift: the pause before a held movement key repeats. |
 | **ARR** | Auto Repeat Rate: the interval between repeats once DAS has elapsed. |
 | **ARE** | Entry delay: the pause between one piece locking and the next spawning. |
-| **Quad** | A four-line clear (§9.14). Elsewhere called a "Tetris"; Termino does not use that name (§1.3). |
+| **Quad** | A four-line clear (§9.14). Elsewhere called a "Tetris"; FTM does not use that name (§1.3). |
 | **B2B** | Back-to-back: consecutive "difficult" line clears (§9.15). |
 
 ---
@@ -167,9 +170,9 @@ state to the shell only through a **view model** (§12.7) and an **event stream*
 ## 4. Project layout
 
 ```
-termino/
+ftm/
 ├── Cargo.toml
-├── TERMINO.md                # this document
+├── FTM.md                # this document
 ├── README.md
 ├── tests/                    # integration tests (§17.2), driven through lib.rs
 └── src/
@@ -246,10 +249,10 @@ file immediately on leaving that screen.
 
 ### 6.2 Config file
 
-- Path: `{config_dir}/termino/config.toml`, where `{config_dir}` is
-  `directories::ProjectDirs::from("", "", "termino").config_dir()`
-  (`~/Library/Application Support/termino/` on macOS,
-  `~/.config/termino/` on Linux, `%APPDATA%\termino\` on Windows).
+- Path: `{config_dir}/ftm/config.toml`, where `{config_dir}` is
+  `directories::ProjectDirs::from("", "", "ftm").config_dir()`
+  (`~/Library/Application Support/ftm/` on macOS,
+  `~/.config/ftm/` on Linux, `%APPDATA%\ftm\` on Windows).
 - Format: TOML.
 - If the file is absent, defaults are used and a fully-commented file with the
   default values is written on first clean exit.
@@ -347,7 +350,7 @@ restart       = ["r", "R"]
 ### 6.4 Command-line interface
 
 ```
-termino [OPTIONS]
+ftm [OPTIONS]
 
 Options:
       --preview <N>        Pieces shown in the preview window [1-6]
@@ -1556,19 +1559,30 @@ asked, and be pleasant to leave running.
 
 ### 13.2 Wordmark
 
-Drawn from single-width block characters (not game cells, so it fits in 60
-columns), 36 characters wide and 5 rows tall. The name has seven letters, so each
-letter takes one of the seven tetromino colours, left to right in the order
-`I`, `J`, `L`, `O`, `S`, `T`, `Z` (cyan, blue, orange, yellow, green, purple,
-red):
+Drawn from block characters (not game cells, so the whole screen still fits in
+60 columns), 30 characters wide and 5 rows tall, with each character of the
+letterforms doubled horizontally so that three letters still carry the screen:
 
 ```
-████ ████ ███  █   █ ████ █   █ ████
- ██  █    █  █ ██ ██  ██  ██  █ █  █
- ██  ███  ███  █ █ █  ██  █ █ █ █  █
- ██  █    █ █  █   █  ██  █  ██ █  █
- ██  ████ █  █ █   █ ████ █   █ ████
+████████  ████████  ██      ██
+██          ████    ████  ████
+██████      ████    ██  ██  ██
+██          ████    ██      ██
+██          ████    ██      ██
 ```
+
+The three letters take the `I`, `S` and `T` tetromino colours — cyan, green and
+purple — left to right.
+
+Directly beneath it, separated by one blank row, the full name is spelled out in
+ordinary text, centred and dimmed:
+
+```
+   FALLING TETROMINO MANAGER
+```
+
+Wordmark, blank row and subtitle are **7 rows** together, which is what §13.3
+budgets for them.
 
 This is an original block-letter wordmark. **The official Tetris logo must not be
 used, reproduced, or approximated**, and no official colours-as-branding, styling
@@ -1577,11 +1591,13 @@ or artwork may be copied (§1.3).
 ### 13.3 Layout
 
 ```
-            ████ ████ ███  █   █ ████ █   █ ████
-             ██  █    █  █ ██ ██  ██  ██  █ █  █
-             ██  ███  ███  █ █ █  ██  █ █ █ █  █
-             ██  █    █ █  █   █  ██  █  ██ █  █
-             ██  ████ █  █ █   █ ████ █   █ ████
+               ████████  ████████  ██      ██
+               ██          ████    ████  ████
+               ██████      ████    ██  ██  ██
+               ██          ████    ██      ██
+               ██          ████    ██      ██
+
+                 FALLING TETROMINO MANAGER
 
                      ▸ PLAY
                        HIGH SCORES
@@ -1595,13 +1611,16 @@ or artwork may be copied (§1.3).
             │     Z rotate ccw    A rotate 180 │
             │     C hold                       │
             └──────────────────────────────────┘
-
               v1.0   ↑↓ select   ENTER start
 ```
 
-The screen is a fixed block **36 characters wide by 20 rows tall** — as wide as
-the wordmark — centred in the terminal like every other screen (§12.1). The
-mock-up above shows it centred in 60 columns.
+The screen is a fixed block **36 characters wide by 21 rows tall**, centred in
+the terminal like every other screen (§12.1). The mock-up above shows it centred
+in 60 columns. The width is the controls panel's, not the wordmark's: the
+wordmark is 30 characters and is centred within the block.
+
+The 21 rows are wordmark (5), blank, subtitle, blank, menu (5), blank, panel
+(6), footer — the footer sits directly under the panel, with no gap.
 
 - The controls panel lists only the bindings that are actually available: the
   `C hold` entry is omitted when `hold_enabled = false`, and the 180° entry is
@@ -1664,7 +1683,7 @@ for v1.0; see §18.)
 
 ## 14. High scores
 
-- Path: `{data_dir}/termino/highscores.json`, where `{data_dir}` is
+- Path: `{data_dir}/ftm/highscores.json`, where `{data_dir}` is
   `ProjectDirs::data_dir()`.
 - Format:
 

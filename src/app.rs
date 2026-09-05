@@ -1272,7 +1272,7 @@ mod tests {
     fn the_options_panel_edits_and_writes_back_on_the_way_out() {
         // §13.5: `←`/`→` change the selected value, `Esc` saves and returns.
         // §6.1: "written back to the config file immediately on leaving".
-        let dir = std::env::temp_dir().join("termino-options-panel-test");
+        let dir = std::env::temp_dir().join("ftm-options-panel-test");
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join(crate::config::FILE_NAME);
         let mut session = Session {
@@ -1324,7 +1324,7 @@ mod tests {
         let mut session = Session {
             // A path under a file rather than a directory: `create_dir_all`
             // cannot make it, whatever the platform.
-            config_path: Some(PathBuf::from("/dev/null/termino/config.toml")),
+            config_path: Some(PathBuf::from("/dev/null/ftm/config.toml")),
             ..session()
         };
         let mut app = App::new(&session);
@@ -1623,7 +1623,7 @@ mod tests {
         let mut session = Session {
             seeded: false,
             // A path under a file rather than a directory (see the config test).
-            scores_path: Some(PathBuf::from("/dev/null/termino/highscores.json")),
+            scores_path: Some(PathBuf::from("/dev/null/ftm/highscores.json")),
             ..session()
         };
         let mut app = App::new(&session);

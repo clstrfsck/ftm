@@ -22,7 +22,7 @@ jobs:
       # the suite means editing the Makefile, and CI picks it up for free.
       #
       # `cargo test` is where `tests/scripted_game.rs` runs the
-      # batch-invariance test of TERMINO.md §19.4. It has run here since Stage
+      # batch-invariance test of FTM.md §19.4. It has run here since Stage
       # 5 and must never be marked ignored: if it fails, a rules decision has
       # started depending on how the shell batched its calls. Find the desync;
       # do not skip the test.

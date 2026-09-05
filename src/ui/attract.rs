@@ -34,66 +34,48 @@ use crate::ui::{Chrome, centred};
 /// The wordmark is five rows tall (§13.2).
 const WORDMARK_ROWS: usize = 5;
 
-/// The seven letters of `TERMINO`, drawn from single-width block characters so
-/// the whole thing fits in 60 columns (§13.2).
+/// The three letters of `FTM`, drawn from block characters — doubled
+/// horizontally, so that three letters still carry the screen — and 30
+/// characters wide altogether (§13.2).
 ///
 /// An **original** block-letter wordmark: the official logo must not be used,
 /// reproduced or approximated, and no official colours-as-branding, styling or
 /// artwork may be copied (§1.3).
-const WORDMARK: [[&str; WORDMARK_ROWS]; 7] = [
+const WORDMARK: [[&str; WORDMARK_ROWS]; 3] = [
     [
-        "\u{2588}\u{2588}\u{2588}\u{2588}",
-        " \u{2588}\u{2588} ",
-        " \u{2588}\u{2588} ",
-        " \u{2588}\u{2588} ",
-        " \u{2588}\u{2588} ",
+        "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
+        "\u{2588}\u{2588}      ",
+        "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}  ",
+        "\u{2588}\u{2588}      ",
+        "\u{2588}\u{2588}      ",
     ],
     [
-        "\u{2588}\u{2588}\u{2588}\u{2588}",
-        "\u{2588}   ",
-        "\u{2588}\u{2588}\u{2588} ",
-        "\u{2588}   ",
-        "\u{2588}\u{2588}\u{2588}\u{2588}",
+        "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
+        "  \u{2588}\u{2588}\u{2588}\u{2588}  ",
+        "  \u{2588}\u{2588}\u{2588}\u{2588}  ",
+        "  \u{2588}\u{2588}\u{2588}\u{2588}  ",
+        "  \u{2588}\u{2588}\u{2588}\u{2588}  ",
     ],
     [
-        "\u{2588}\u{2588}\u{2588} ",
-        "\u{2588}  \u{2588}",
-        "\u{2588}\u{2588}\u{2588} ",
-        "\u{2588} \u{2588} ",
-        "\u{2588}  \u{2588}",
-    ],
-    [
-        "\u{2588}   \u{2588}",
-        "\u{2588}\u{2588} \u{2588}\u{2588}",
-        "\u{2588} \u{2588} \u{2588}",
-        "\u{2588}   \u{2588}",
-        "\u{2588}   \u{2588}",
-    ],
-    [
-        "\u{2588}\u{2588}\u{2588}\u{2588}",
-        " \u{2588}\u{2588} ",
-        " \u{2588}\u{2588} ",
-        " \u{2588}\u{2588} ",
-        "\u{2588}\u{2588}\u{2588}\u{2588}",
-    ],
-    [
-        "\u{2588}   \u{2588}",
-        "\u{2588}\u{2588}  \u{2588}",
-        "\u{2588} \u{2588} \u{2588}",
-        "\u{2588}  \u{2588}\u{2588}",
-        "\u{2588}   \u{2588}",
-    ],
-    [
-        "\u{2588}\u{2588}\u{2588}\u{2588}",
-        "\u{2588}  \u{2588}",
-        "\u{2588}  \u{2588}",
-        "\u{2588}  \u{2588}",
-        "\u{2588}\u{2588}\u{2588}\u{2588}",
+        "\u{2588}\u{2588}      \u{2588}\u{2588}",
+        "\u{2588}\u{2588}\u{2588}\u{2588}  \u{2588}\u{2588}\u{2588}\u{2588}",
+        "\u{2588}\u{2588}  \u{2588}\u{2588}  \u{2588}\u{2588}",
+        "\u{2588}\u{2588}      \u{2588}\u{2588}",
+        "\u{2588}\u{2588}      \u{2588}\u{2588}",
     ],
 ];
 
-/// One tetromino colour per letter, left to right (§13.2).
-const WORDMARK_COLOURS: [PieceKind; 7] = [
+/// The full name, spelled out under the wordmark (§13.2).
+const SUBTITLE: &str = "FALLING TETROMINO MANAGER";
+
+/// The wordmark's width in characters: 8 + 2 + 8 + 2 + 10 (§13.2).
+const WORDMARK_WIDTH: usize = 30;
+/// Two spaces between letters, so the doubled strokes stay separate.
+const LETTER_GAP: &str = "  ";
+
+/// §9.2's seven colours in §13.2's order, which is what §13.6's idle cycle
+/// walks along.
+const WORDMARK_CYCLE: [PieceKind; 7] = [
     PieceKind::I,
     PieceKind::J,
     PieceKind::L,
@@ -103,10 +85,26 @@ const WORDMARK_COLOURS: [PieceKind; 7] = [
     PieceKind::Z,
 ];
 
-/// The block the screen is laid out in: as wide as the wordmark (§13.3).
+/// Where each letter starts in [`WORDMARK_CYCLE`]: `I`, `S` and `T` — cyan,
+/// green and purple (§13.2).
+///
+/// Indices rather than three `PieceKind`s, because §13.6's idle cycle advances
+/// every letter one step along all seven colours. Three fixed colours would
+/// have made that cycle repeat after three seconds instead of seven.
+const WORDMARK_START: [usize; 3] = [0, 4, 5];
+
+/// The block the screen is laid out in (§13.3).
+///
+/// The width is the controls panel's, not the wordmark's — the wordmark is 30
+/// and is centred inside it.
 const BLOCK_WIDTH: usize = 36;
-/// Wordmark, gap, menu, gap, panel, gap, footer (§13.3).
-const BLOCK_HEIGHT: u16 = 20;
+/// Wordmark, gap, subtitle, gap, menu, gap, panel, footer (§13.3).
+const BLOCK_HEIGHT: u16 = 21;
+/// The wordmark and its subtitle: five rows, a blank, the name, a blank
+/// (§13.2, §13.3).
+const HEADER_ROWS: u16 = WORDMARK_ROWS as u16 + 3;
+/// The wordmark's left margin inside the block, which centres it.
+const WORDMARK_X: usize = (BLOCK_WIDTH - WORDMARK_WIDTH) / 2;
 /// How far the menu is indented inside the block (§13.3).
 const MENU_X: usize = 9;
 /// The panel's interior: two entry columns and a margin either side.
@@ -467,6 +465,10 @@ pub fn draw(frame: &mut Frame, state: &Attract, cx: &Context) {
         lines.push(wordmark_row(row, shift, theme));
     }
     lines.push(pad(String::new()));
+    // §13.2: the full name under the wordmark, dimmed. `FTM` is what the
+    // wordmark says; this is what it stands for.
+    lines.push(Line::styled(centre(SUBTITLE, BLOCK_WIDTH), theme.faint()));
+    lines.push(pad(String::new()));
     for (index, choice) in MenuChoice::ALL.iter().enumerate() {
         let selected = index == state.selected && state.sub.is_none();
         let marker = if selected { "\u{25b8} " } else { "  " };
@@ -509,7 +511,7 @@ pub fn draw(frame: &mut Frame, state: &Attract, cx: &Context) {
 
     let panel = Rect {
         x: block.x,
-        y: block.y + WORDMARK_ROWS as u16 + 1 + MenuChoice::ALL.len() as u16 + 1,
+        y: block.y + HEADER_ROWS + MenuChoice::ALL.len() as u16 + 1,
         width: BLOCK_WIDTH as u16,
         height: PANEL_ROWS as u16 + 2,
     };
@@ -560,14 +562,21 @@ fn drift(frame: &mut Frame, background: &Background, theme: Theme) {
 
 /// One row of the wordmark, a span per letter (§13.2).
 fn wordmark_row(row: usize, shift: usize, theme: Theme) -> Line<'static> {
-    let mut spans = Vec::with_capacity(WORDMARK.len() * 2);
+    let mut spans = Vec::with_capacity(WORDMARK.len() * 2 + 2);
+    // Padded to the block on both sides rather than centred by the paragraph:
+    // every other line here is a full-width `pad`, and a short line would leave
+    // the previous frame's characters behind it (§15.3 redraws only what moved).
+    spans.push(Span::raw(" ".repeat(WORDMARK_X)));
     for (index, letter) in WORDMARK.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::raw(" "));
+            spans.push(Span::raw(LETTER_GAP));
         }
-        let kind = WORDMARK_COLOURS[(index + shift) % WORDMARK_COLOURS.len()];
+        let kind = WORDMARK_CYCLE[(WORDMARK_START[index] + shift) % WORDMARK_CYCLE.len()];
         spans.push(Span::styled(letter[row], theme.piece(kind, theme::FULL)));
     }
+    spans.push(Span::raw(
+        " ".repeat(BLOCK_WIDTH - WORDMARK_X - WORDMARK_WIDTH),
+    ));
     Line::from(spans)
 }
 
@@ -719,12 +728,14 @@ mod tests {
     use ratatui::style::Style;
 
     /// §13.2, transcribed literally.
+    /// §13.2's art, transcribed exactly as the spec prints it: 30 characters
+    /// wide, without the margins that centre it in the block.
     const ART: &str = "\
-████ ████ ███  █   █ ████ █   █ ████
- ██  █    █  █ ██ ██  ██  ██  █ █  █
- ██  ███  ███  █ █ █  ██  █ █ █ █  █
- ██  █    █ █  █   █  ██  █  ██ █  █
- ██  ████ █  █ █   █ ████ █   █ ████";
+████████  ████████  ██      ██
+██          ████    ████  ████
+██████      ████    ██  ██  ██
+██          ████    ██      ██
+██          ████    ██      ██";
 
     fn chrome() -> Chrome {
         Chrome {
@@ -750,22 +761,39 @@ mod tests {
 
     #[test]
     fn the_wordmark_matches_the_spec_art() {
-        // §13.2: 36 characters wide and 5 rows tall, and the letters are the
-        // ones the specification draws.
+        // §13.2: 30 characters of art, 5 rows tall, centred in the 36-wide
+        // block, and the letters are the ones the specification draws.
         let theme = chrome().theme;
         let drawn: Vec<String> = (0..WORDMARK_ROWS)
             .map(|row| plain(&wordmark_row(row, 0, theme)))
             .collect();
-        assert_eq!(drawn.join("\n"), ART);
         for row in &drawn {
             assert_eq!(row.chars().count(), BLOCK_WIDTH, "{row}");
+        }
+        // Strip the margins the block adds, and what is left is the spec's art
+        // — which also proves the art is centred rather than merely present.
+        let art: Vec<String> = drawn
+            .iter()
+            .map(|row| {
+                row.chars()
+                    .skip(WORDMARK_X)
+                    .take(WORDMARK_WIDTH)
+                    .collect::<String>()
+            })
+            .collect();
+        assert_eq!(art.join("\n"), ART);
+        for row in &drawn {
+            assert!(
+                row.starts_with(&" ".repeat(WORDMARK_X)) && row.ends_with(' '),
+                "centred in the block: {row:?}",
+            );
         }
     }
 
     #[test]
     fn each_letter_takes_its_own_piece_colour() {
-        // §13.2: one of the seven tetromino colours per letter, left to right
-        // in the order I, J, L, O, S, T, Z.
+        // §13.2: `F`, `T` and `M` in the I, S and T colours — cyan, green and
+        // purple — left to right.
         let theme = chrome().theme;
         let colours: Vec<Style> = wordmark_row(0, 0, theme)
             .spans
@@ -773,10 +801,34 @@ mod tests {
             .filter(|span| span.content.trim() != "")
             .map(|span| span.style)
             .collect();
-        assert_eq!(colours.len(), 7);
-        for (span, kind) in colours.iter().zip(WORDMARK_COLOURS) {
+        assert_eq!(colours.len(), 3);
+        for (span, kind) in colours
+            .iter()
+            .zip([PieceKind::I, PieceKind::S, PieceKind::T])
+        {
             assert_eq!(*span, theme.piece(kind, theme::FULL));
         }
+    }
+
+    #[test]
+    fn the_idle_cycle_walks_all_seven_colours() {
+        // §13.2, §13.6: the letters are *positions* in §9.2's seven, not three
+        // fixed colours, so the cycle takes seven steps to come back rather
+        // than three. Three colours would have made a much duller minute.
+        let theme = chrome().theme;
+        let first = |shift| {
+            wordmark_row(0, shift, theme)
+                .spans
+                .iter()
+                .find(|span| span.content.trim() != "")
+                .map(|span| span.style)
+                .expect("a letter")
+        };
+        let start = first(0);
+        for shift in 1..WORDMARK_CYCLE.len() {
+            assert_ne!(first(shift), start, "shift {shift} repeats too early");
+        }
+        assert_eq!(first(WORDMARK_CYCLE.len()), start, "and back after seven");
     }
 
     #[test]
@@ -794,10 +846,7 @@ mod tests {
         state.step(start + IDLE + IDLE_STEP * 7, cells, false);
         assert_eq!(state.idle_shift(), 7, "and it does not stop");
         // The colours are read modulo seven, so a shift of seven is the start.
-        assert_eq!(
-            WORDMARK_COLOURS[7 % WORDMARK_COLOURS.len()],
-            WORDMARK_COLOURS[0]
-        );
+        assert_eq!(WORDMARK_CYCLE[7 % WORDMARK_CYCLE.len()], WORDMARK_CYCLE[0]);
     }
 
     #[test]
@@ -1025,6 +1074,10 @@ mod tests {
                 choice.label()
             );
         }
+        assert!(
+            screen.contains(SUBTITLE),
+            "the name is spelled out\n{screen}"
+        );
         assert!(screen.contains("\u{25b8} PLAY"), "{screen}");
         assert!(screen.contains("ENTER start"), "{screen}");
         assert!(screen.contains("soft drop"), "the first face\n{screen}");

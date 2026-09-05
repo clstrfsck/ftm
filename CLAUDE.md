@@ -1,7 +1,8 @@
-# Termino
+# Falling Tetromino Manager (ftm)
 
 A guideline-conformant falling-block game for the terminal, in Rust. Single
-binary, no server, no unsafe.
+binary, no server, no unsafe. The name is the joke; `ftm` is the binary, the
+crate, and the config and data directories. The specification is `FTM.md`.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
@@ -64,11 +65,11 @@ readable backtrace and exited 101.
 
 1. **`PLAN.md`** — twelve implementation stages. Find the current stage; it names
    the spec sections that stage depends on and the tests that close it.
-2. **`TERMINO.md`** — the specification. Self-sufficient by design: every kick
+2. **`FTM.md`** — the specification. Self-sufficient by design: every kick
    table, timing constant and screen layout is in it. Read the sections the
    current stage names, not the whole thing.
 
-`TERMINO.md` is ground truth. **If the code and the spec disagree, the spec is
+`FTM.md` is ground truth. **If the code and the spec disagree, the spec is
 wrong until it is amended** — fix the spec in the same commit and say so in the
 message. Never let the code silently diverge.
 

@@ -1,5 +1,5 @@
 [package]
-name = "termino"
+name = "ftm"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
@@ -7,7 +7,7 @@ description = "A guideline-conformant falling-block game for the terminal"
 license = "MIT"
 publish = false
 
-# Versions are pinned to the minor versions in TERMINO.md §3. No other runtime
+# Versions are pinned to the minor versions in FTM.md §3. No other runtime
 # dependencies may be added without amending that table.
 [dependencies]
 ratatui = "0.29"

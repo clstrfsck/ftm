@@ -11,8 +11,8 @@
 
 use std::collections::BTreeMap;
 
-use termino::config::RulesConfig;
-use termino::core::{Action, Game, GameEvent, GameView, PlayState, Shift, TickInput};
+use ftm::config::RulesConfig;
+use ftm::core::{Action, Game, GameEvent, GameView, PlayState, Shift, TickInput};
 
 /// The checked-in snapshot of the scripted game (§17.2).
 const SNAPSHOT: &str = include_str!("snapshots/scripted_game.txt");

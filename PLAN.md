@@ -1,13 +1,13 @@
-# Termino — Staged Implementation Plan
+# Falling Tetromino Manager — Staged Implementation Plan
 
-**Companion to:** [TERMINO.md](TERMINO.md) (the specification)
+**Companion to:** [FTM.md](FTM.md) (the specification)
 **Date:** 2026-09-04
 
-This plan sequences the work in `TERMINO.md` into twelve stages. Each stage ends
+This plan sequences the work in `FTM.md` into twelve stages. Each stage ends
 at a point where the tree builds, the tests pass, and something is demonstrably
 better than it was — never at a half-finished refactor.
 
-Section references (§) are to `TERMINO.md`. Test numbers (T1–T17) are the unit
+Section references (§) are to `FTM.md`. Test numbers (T1–T17) are the unit
 test groups in §17.1; integration tests are I1–I4 from §17.2; acceptance criteria
 are A1–A10 from §17.3.
 
@@ -78,7 +78,7 @@ same bug caught by a red test in Stage 7 is not.
   and nothing more; the constraints are already stated, and honouring them costs
   nothing extra. Do not build a transport, a protocol or a server.
 - When the spec and the code disagree, **the spec is wrong until it is amended.**
-  Fix `TERMINO.md` in the same commit, and say so in the message.
+  Fix `FTM.md` in the same commit, and say so in the message.
 
 ---
 
@@ -101,14 +101,14 @@ same bug caught by a red test in Stage 7 is not.
 
 **Deliverables**
 
-- `cargo init --bin termino`; `Cargo.toml` with the §3 dependency table pinned to
+- `cargo init --bin ftm`; `Cargo.toml` with the §3 dependency table pinned to
   exact minor versions.
 - The full §4 module tree, every file present with a doc comment naming its
   spec section and a `// TODO(stage N)` marker.
 - `#![forbid(unsafe_code)]` in `main.rs`.
 - CI (or a `just check` / `make check` target) running `fmt --check`, `clippy -D
   warnings`, `test`, `build --release`.
-- `README.md`: one paragraph, a build line, and a pointer to `TERMINO.md`.
+- `README.md`: one paragraph, a build line, and a pointer to `FTM.md`.
 
 **Exit criteria**
 

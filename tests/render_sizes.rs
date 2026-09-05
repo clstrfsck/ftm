@@ -18,13 +18,13 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
-use termino::config::ConfigFile;
-use termino::core::{Action, Actions, Game, GameEvent, GameView, TickInput};
-use termino::highscore::{Entry, Table};
-use termino::input::InputMode;
-use termino::ui::attract::{self, Attract};
-use termino::ui::theme::{Depth, Glyphs, Theme};
-use termino::ui::{Chrome, Cosmetics, Debug, Hud, Overlay};
+use ftm::config::ConfigFile;
+use ftm::core::{Action, Actions, Game, GameEvent, GameView, TickInput};
+use ftm::highscore::{Entry, Table};
+use ftm::input::InputMode;
+use ftm::ui::attract::{self, Attract};
+use ftm::ui::theme::{Depth, Glyphs, Theme};
+use ftm::ui::{Chrome, Cosmetics, Debug, Hud, Overlay};
 
 /// The four sizes of §17.2, exactly.
 const SIZES: [(u16, u16); 4] = [(60, 24), (80, 24), (200, 60), (1, 1)];
@@ -117,7 +117,7 @@ fn the_playing_screen_renders_at_every_size() {
                     restart: Some(45),
                 };
                 at(size, |frame| {
-                    termino::ui::draw(frame, &view, &chrome, &fx, &hud);
+                    ftm::ui::draw(frame, &view, &chrome, &fx, &hud);
                 });
             }
         }
@@ -143,7 +143,7 @@ fn every_colour_depth_renders_at_every_size() {
                     restart: None,
                 };
                 at(size, |frame| {
-                    termino::ui::draw(frame, &view, &chrome, &fx, &hud);
+                    ftm::ui::draw(frame, &view, &chrome, &fx, &hud);
                 });
             }
         }
@@ -204,7 +204,7 @@ fn the_terminal_too_small_screen_renders_at_every_size() {
     // minimum — where nothing would normally reach it — is covered too.
     for size in SIZES {
         at(size, |frame| {
-            termino::ui::too_small(frame, Theme::new(Depth::Truecolor));
+            ftm::ui::too_small(frame, Theme::new(Depth::Truecolor));
         });
     }
 }
@@ -228,7 +228,7 @@ fn the_minimum_terminal_gets_the_real_screen_and_one_short_of_it_does_not() {
             restart: None,
         };
         terminal
-            .draw(|frame| termino::ui::draw(frame, &view, &chrome, &fx, &hud))
+            .draw(|frame| ftm::ui::draw(frame, &view, &chrome, &fx, &hud))
             .expect("a frame");
         let buffer = terminal.backend().buffer().clone();
         (0..height)
@@ -240,14 +240,14 @@ fn the_minimum_terminal_gets_the_real_screen_and_one_short_of_it_does_not() {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let full = shown(termino::ui::MIN_WIDTH, termino::ui::MIN_HEIGHT);
+    let full = shown(ftm::ui::MIN_WIDTH, ftm::ui::MIN_HEIGHT);
     assert!(
         full.contains("SCORE"),
         "the stats box is on screen:\n{full}"
     );
     assert!(!full.contains("Terminal too small"));
 
-    let cramped = shown(termino::ui::MIN_WIDTH - 1, termino::ui::MIN_HEIGHT);
+    let cramped = shown(ftm::ui::MIN_WIDTH - 1, ftm::ui::MIN_HEIGHT);
     assert!(
         cramped.contains("Need 60x24, have 59x24"),
         "one column short is replaced:\n{cramped}",

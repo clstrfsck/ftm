@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drive the release binary on a pty and show what it drew (§8, §12).
 
-Termino's terminal layer cannot be tested from `cargo test`: §17.1 is
+FTM's terminal layer cannot be tested from `cargo test`: §17.1 is
 explicitly "core, no terminal", and the shell is the half no unit test
 reaches. This is the substitute -- a pty, a scripted burst of keystrokes,
 and a toy ANSI interpreter that replays the capture into a character grid
@@ -60,7 +60,7 @@ import termios
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BINARY = os.path.join(REPO, "target", "release", "termino")
+BINARY = os.path.join(REPO, "target", "release", "ftm")
 
 # Convenience spellings for the keys that are awkward as escapes.
 NAMED = {

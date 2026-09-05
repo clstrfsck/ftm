@@ -152,12 +152,12 @@ impl Table {
     }
 }
 
-/// `{data_dir}/termino/highscores.json` (§14).
+/// `{data_dir}/ftm/highscores.json` (§14).
 ///
 /// `None` only when the platform admits to no data directory, which is a
 /// documented degradation: the game plays and simply records nothing.
 pub fn default_path() -> Option<PathBuf> {
-    ProjectDirs::from("", "", "termino").map(|dirs| dirs.data_dir().join(FILE_NAME))
+    ProjectDirs::from("", "", "ftm").map(|dirs| dirs.data_dir().join(FILE_NAME))
 }
 
 /// Read the table, degrading to an empty one for anything unusable (§14).
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn a_round_trip_through_the_file_keeps_every_entry() {
-        let dir = std::env::temp_dir().join("termino-highscore-round-trip");
+        let dir = std::env::temp_dir().join("ftm-highscore-round-trip");
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join(FILE_NAME);
         let mut table = filled(&[500, 300]);
@@ -340,7 +340,7 @@ mod tests {
         // §14: the game must never fail to start because of the table, and a
         // first run is not a problem worth mentioning.
         let mut warnings = Vec::new();
-        let path = std::env::temp_dir().join("termino-no-such-highscores.json");
+        let path = std::env::temp_dir().join("ftm-no-such-highscores.json");
         let _ = std::fs::remove_file(&path);
         assert_eq!(load(Some(&path), &mut warnings), Table::default());
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn a_malformed_file_is_an_empty_table_and_one_warning() {
-        let dir = std::env::temp_dir().join("termino-highscore-malformed");
+        let dir = std::env::temp_dir().join("ftm-highscore-malformed");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("made the directory");
         let path = dir.join(FILE_NAME);
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn a_hand_edited_file_is_sorted_rather_than_rejected() {
-        let dir = std::env::temp_dir().join("termino-highscore-unsorted");
+        let dir = std::env::temp_dir().join("ftm-highscore-unsorted");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("made the directory");
         let path = dir.join(FILE_NAME);

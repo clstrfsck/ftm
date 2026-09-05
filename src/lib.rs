@@ -1,4 +1,5 @@
-//! Termino — a guideline-conformant falling-block game for the terminal.
+//! Falling Tetromino Manager — a guideline-conformant falling-block game
+//! for the terminal.
 //!
 //! The crate is a library plus a thin binary (`main.rs`). The split exists so
 //! the integration tests of §17.2 — the scripted game and its batch-invariance

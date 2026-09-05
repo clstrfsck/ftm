@@ -1,6 +1,7 @@
-//! Termino — a guideline-conformant falling-block game for the terminal.
+//! Falling Tetromino Manager — a guideline-conformant falling-block game
+//! for the terminal.
 //!
-//! Entry point: terminal setup/teardown and the panic hook (TERMINO.md §8).
+//! Entry point: terminal setup/teardown and the panic hook (FTM.md §8).
 //! Everything else lives in the library crate (`lib.rs`), so the integration
 //! tests of §17.2 can drive the core headlessly.
 
@@ -20,12 +21,12 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
     supports_keyboard_enhancement,
 };
+use ftm::app;
+use ftm::config::{self, Cli, Startup};
+use ftm::input::InputMode;
+use ftm::ui::Tui;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use termino::app;
-use termino::config::{self, Cli, Startup};
-use termino::input::InputMode;
-use termino::ui::Tui;
 
 /// Whether the enhancement flags of §8.2 were pushed and are still to be
 /// popped. Teardown runs from three places — normal exit, error and the panic
@@ -93,7 +94,7 @@ fn main() -> Result<()> {
 /// be on screen once the alternate screen has gone.
 fn report(warnings: &[String]) {
     for warning in warnings {
-        eprintln!("termino: {warning}");
+        eprintln!("ftm: {warning}");
     }
 }
 

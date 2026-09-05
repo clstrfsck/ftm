@@ -1,6 +1,10 @@
-# Termino
+# Falling Tetromino Manager
 
-Termino is a guideline-conformant falling-block game for the terminal: a single
+Falling Tetromino Manager (ftm) is an enterprise-grade solution for the
+real-time management, rotation, and horizontal alignment of descending
+tetromino assets.
+
+It is a guideline-conformant falling-block game for the terminal: a single
 Rust binary with no server, no `unsafe`, and a pure rules core that knows nothing
 about the terminal it is drawn on. Pieces fall on a fixed 60 Hz tick, so the same
 seed and the same inputs always produce the same game.
@@ -12,12 +16,12 @@ cargo run -- --print-config    # the effective configuration
 ```
 
 Settings live in `config.toml` under the platform config directory
-(`~/Library/Application Support/termino/` on macOS, `~/.config/termino/` on
+(`~/Library/Application Support/ftm/` on macOS, `~/.config/ftm/` on
 Linux); a fully-commented copy is written there the first time the game exits
 cleanly, and the in-game Options panel — pause, then **Options** — edits the
 settings most worth changing without a text editor.
 
-The specification is [TERMINO.md](TERMINO.md) and it is ground truth: if the code
+The specification is [FTM.md](FTM.md) and it is ground truth: if the code
 and the spec disagree, the spec is wrong until it is amended.
 [PLAN.md](PLAN.md) sequences the implementation into twelve stages.
 
