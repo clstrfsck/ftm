@@ -156,6 +156,35 @@ impl Theme {
         }
     }
 
+    /// A wordmark letter's colour: §9.2's hue at §13.2's equal luminance.
+    ///
+    /// §9.2's seven are equally *saturated*, not equally *bright*: cyan comes
+    /// to a Rec.709 luma of 189 and blue to 17, so the same letterform drawn
+    /// in the two reads as two different weights. See [`wordmark_rgb`].
+    pub fn wordmark(self, kind: PieceKind) -> Style {
+        let colour = kind.colour();
+        let rgb = wordmark_rgb(colour);
+        match self.depth {
+            Depth::Truecolor => {
+                let (r, g, b) = rgb;
+                Style::new().fg(Color::Rgb(r, g, b))
+            }
+            // As in `piece`: the §9.2 table is authoritative where it still
+            // applies, and only a lifted colour is put through the cube.
+            Depth::Ansi256 if rgb == colour.rgb() => {
+                Style::new().fg(Color::Indexed(ansi256(colour)))
+            }
+            Depth::Ansi256 => {
+                let (r, g, b) = rgb;
+                Style::new().fg(Color::Indexed(cube(r, g, b)))
+            }
+            // Neither depth can express a luminance at all: §12.3 gives sixteen
+            // colours one `DIM` bit and monochrome none (§13.2).
+            Depth::Ansi16 => Style::new().fg(ansi16(colour)),
+            Depth::Mono => Style::new(),
+        }
+    }
+
     /// White: the line-clear and lock flashes of §12.5.
     pub fn flash(self) -> Style {
         match self.depth {
@@ -278,6 +307,29 @@ fn scale((r, g, b): (u8, u8, u8), percent: u8) -> (u8, u8, u8) {
     (dim(r), dim(g), dim(b))
 }
 
+/// §13.2's wordmark palette: §9.2's colour, lifted if it is too dark.
+///
+/// Rec.709 luma of §9.2's seven runs from blue's 17 to yellow's 223, so three
+/// of them — purple, red and blue — are far dimmer than the rest and a
+/// wordmark that mixes them looks like it is drawn in two weights. Those three
+/// are raised to 165, the luma of orange, which is the dimmest of the four
+/// that are already bright; the other four are §9.2 exactly.
+///
+/// A hue is lifted by blending it toward white, which is the only way up: a
+/// saturated blue or purple *cannot* be as bright as cyan on any display, so
+/// the brightness is bought with saturation and the lifted three come out
+/// pastel. Hardcoded rather than computed, both because the blend is the one
+/// place a float would otherwise appear and because these are a designer's
+/// numbers now — see §13.2, which records the derivation.
+const fn wordmark_rgb(colour: Colour) -> (u8, u8, u8) {
+    match colour {
+        Colour::Purple => (0xD5, 0x8F, 0xF8),
+        Colour::Red => (0xF8, 0x8F, 0x8F),
+        Colour::Blue => (0x9F, 0x9F, 0xF9),
+        other => other.rgb(),
+    }
+}
+
 /// The §9.2 256-colour entry.
 const fn ansi256(colour: Colour) -> u8 {
     match colour {
@@ -376,6 +428,60 @@ mod tests {
                 "{kind:?} at 16 colours",
             );
         }
+    }
+
+    /// Rec.709 luma, the measure §13.2's wordmark palette is levelled by.
+    fn luma((r, g, b): (u8, u8, u8)) -> u32 {
+        (2126 * u32::from(r) + 7152 * u32::from(g) + 722 * u32::from(b)) / 10000
+    }
+
+    #[test]
+    fn the_wordmark_palette_is_level() {
+        // §13.2: no wordmark colour is dimmer than orange, which §9.2's own
+        // spread puts at 165 -- against blue's 17 and purple's 51 untouched.
+        assert_eq!(luma(Colour::Blue.rgb()), 17, "§9.2's blue, for contrast");
+        let floor = luma(Colour::Orange.rgb());
+        assert_eq!(floor, 165);
+        for kind in PALETTE.map(|entry| entry.kind) {
+            let lifted = luma(wordmark_rgb(kind.colour()));
+            assert!(
+                lifted >= floor,
+                "{kind:?} comes to {lifted}, under the floor of {floor}",
+            );
+        }
+        // And the lift is exactly the three that needed it, to the floor
+        // itself: the other four are §9.2 as written.
+        for colour in [Colour::Purple, Colour::Red, Colour::Blue] {
+            assert_eq!(luma(wordmark_rgb(colour)), floor, "{colour:?} is lifted");
+        }
+        for colour in [Colour::Cyan, Colour::Green, Colour::Orange, Colour::Yellow] {
+            assert_eq!(wordmark_rgb(colour), colour.rgb(), "{colour:?} is §9.2's");
+        }
+    }
+
+    #[test]
+    fn the_wordmark_falls_back_with_the_depth() {
+        // §12.3: a lifted colour is put through the cube at 256 colours, an
+        // untouched one keeps §9.2's own entry, and neither of the two depths
+        // below can say anything about luminance at all (§13.2).
+        assert_eq!(
+            Theme::new(Depth::Truecolor).wordmark(PieceKind::T).fg,
+            Some(Color::Rgb(0xD5, 0x8F, 0xF8)),
+        );
+        assert_eq!(
+            Theme::new(Depth::Ansi256).wordmark(PieceKind::T).fg,
+            Some(Color::Indexed(cube(0xD5, 0x8F, 0xF8))),
+        );
+        assert_eq!(
+            Theme::new(Depth::Ansi256).wordmark(PieceKind::I).fg,
+            Some(Color::Indexed(ansi256(Colour::Cyan))),
+            "cyan is untouched, so it is still the table's entry",
+        );
+        assert_eq!(
+            Theme::new(Depth::Ansi16).wordmark(PieceKind::T).fg,
+            Some(ansi16(Colour::Purple)),
+        );
+        assert_eq!(Theme::new(Depth::Mono).wordmark(PieceKind::T), Style::new());
     }
 
     #[test]

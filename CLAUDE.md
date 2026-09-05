@@ -191,6 +191,13 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   nothing expires a held key while the clock is stopped (§8.2). It does not
   undo itself when the terminal grows again; the player leaves the pause, and
   gets the 3-2-1 countdown for it.
+- **The wordmark has its own palette, and the field does not** (§13.2). §9.2's
+  seven are equally saturated but not equally bright — luma 17 for blue against
+  223 for yellow — so purple, red and blue are lifted to orange's 165 by
+  `theme::wordmark_rgb`, and `attract::wordmark_row` calls `Theme::wordmark`,
+  never `Theme::piece`. The lift is the wordmark's alone: a piece on the field
+  is §9.2 exactly.
+
 - **`Chrome` carries what `GameView` cannot.** `hold_enabled` is the one layout
   question the view cannot answer — an empty hold slot and an absent hold
   mechanic are both `hold: None` — so it travels with the theme and `show_grid`

@@ -1572,7 +1572,33 @@ letterforms doubled horizontally so that three letters still carry the screen:
 ```
 
 The three letters take the `I`, `S` and `T` tetromino colours — cyan, green and
-purple — left to right.
+purple — left to right, at the **equalised luminance** below.
+
+§9.2's seven colours are equally saturated but not equally bright: their Rec.709
+luma runs from blue's 17 to yellow's 223, and purple's 51 against cyan's 189 makes
+the same letterform read as two different weights. So the wordmark — and only the
+wordmark; the field keeps §9.2 exactly — draws the three dark hues lifted to a
+luma of 165, that of orange, the dimmest of the four that are already bright:
+
+| Colour | §9.2 | luma | Wordmark | luma |
+|---|---|---|---|---|
+| Cyan | `#00F0F0` | 189 | `#00F0F0` | 189 |
+| Green | `#00F000` | 172 | `#00F000` | 172 |
+| Orange | `#F0A000` | 165 | `#F0A000` | 165 |
+| Yellow | `#F0F000` | 223 | `#F0F000` | 223 |
+| Purple | `#A000F0` | 51 | `#D58FF8` | 165 |
+| Red | `#F00000` | 51 | `#F88F8F` | 165 |
+| Blue | `#0000F0` | 17 | `#9F9FF9` | 165 |
+
+A hue is lifted by blending it toward white, which is the only direction
+available: a saturated blue or purple cannot be made as bright as cyan on any
+display, so the brightness is bought with saturation and the lifted three come
+out pastel. This applies to §13.6's idle cycle too, which walks all seven.
+
+At 256 colours a lifted value is the nearest colour-cube cell and an untouched
+one is still §9.2's own entry; at 16 colours and in monochrome the palette
+cannot express a luminance and the wordmark is §9.2's colour as it stands
+(§12.3).
 
 Directly beneath it, separated by one blank row, the full name is spelled out
 centred and **bold**, in the terminal's own foreground colour — emphasis rather
