@@ -132,56 +132,31 @@ impl Theme {
     }
 
     /// A piece's colour at `percent` of full brightness.
+    ///
+    /// The base is §12.3's levelled palette, not §9.2's table as written: see
+    /// [`levelled`], which is where the two differ and why.
     pub fn piece(self, kind: PieceKind, percent: u8) -> Style {
+        let colour = kind.colour();
+        let base = levelled(colour);
         let dim = percent < FULL;
         match self.depth {
             Depth::Truecolor => {
-                let (r, g, b) = scale(kind.colour().rgb(), percent);
+                let (r, g, b) = scale(base, percent);
                 Style::new().fg(Color::Rgb(r, g, b))
             }
-            Depth::Ansi256 => {
-                // The §9.2 table is authoritative at full brightness -- its
-                // orange is a deliberate choice, not the nearest cube entry --
-                // so only the dimmed steps are computed.
-                let index = if dim {
-                    let (r, g, b) = scale(kind.colour().rgb(), percent);
-                    cube(r, g, b)
-                } else {
-                    ansi256(kind.colour())
-                };
-                Style::new().fg(Color::Indexed(index))
-            }
-            Depth::Ansi16 => attribute(Style::new().fg(ansi16(kind.colour())), dim),
-            Depth::Mono => attribute(Style::new(), dim),
-        }
-    }
-
-    /// A wordmark letter's colour: §9.2's hue, levelled up (§13.2).
-    ///
-    /// §9.2's seven are equally *saturated*, not equally *bright*: cyan comes
-    /// to a Rec.709 luma of 189 and blue to 17, so the same letterform drawn
-    /// in the two reads as two different weights. See [`wordmark_rgb`].
-    pub fn wordmark(self, kind: PieceKind) -> Style {
-        let colour = kind.colour();
-        let rgb = wordmark_rgb(colour);
-        match self.depth {
-            Depth::Truecolor => {
-                let (r, g, b) = rgb;
-                Style::new().fg(Color::Rgb(r, g, b))
-            }
-            // As in `piece`: the §9.2 table is authoritative where it still
-            // applies, and only a lifted colour is put through the cube.
-            Depth::Ansi256 if rgb == colour.rgb() => {
+            // The §9.2 table is authoritative wherever §12.3 leaves it alone --
+            // its orange is a deliberate choice, not the nearest cube entry --
+            // so a lifted colour is the only one at full brightness that is
+            // computed, and the dimmed steps always are.
+            Depth::Ansi256 if !dim && base == colour.rgb() => {
                 Style::new().fg(Color::Indexed(ansi256(colour)))
             }
             Depth::Ansi256 => {
-                let (r, g, b) = rgb;
+                let (r, g, b) = scale(base, percent);
                 Style::new().fg(Color::Indexed(cube(r, g, b)))
             }
-            // Neither depth can express a luminance at all: §12.3 gives sixteen
-            // colours one `DIM` bit and monochrome none (§13.2).
-            Depth::Ansi16 => Style::new().fg(ansi16(colour)),
-            Depth::Mono => Style::new(),
+            Depth::Ansi16 => attribute(Style::new().fg(ansi16(colour)), dim),
+            Depth::Mono => attribute(Style::new(), dim),
         }
     }
 
@@ -307,12 +282,13 @@ fn scale((r, g, b): (u8, u8, u8), percent: u8) -> (u8, u8, u8) {
     (dim(r), dim(g), dim(b))
 }
 
-/// §13.2's wordmark palette: §9.2's colour, lifted if it is too dark.
+/// §12.3's levelled palette: §9.2's colour, lifted if it is too dark to draw.
 ///
 /// Rec.709 luma of §9.2's seven runs from blue's 17 to yellow's 223, so three
-/// of them — purple, red and blue — are far dimmer than the rest and a
-/// wordmark that mixes them looks like it is drawn in two weights. Those three
-/// are lifted; the other four are §9.2 exactly.
+/// of them — purple, red and blue — are far dimmer than the rest. On a dark
+/// terminal that makes a `J` piece hard to pick out at all, and it makes the
+/// wordmark of §13.2, whose letters sit side by side, read as two different
+/// weights. Those three are lifted; the other four are §9.2 exactly.
 ///
 /// A hue is lifted by blending it toward white, which is the only way up: a
 /// saturated blue or purple *cannot* be as bright as cyan on any display, so
@@ -328,10 +304,12 @@ fn scale((r, g, b): (u8, u8, u8), percent: u8) -> (u8, u8, u8) {
 ///   says (Helmholtz–Kohlrausch), and most so for blue, which closes much of
 ///   the gap the number still shows.
 ///
+/// This is presentation and lives here: §9.2 stays the guideline table the
+/// core names a piece by, and a §19 client is free to draw it its own way.
 /// Hardcoded rather than computed, both because the blend is the one place a
 /// float would otherwise appear and because these are a designer's numbers
-/// now — see §13.2, which records the derivation.
-const fn wordmark_rgb(colour: Colour) -> (u8, u8, u8) {
+/// now — see §12.3, which records the derivation.
+const fn levelled(colour: Colour) -> (u8, u8, u8) {
     match colour {
         Colour::Purple => (0xD5, 0x8F, 0xF8),
         Colour::Red => (0xF4, 0x40, 0x40),
@@ -383,33 +361,88 @@ fn cube(r: u8, g: u8, b: u8) -> u8 {
 mod tests {
     use super::*;
 
-    /// One row of the §9.2 colour table.
+    /// One row of the §9.2 colour table, and what §12.3 draws it as.
     struct Entry {
         kind: PieceKind,
+        /// §9.2's colour, as the core names it.
         rgb: (u8, u8, u8),
+        /// §12.3's, which is §9.2's unless the hue was too dark to draw.
+        drawn: (u8, u8, u8),
+        /// The 256-colour entry at full brightness: §9.2's own where §12.3
+        /// leaves the colour alone, and the cube cell nearest `drawn` where
+        /// it does not.
         indexed: u8,
         named: Color,
     }
 
-    const fn entry(kind: PieceKind, rgb: (u8, u8, u8), indexed: u8, named: Color) -> Entry {
+    const fn entry(
+        kind: PieceKind,
+        rgb: (u8, u8, u8),
+        drawn: (u8, u8, u8),
+        indexed: u8,
+        named: Color,
+    ) -> Entry {
         Entry {
             kind,
             rgb,
+            drawn,
             indexed,
             named,
         }
     }
 
-    /// The §9.2 table, transcribed literally rather than recomputed by the same
-    /// code that produces it.
+    /// The §9.2 and §12.3 tables, transcribed literally rather than recomputed
+    /// by the same code that produces them.
     const PALETTE: [Entry; 7] = [
-        entry(PieceKind::I, (0x00, 0xF0, 0xF0), 51, Color::LightCyan),
-        entry(PieceKind::O, (0xF0, 0xF0, 0x00), 226, Color::LightYellow),
-        entry(PieceKind::T, (0xA0, 0x00, 0xF0), 129, Color::Magenta),
-        entry(PieceKind::S, (0x00, 0xF0, 0x00), 46, Color::LightGreen),
-        entry(PieceKind::Z, (0xF0, 0x00, 0x00), 196, Color::LightRed),
-        entry(PieceKind::J, (0x00, 0x00, 0xF0), 21, Color::LightBlue),
-        entry(PieceKind::L, (0xF0, 0xA0, 0x00), 208, Color::Yellow),
+        entry(
+            PieceKind::I,
+            (0x00, 0xF0, 0xF0),
+            (0x00, 0xF0, 0xF0),
+            51,
+            Color::LightCyan,
+        ),
+        entry(
+            PieceKind::O,
+            (0xF0, 0xF0, 0x00),
+            (0xF0, 0xF0, 0x00),
+            226,
+            Color::LightYellow,
+        ),
+        entry(
+            PieceKind::T,
+            (0xA0, 0x00, 0xF0),
+            (0xD5, 0x8F, 0xF8),
+            177,
+            Color::Magenta,
+        ),
+        entry(
+            PieceKind::S,
+            (0x00, 0xF0, 0x00),
+            (0x00, 0xF0, 0x00),
+            46,
+            Color::LightGreen,
+        ),
+        entry(
+            PieceKind::Z,
+            (0xF0, 0x00, 0x00),
+            (0xF4, 0x40, 0x40),
+            203,
+            Color::LightRed,
+        ),
+        entry(
+            PieceKind::J,
+            (0x00, 0x00, 0xF0),
+            (0x48, 0x48, 0xF4),
+            63,
+            Color::LightBlue,
+        ),
+        entry(
+            PieceKind::L,
+            (0xF0, 0xA0, 0x00),
+            (0xF0, 0xA0, 0x00),
+            208,
+            Color::Yellow,
+        ),
     ];
 
     #[test]
@@ -417,11 +450,13 @@ mod tests {
         for Entry {
             kind,
             rgb,
+            drawn,
             indexed,
             named,
         } in PALETTE
         {
-            let (r, g, b) = rgb;
+            assert_eq!(levelled(kind.colour()), drawn, "{kind:?} in §12.3");
+            let (r, g, b) = drawn;
             assert_eq!(
                 Theme::new(Depth::Truecolor).piece(kind, FULL).fg,
                 Some(Color::Rgb(r, g, b)),
@@ -437,10 +472,13 @@ mod tests {
                 Some(named),
                 "{kind:?} at 16 colours",
             );
+            // §9.2 is still what the core names the piece, whatever §12.3 goes
+            // on to draw: the lift is presentation and stops at this module.
+            assert_eq!(kind.colour().rgb(), rgb, "{kind:?} in §9.2");
         }
     }
 
-    /// Rec.709 luma, the measure §13.2's wordmark palette is levelled by.
+    /// Rec.709 luma, the measure §12.3's palette is levelled by.
     fn luma((r, g, b): (u8, u8, u8)) -> u32 {
         (2126 * u32::from(r) + 7152 * u32::from(g) + 722 * u32::from(b)) / 10000
     }
@@ -455,20 +493,20 @@ mod tests {
     }
 
     #[test]
-    fn the_wordmark_lifts_the_three_dark_hues() {
-        // §13.2: §9.2's own spread runs from blue's 17 to yellow's 223, which
-        // is what the wordmark cannot use as it stands.
+    fn the_palette_lifts_the_three_dark_hues() {
+        // §12.3: §9.2's own spread runs from blue's 17 to yellow's 223, which
+        // is what neither the field nor §13.2's wordmark can use as it stands.
         assert_eq!(luma(Colour::Blue.rgb()), 17);
         assert_eq!(luma(Colour::Yellow.rgb()), 222);
         // Purple goes all the way to orange's 165, the dimmest of the four
         // that were already bright, and is still purple at the end of it.
         let floor = luma(Colour::Orange.rgb());
         assert_eq!(floor, 165);
-        assert_eq!(luma(wordmark_rgb(Colour::Purple)), floor);
+        assert_eq!(luma(levelled(Colour::Purple)), floor);
         // Red and blue gray out far faster, so they stop short of it on
         // purpose and keep about three-quarters of their saturation.
         for colour in [Colour::Red, Colour::Blue] {
-            let lifted = wordmark_rgb(colour);
+            let lifted = levelled(colour);
             assert!(
                 luma(lifted) > luma(colour.rgb()) * 3 / 2,
                 "{colour:?} is barely lifted at all",
@@ -486,33 +524,21 @@ mod tests {
         }
         // And the other four are §9.2 as written.
         for colour in [Colour::Cyan, Colour::Green, Colour::Orange, Colour::Yellow] {
-            assert_eq!(wordmark_rgb(colour), colour.rgb(), "{colour:?} is §9.2's");
+            assert_eq!(levelled(colour), colour.rgb(), "{colour:?} is §9.2's");
         }
     }
 
     #[test]
-    fn the_wordmark_falls_back_with_the_depth() {
-        // §12.3: a lifted colour is put through the cube at 256 colours, an
-        // untouched one keeps §9.2's own entry, and neither of the two depths
-        // below can say anything about luminance at all (§13.2).
+    fn a_lifted_colour_dims_from_where_it_was_lifted_to() {
+        // The lift is the base the §12.3 scale runs from, not a step laid over
+        // the top of it: a ghost `J` is a dimmed §12.3 blue, not a dimmed §9.2
+        // one, or a piece and its ghost would be two different hues.
+        let (r, g, b) = scale(levelled(Colour::Blue), GHOST);
         assert_eq!(
-            Theme::new(Depth::Truecolor).wordmark(PieceKind::T).fg,
-            Some(Color::Rgb(0xD5, 0x8F, 0xF8)),
+            Theme::new(Depth::Truecolor).piece(PieceKind::J, GHOST).fg,
+            Some(Color::Rgb(r, g, b)),
         );
-        assert_eq!(
-            Theme::new(Depth::Ansi256).wordmark(PieceKind::T).fg,
-            Some(Color::Indexed(cube(0xD5, 0x8F, 0xF8))),
-        );
-        assert_eq!(
-            Theme::new(Depth::Ansi256).wordmark(PieceKind::I).fg,
-            Some(Color::Indexed(ansi256(Colour::Cyan))),
-            "cyan is untouched, so it is still the table's entry",
-        );
-        assert_eq!(
-            Theme::new(Depth::Ansi16).wordmark(PieceKind::T).fg,
-            Some(ansi16(Colour::Purple)),
-        );
-        assert_eq!(Theme::new(Depth::Mono).wordmark(PieceKind::T), Style::new());
+        assert_ne!(r, 0, "a §9.2 blue would have had no red left in it");
     }
 
     #[test]
@@ -527,11 +553,12 @@ mod tests {
     fn dimming_follows_the_depth() {
         // §12.3: an RGB scale in truecolor, a darker palette entry at 256, the
         // DIM attribute at 16 and in mono.
+        // 45% of §12.3's red -- #F44040, the lifted one -- and not of §9.2's.
         let truecolor = Theme::new(Depth::Truecolor).piece(PieceKind::Z, GHOST);
-        assert_eq!(truecolor.fg, Some(Color::Rgb(0x6C, 0, 0)));
+        assert_eq!(truecolor.fg, Some(Color::Rgb(0x6D, 0x1C, 0x1C)));
 
         let ansi256 = Theme::new(Depth::Ansi256).piece(PieceKind::Z, GHOST);
-        assert_eq!(ansi256.fg, Some(Color::Indexed(cube(0x6C, 0, 0))));
+        assert_eq!(ansi256.fg, Some(Color::Indexed(cube(0x6D, 0x1C, 0x1C))));
         assert_ne!(ansi256.fg, Some(Color::Indexed(196)), "a darker entry");
 
         let ansi16 = Theme::new(Depth::Ansi16).piece(PieceKind::Z, GHOST);

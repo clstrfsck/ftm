@@ -578,7 +578,7 @@ fn wordmark_row(row: usize, shift: usize, theme: Theme) -> Line<'static> {
             spans.push(Span::raw(LETTER_GAP));
         }
         let kind = WORDMARK_CYCLE[(WORDMARK_START[index] + shift) % WORDMARK_CYCLE.len()];
-        spans.push(Span::styled(letter[row], theme.wordmark(kind)));
+        spans.push(Span::styled(letter[row], theme.piece(kind, theme::FULL)));
     }
     spans.push(Span::raw(
         " ".repeat(BLOCK_WIDTH - WORDMARK_X - WORDMARK_WIDTH),
@@ -799,7 +799,8 @@ mod tests {
     #[test]
     fn each_letter_takes_its_own_piece_colour() {
         // §13.2: `F`, `T` and `M` in the I, S and T colours — cyan, green and
-        // purple — left to right, at the wordmark's equalised luminance.
+        // purple — left to right, from §12.3's levelled palette like every
+        // other piece colour on the screen.
         let theme = chrome().theme;
         let colours: Vec<Style> = wordmark_row(0, 0, theme)
             .spans
@@ -812,7 +813,7 @@ mod tests {
             .iter()
             .zip([PieceKind::I, PieceKind::S, PieceKind::T])
         {
-            assert_eq!(*span, theme.wordmark(kind));
+            assert_eq!(*span, theme.piece(kind, theme::FULL));
         }
     }
 

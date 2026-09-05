@@ -611,6 +611,12 @@ Seven pieces, with the guideline colours:
 
 The ghost piece uses the piece's colour at reduced intensity (§12.3).
 
+This table is what the **core** names a piece by, and it is the guideline's. It
+is not quite what reaches the terminal: purple, red and blue are too dark to
+draw against a dark background, so §12.3 levels them on the way out. That is a
+presentation decision and it stops at the renderer — a §19 client is handed the
+colour above and may draw it however it likes.
+
 ### 9.3 Orientations and cell patterns
 
 Each piece is defined by a square bounding box whose contents rotate in place.
@@ -1248,8 +1254,49 @@ In `mono`, cells are drawn as the piece's mono glyph (§9.2) — `I`, `O`, `T`, 
 `Z`, `J`, `L` — doubled (`II`), the ghost as `..`, and all emphasis uses bold and
 reverse video only. The game must be fully playable in `mono`.
 
+#### The levelled palette
+
+§9.2's seven colours are equally saturated but not equally bright: their Rec.709
+luma runs from blue's 17 to yellow's 223. A `J` piece at 17 is hard to pick out
+of a dark terminal at all, and §13.2's wordmark, whose letters sit side by side,
+reads as two different weights. So everything drawn in a piece colour — the
+field, the ghost, the previews, the hold box, §13.4's drifting background and
+§13.2's wordmark — draws from this palette instead:
+
+| Colour | §9.2 | luma | Drawn | luma | 256-colour |
+|---|---|---|---|---|---|
+| Cyan | `#00F0F0` | 189 | `#00F0F0` | 189 | 51 |
+| Green | `#00F000` | 172 | `#00F000` | 172 | 46 |
+| Orange | `#F0A000` | 165 | `#F0A000` | 165 | 208 |
+| Yellow | `#F0F000` | 223 | `#F0F000` | 223 | 226 |
+| Purple | `#A000F0` | 51 | `#D58FF8` | 165 | 177 |
+| Red | `#F00000` | 51 | `#F44040` | 102 | 203 |
+| Blue | `#0000F0` | 17 | `#4848F4` | 84 | 63 |
+
+A hue is lifted by blending it toward white, which is the only direction
+available: a saturated blue or purple cannot be made as bright as cyan on any
+display, so the brightness is bought with saturation. How much of that is worth
+spending differs by hue, so the three do **not** land on one number. Purple
+already carries two primaries and reaches 165 — orange's, the dimmest of the
+four that were already bright — while still reading as purple. Red and blue
+carry one primary each and gray out far faster: at 165 they are salmon and
+lavender rather than red and blue, so they are lifted 45% of that far instead,
+keeping about three-quarters of their saturation. A saturated hue also *looks*
+brighter than its luma says (Helmholtz–Kohlrausch), most so for blue, which
+closes much of the gap the numbers still show.
+
+The four colours §12.3 leaves alone keep §9.2's own 256-colour entry, which is
+authoritative — its orange is a deliberate choice, not the nearest cube cell.
+A lifted colour has no such entry, so it takes the cube cell nearest the value
+drawn. At 16 colours and in monochrome the palette cannot express a luminance
+and §9.2 stands as written.
+
+#### Dimming
+
 Dimming for ghosts and inactive UI uses: an RGB scale of 0.45 in truecolor, a
-darker palette entry in 256-colour, and the `DIM` attribute in 16-colour.
+darker palette entry in 256-colour, and the `DIM` attribute in 16-colour. The
+scale runs from the **levelled** colour, not from §9.2's, so a piece and its
+ghost are the same hue.
 
 ### 12.4 Playfield screen layout
 
@@ -1572,42 +1619,11 @@ letterforms doubled horizontally so that three letters still carry the screen:
 ```
 
 The three letters take the `I`, `S` and `T` tetromino colours — cyan, green and
-purple — left to right, from the **wordmark palette** below.
-
-§9.2's seven colours are equally saturated but not equally bright: their Rec.709
-luma runs from blue's 17 to yellow's 223, and purple's 51 against cyan's 189 makes
-the same letterform read as two different weights. So the wordmark — and only the
-wordmark; the field keeps §9.2 exactly — lifts the three dark hues:
-
-| Colour | §9.2 | luma | Wordmark | luma |
-|---|---|---|---|---|
-| Cyan | `#00F0F0` | 189 | `#00F0F0` | 189 |
-| Green | `#00F000` | 172 | `#00F000` | 172 |
-| Orange | `#F0A000` | 165 | `#F0A000` | 165 |
-| Yellow | `#F0F000` | 223 | `#F0F000` | 223 |
-| Purple | `#A000F0` | 51 | `#D58FF8` | 165 |
-| Red | `#F00000` | 51 | `#F44040` | 102 |
-| Blue | `#0000F0` | 17 | `#4848F4` | 84 |
-
-A hue is lifted by blending it toward white, which is the only direction
-available: a saturated blue or purple cannot be made as bright as cyan on any
-display, so the brightness is bought with saturation. How much of that is worth
-spending differs by hue, so the three do **not** land on one number. Purple
-already carries two primaries and reaches 165 — orange's, the dimmest of the
-four that were already bright — while still reading as purple. Red and blue
-carry one primary each and gray out far faster: at 165 they are salmon and
-lavender rather than red and blue, so they are lifted 45% of that far instead,
-keeping about three-quarters of their saturation. A saturated hue also *looks*
-brighter than its luma says (Helmholtz–Kohlrausch), most so for blue, which
-closes much of the gap the numbers still show.
-
-This applies to §13.6's idle cycle too, which walks all seven; cyan, green and
-purple are the only three the static wordmark shows.
-
-At 256 colours a lifted value is the nearest colour-cube cell and an untouched
-one is still §9.2's own entry; at 16 colours and in monochrome the palette
-cannot express a luminance and the wordmark is §9.2's colour as it stands
-(§12.3).
+purple — left to right, from §12.3's levelled palette, which is what every other
+piece colour on the screen is drawn from too. Levelling them is what stops the
+purple `M` reading as a lighter weight of the same letterform than the cyan `F`;
+§12.3 has the table and the derivation. §13.6's idle cycle walks all seven, so
+the four the static wordmark never shows are levelled by the same rule.
 
 This is an original block-letter wordmark. **The official Tetris logo must not be
 used, reproduced, or approximated**, and no official colours-as-branding, styling

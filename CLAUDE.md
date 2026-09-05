@@ -191,15 +191,18 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   nothing expires a held key while the clock is stopped (§8.2). It does not
   undo itself when the terminal grows again; the player leaves the pause, and
   gets the 3-2-1 countdown for it.
-- **The wordmark has its own palette, and the field does not** (§13.2). §9.2's
-  seven are equally saturated but not equally bright — luma 17 for blue against
-  223 for yellow — so `theme::wordmark_rgb` lifts purple, red and blue, and
-  `attract::wordmark_row` calls `Theme::wordmark`, never `Theme::piece`. They
-  do not land on one number: purple reaches orange's 165, red and blue stop at
-  102 and 84 because blending toward white buys brightness with saturation and
-  those two turn into salmon and lavender long before purple stops being
-  purple. The lift is the wordmark's alone: a piece on the field is §9.2
-  exactly.
+- **What is drawn is §12.3's levelled palette, not §9.2's table** (§9.2, §12.3).
+  §9.2's seven are equally saturated but not equally bright — luma 17 for blue
+  against 223 for yellow — so `theme::levelled` lifts purple, red and blue, and
+  every piece colour on every screen goes through it: the field, the ghost, the
+  previews, the hold box, §13.4's drift and §13.2's wordmark all call
+  `Theme::piece`. The three do not land on one number: purple reaches orange's
+  165, red and blue stop at 102 and 84, because blending toward white buys
+  brightness with saturation and those two turn into salmon and lavender long
+  before purple stops being purple. The lift is **presentation and stops at
+  `theme.rs`** — `Colour::rgb` is still §9.2, which is what a §19 client is
+  handed — and it is the *base* the §12.3 dimming scale runs from, so a piece
+  and its ghost are one hue.
 
 - **`Chrome` carries what `GameView` cannot.** `hold_enabled` is the one layout
   question the view cannot answer — an empty hold slot and an absent hold

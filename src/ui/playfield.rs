@@ -723,7 +723,9 @@ mod tests {
         let chrome = chrome();
         // The stem of a `T` in the hold box, on the label row's first cell row.
         let (x, y) = (1 + 2, 2);
-        const PURPLE: (u32, u32, u32) = (0xA0, 0x00, 0xF0);
+        // §12.3's purple, which is §9.2's lifted: the hold box draws a
+        // piece exactly as the field does.
+        const PURPLE: (u32, u32, u32) = (0xD5, 0x8F, 0xF8);
         assert_eq!(
             colour_at(&view, &chrome, x, y),
             shade(PURPLE, 100),
