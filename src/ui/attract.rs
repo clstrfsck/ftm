@@ -465,9 +465,11 @@ pub fn draw(frame: &mut Frame, state: &Attract, cx: &Context) {
         lines.push(wordmark_row(row, shift, theme));
     }
     lines.push(pad(String::new()));
-    // §13.2: the full name under the wordmark, dimmed. `FTM` is what the
-    // wordmark says; this is what it stands for.
-    lines.push(Line::styled(centre(SUBTITLE, BLOCK_WIDTH), theme.faint()));
+    // §13.2: the full name under the wordmark. `FTM` is what the wordmark
+    // says; this is what it stands for, and it is drawn in ordinary text —
+    // `faint` put it a clear step below the menu and the panel border, which
+    // made the joke hard to read at the moment it wants reading.
+    lines.push(Line::styled(centre(SUBTITLE, BLOCK_WIDTH), theme.plain()));
     lines.push(pad(String::new()));
     for (index, choice) in MenuChoice::ALL.iter().enumerate() {
         let selected = index == state.selected && state.sub.is_none();

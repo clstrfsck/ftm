@@ -1575,7 +1575,7 @@ The three letters take the `I`, `S` and `T` tetromino colours — cyan, green an
 purple — left to right.
 
 Directly beneath it, separated by one blank row, the full name is spelled out in
-ordinary text, centred and dimmed:
+ordinary text, centred and at the same brightness as the menu — not dimmed:
 
 ```
    FALLING TETROMINO MANAGER
