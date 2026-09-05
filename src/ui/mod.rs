@@ -47,7 +47,10 @@ pub struct Chrome {
 }
 
 /// What is drawn on top of the playfield, if anything (§12.6).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// `Clone` rather than `Copy`: name entry carries the string being typed, and
+/// the §15.2 loop only ever compares one of these with the previous frame's.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Overlay {
     None,
     /// §9.17: the pause menu, over a blanked playfield.
@@ -65,6 +68,15 @@ pub enum Overlay {
         count: u8,
     },
     GameOver,
+    /// §12.6: only when the score qualifies for the top ten. `rank` is
+    /// one-based, as the box prints it.
+    NameEntry {
+        rank: usize,
+        name: String,
+    },
+    /// §12.6's Controls item: the §10.1 binding table, over the blanked
+    /// playfield, exactly as the Options panel is.
+    Controls,
 }
 
 /// The debug strip's figures (§12.4), half from the shell and half from the
@@ -86,24 +98,43 @@ pub struct Debug {
     pub core: DebugView,
 }
 
+/// Everything the playing screen shows that is not the game itself.
+///
+/// Bundled rather than passed one by one: the four travel together, they all
+/// come from the shell, and none of them is game state — which is the same
+/// reason `Chrome` exists (§12.7).
+pub struct Hud<'a> {
+    pub overlay: &'a Overlay,
+    /// Read by the §13.5 Options panel, which is what edits it.
+    pub config: &'a ConfigFile,
+    /// The §12.4 debug strip, when `show_debug` is on.
+    pub debug: Option<&'a Debug>,
+    /// Which of §8.2's two paths is live, for the controls overlay.
+    pub mode: InputMode,
+    /// §10.1's restart hold, as a percentage of the second it needs. `None`
+    /// when the key is not down.
+    pub restart: Option<u8>,
+}
+
 /// Draw one frame of the playing screen.
-pub fn draw(
-    frame: &mut Frame,
-    view: &GameView,
-    chrome: &Chrome,
-    fx: &Cosmetics,
-    overlay: Overlay,
-    config: &ConfigFile,
-    debug: Option<&Debug>,
-) {
-    let blanked = matches!(overlay, Overlay::Paused { .. } | Overlay::Options { .. });
-    let screen = playfield::render(frame, view, chrome, fx, blanked, debug);
-    match overlay {
+pub fn draw(frame: &mut Frame, view: &GameView, chrome: &Chrome, fx: &Cosmetics, hud: &Hud) {
+    let blanked = matches!(
+        hud.overlay,
+        Overlay::Paused { .. } | Overlay::Options { .. } | Overlay::Controls
+    );
+    let screen = playfield::render(frame, view, chrome, fx, blanked, hud);
+    match hud.overlay {
         Overlay::None => {}
-        Overlay::Paused { selected } => overlays::paused(frame, screen, chrome, selected),
-        Overlay::Options { selected } => overlays::options(frame, screen, chrome, config, selected),
-        Overlay::Resuming { count } => overlays::resuming(frame, screen, chrome, count),
+        Overlay::Paused { selected } => overlays::paused(frame, screen, chrome, *selected),
+        Overlay::Options { selected } => {
+            overlays::options(frame, screen, chrome, hud.config, *selected)
+        }
+        Overlay::Resuming { count } => overlays::resuming(frame, screen, chrome, *count),
         Overlay::GameOver => overlays::game_over(frame, screen, view, chrome),
+        Overlay::NameEntry { rank, name } => {
+            overlays::name_entry(frame, screen, chrome, *rank, name)
+        }
+        Overlay::Controls => overlays::controls(frame, screen, chrome, hud.config, hud.mode),
     }
 }
 

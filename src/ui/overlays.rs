@@ -12,6 +12,7 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 use crate::config::{ColorDepth, ConfigFile, LockDownRule, range};
 use crate::core::GameView;
 use crate::highscore::NAME_MAX;
+use crate::input::InputMode;
 use crate::ui::playfield::clock;
 use crate::ui::{Chrome, centred};
 
@@ -34,6 +35,18 @@ impl PauseChoice {
         PauseChoice::Controls,
         PauseChoice::QuitToMenu,
     ];
+
+    /// Where this item sits in the menu.
+    ///
+    /// A sub-screen opened from the menu puts the cursor back on the item that
+    /// opened it, which is what makes looking at the controls and then at the
+    /// options two key presses rather than four.
+    pub fn index(self) -> usize {
+        Self::ALL
+            .iter()
+            .position(|choice| *choice == self)
+            .unwrap_or(0)
+    }
 
     const fn label(self) -> &'static str {
         match self {
@@ -355,6 +368,71 @@ pub fn options(frame: &mut Frame, over: Rect, chrome: &Chrome, file: &ConfigFile
     ));
     box_over(frame, over, OPTIONS_WIDTH, lines);
 }
+
+/// Every action of §10.1 and the key names bound to it, plus §8.2's live path.
+///
+/// Two ways in and one box: §13.5's CONTROLS item on the attract screen, and
+/// §12.6's Controls item on the pause menu. Like the Options panel it reads a
+/// `ConfigFile` rather than a `GameView`, which is not a breach of §12.7 — the
+/// bindings are a setting, not game state.
+pub fn controls(
+    frame: &mut Frame,
+    over: Rect,
+    chrome: &Chrome,
+    file: &ConfigFile,
+    mode: InputMode,
+) {
+    let theme = chrome.theme;
+    /// The eleven actions of §10.1, by the `[keys]` name that carries them.
+    const ACTIONS: [(&str, &str); 11] = [
+        ("move_left", "Move left"),
+        ("move_right", "Move right"),
+        ("soft_drop", "Soft drop"),
+        ("hard_drop", "Hard drop"),
+        ("rotate_cw", "Rotate clockwise"),
+        ("rotate_ccw", "Rotate counter-clockwise"),
+        ("rotate_180", "Rotate 180\u{b0}"),
+        ("hold", "Hold"),
+        ("pause", "Pause"),
+        ("restart", "Restart (hold 1 s)"),
+        ("quit", "Quit to menu"),
+    ];
+    let bound = file.keys.each();
+    let mut lines = vec![
+        Line::styled(centre("CONTROLS", CONTROLS_WIDTH), theme.bold()),
+        Line::raw(" ".repeat(CONTROLS_WIDTH)),
+    ];
+    for (name, label) in ACTIONS {
+        // §13.3, A9: a binding whose setting is off is not shown at all.
+        let gated = match name {
+            "rotate_180" => file.gameplay.allow_180_rotation,
+            "hold" => file.gameplay.hold_enabled,
+            _ => true,
+        };
+        if !gated {
+            continue;
+        }
+        let keys = bound
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, names)| names.join(", "))
+            .unwrap_or_default();
+        lines.push(Line::raw(format!("  {label:<24}{keys:>14}  ")));
+    }
+    lines.push(Line::raw(" ".repeat(CONTROLS_WIDTH)));
+    lines.push(Line::styled(
+        centre(
+            &format!("input: {}   Esc returns", mode.name()),
+            CONTROLS_WIDTH,
+        ),
+        theme.faint(),
+    ));
+    box_over(frame, over, CONTROLS_WIDTH, lines);
+}
+
+/// The interior width of the controls box: the longest action name, the
+/// longest list of key names, and a margin either side.
+const CONTROLS_WIDTH: usize = 42;
 
 /// The interior width of the pause box (§12.6).
 const PAUSE_WIDTH: usize = 18;

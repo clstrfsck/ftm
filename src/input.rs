@@ -106,6 +106,19 @@ impl Bindings {
         Self { table }
     }
 
+    /// The edge-triggered action this key carries, whatever its kind.
+    ///
+    /// [`InputState::key`] fires an action on the press and says nothing on the
+    /// release, which is right for every action but one: §10.1's restart has to
+    /// be *held*, and a hold needs both edges. This is how the shell picks that
+    /// key out before the action model sees it.
+    pub fn action_of(&self, event: &KeyEvent) -> Option<Action> {
+        match self.get(event)? {
+            Bound::Act(action) => Some(action),
+            Bound::Held(_) => None,
+        }
+    }
+
     /// What this key event is bound to, if anything.
     ///
     /// A key carrying Ctrl, Alt or Super is not a game binding: the §10.1 names

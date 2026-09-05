@@ -21,7 +21,7 @@ use crate::core::piece::PieceKind;
 use crate::core::view::{VIEW_HEIGHT, VIEW_WIDTH};
 use crate::ui::cells::{CELL_WIDTH, Paint, span};
 use crate::ui::theme;
-use crate::ui::{Banner, Chrome, Cosmetics, Debug, centred};
+use crate::ui::{Banner, Chrome, Cosmetics, Debug, Hud, centred};
 
 /// The whole screen, in characters (§12.4).
 pub const SCREEN_WIDTH: u16 = 44;
@@ -73,8 +73,9 @@ pub fn render(
     chrome: &Chrome,
     fx: &Cosmetics,
     blanked: bool,
-    debug: Option<&Debug>,
+    hud: &Hud,
 ) -> Rect {
+    let debug = hud.debug;
     // §12.4: the debug strip sits directly beneath the block, so what is
     // centred is the two of them together. A terminal too short for the strip
     // is drawn without it and is otherwise unaffected — `show_debug` is a
@@ -133,7 +134,7 @@ pub fn render(
     }
 
     frame.render_widget(
-        Paragraph::new(status(view, fx)).style(chrome.theme.plain()),
+        Paragraph::new(status(view, fx, hud.restart)).style(chrome.theme.plain()),
         at(0, STATUS_Y, SCREEN_WIDTH, 1),
     );
     if let Some(strip) = strip {
@@ -417,7 +418,19 @@ fn paint(chrome: &Chrome, row: &[Paint], grid: bool) -> Line<'static> {
 /// The padding is computed here rather than left to the renderer's alignment,
 /// so that "centred" means one thing and the mock-up can be compared against it
 /// character for character.
-fn status(view: &GameView, fx: &Cosmetics) -> String {
+fn status(view: &GameView, fx: &Cosmetics, restart: Option<u8>) -> String {
+    // §10.1's restart is a *held* key, and a hold with no feedback is
+    // indistinguishable from a key that did nothing. It takes the whole line
+    // while it is down: the player is about to throw the game away, and the
+    // combo counter is not what they are looking at.
+    if let Some(percent) = restart {
+        let filled = usize::from(percent).min(100) * RESTART_CELLS / 100;
+        return centre_line(&format!(
+            "RESTART {}{}",
+            "\u{2588}".repeat(filled),
+            "\u{2591}".repeat(RESTART_CELLS - filled),
+        ));
+    }
     let mut parts: Vec<String> = Vec::new();
     if view.back_to_back {
         parts.push("B2B".to_string());
@@ -428,7 +441,14 @@ fn status(view: &GameView, fx: &Cosmetics) -> String {
     if let Some(name) = fx.clear_name() {
         parts.push(name.to_string());
     }
-    let text = parts.join("  ");
+    centre_line(&parts.join("  "))
+}
+
+/// The bar the restart hold fills, in characters.
+const RESTART_CELLS: usize = 10;
+
+/// One centred line of the status row.
+fn centre_line(text: &str) -> String {
     let left = (SCREEN_WIDTH as usize).saturating_sub(text.chars().count()) / 2;
     format!("{:left$}{text}", "")
 }
@@ -453,6 +473,22 @@ fn overlay_banner(frame: &mut Frame, field: Rect, chrome: &Chrome, banner: Banne
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The plainest possible `Hud`: no overlay, no strip, no restart hold.
+    ///
+    /// The config is only ever read by the §13.5 Options panel, which is an
+    /// overlay and not part of the playfield, so the default will do for every
+    /// test in here.
+    fn hud(debug: Option<&Debug>) -> Hud<'_> {
+        static CONFIG: std::sync::OnceLock<crate::config::ConfigFile> = std::sync::OnceLock::new();
+        Hud {
+            overlay: &crate::ui::Overlay::None,
+            config: CONFIG.get_or_init(crate::config::ConfigFile::default),
+            debug,
+            mode: crate::input::InputMode::Enhanced,
+            restart: None,
+        }
+    }
     use crate::core::PlayState;
     use crate::core::view::PieceView;
     use crate::ui::theme::{Depth, Theme};
@@ -560,7 +596,7 @@ mod tests {
         let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
         terminal
             .draw(|frame| {
-                render(frame, view, chrome, &fx, false, None);
+                render(frame, view, chrome, &fx, false, &hud(None));
             })
             .expect("a frame");
         let buffer = terminal.backend().buffer().clone();
@@ -646,7 +682,7 @@ mod tests {
         let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
         terminal
             .draw(|frame| {
-                render(frame, view, chrome, &fx, false, None);
+                render(frame, view, chrome, &fx, false, &hud(None));
             })
             .expect("a frame");
         terminal.backend().buffer()[(x, y)].fg
@@ -733,7 +769,7 @@ mod tests {
         let chrome = chrome();
         terminal
             .draw(|frame| {
-                render(frame, &view, &chrome, &fx, true, None);
+                render(frame, &view, &chrome, &fx, true, &hud(None));
             })
             .expect("a frame");
         let buffer = terminal.backend().buffer().clone();
@@ -774,7 +810,7 @@ mod tests {
         };
         terminal
             .draw(|frame| {
-                render(frame, view, chrome, &fx, false, Some(&debug));
+                render(frame, view, chrome, &fx, false, &hud(Some(&debug)));
             })
             .expect("a frame");
         let buffer = terminal.backend().buffer().clone();

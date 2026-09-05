@@ -427,7 +427,7 @@ converted for consistency but may be applied at sub-tick resolution locally.
             ┌───────────────────────────────────────────────┐
             │                                               │
             ▼                                               │
-      ┌──────────┐  Play          ┌─────────┐  quit / Esc   │
+      ┌──────────┐  Play          ┌─────────┐  quit         │
       │ Attract  │───────────────▶│ Playing │───────────────┤
       │          │                │         │               │
       └──────────┘                └─────────┘               │
@@ -448,36 +448,60 @@ converted for consistency but may be applied at sub-tick resolution locally.
                               └────────────┘
 ```
 
-`AppState` is an enum with exactly these variants:
+The state is in **two levels**, because §15 specifies two loops: which screen
+is running, and — while a game is running — where inside it the player is.
 
 ```rust
-enum AppState {
-    Attract(AttractState),
-    Playing(Game),
-    Paused(Game),
-    GameOver { game: Game, elapsed_ticks: u64 },
-    NameEntry { game: Game, entry: NameEntryState },
+enum Screen {                 // which loop is running
+    Attract,                  // §15.3, 10 fps, no game
+    Playing,                  // §15.2, 60 Hz with an accumulator
     Quitting,
 }
+
+enum Phase {                  // where a game is; only under `Playing`
+    Playing,
+    Paused { selected: usize },
+    Options { selected: usize },   // §13.5's panel, over the paused playfield
+    Controls,                      // §10.1's binding table, likewise
+    Resuming { since: Instant },   // §9.17's 3-2-1 countdown
+    GameOver { since: Instant },
+    NameEntry { rank: usize },
+}
 ```
+
+One flat enum would have to hold a `Game` in six of its seven variants and move
+it on every transition; splitting it puts the game and its input state in one
+place and leaves the screen a three-way choice. The extra phases are the ones
+that are drawn over a game rather than instead of it: the two sub-screens the
+pause menu opens, and the countdown, during which the clock is still stopped.
+
+`Attract` and `NameEntry` carry state of their own; nothing else does.
 
 Transitions:
 
 | From | Trigger | To |
 |---|---|---|
 | `Attract` | menu item **Play** activated | `Playing` (fresh `Game`) |
-| `Attract` | **Quit** activated, or `quit` key | `Quitting` |
+| `Attract` | **Quit** activated, `quit` key, or `Esc` | `Quitting` |
+| `Attract` | **High scores** / **Controls** / **Options** | the sub-screen; `Esc` returns |
 | `Playing` | `pause` key | `Paused` |
 | `Playing` | `quit` key | `Attract` (game abandoned, not scored) |
-| `Playing` | `restart` key, held for confirmation | `Playing` (fresh `Game`) |
+| `Playing` | `restart` key, held 1 s | `Playing` (fresh `Game`) |
 | `Playing` | top out (§9.16) | `GameOver` |
-| `Paused` | `pause` key or any menu action **Resume** | `Playing` |
+| `Paused` | `pause` key, `Esc`, or **Resume** | `Resuming`, then `Playing` |
+| `Paused` | **Restart** | `Playing` (fresh `Game`) |
+| `Paused` | **Options** / **Controls** | that phase; any menu key returns |
 | `Paused` | **Quit to menu** | `Attract` |
 | `GameOver` | score qualifies for the table and run is unseeded | `NameEntry` |
 | `GameOver` | otherwise; any key after a 1 s lockout | `Attract` |
 | `NameEntry` | `Enter` | `Attract` (score saved) |
+| `NameEntry` | `Esc` | `Attract` (score discarded) |
 
-The game clock does not advance in `Paused`, `GameOver` or `NameEntry`.
+The pause menu's **Restart** does not need §10.1's one-second hold: choosing an
+item from a menu is already the deliberate act the hold is there to require.
+
+The game clock does not advance in `Paused`, `Options`, `Controls`, `Resuming`,
+`GameOver` or `NameEntry`.
 
 ---
 
@@ -1340,7 +1364,10 @@ background and a double-line border.
 
 **Options** opens the §13.5 Options panel over the paused playfield. §6.1 calls
 it "the in-game Options screen", and this is the in-game way in; the attract
-screen's OPTIONS item (§13.5) reaches the same panel.
+screen's OPTIONS item (§13.5) reaches the same panel. **Controls** likewise
+opens the §10.1 binding table over the same blanked playfield, and is the same
+box the attract screen's CONTROLS item shows. Both return to the pause menu,
+with the cursor back on the item that opened them; neither abandons the run.
 
 **Game over**
 

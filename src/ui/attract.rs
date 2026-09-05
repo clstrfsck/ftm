@@ -24,7 +24,7 @@ use crate::core::piece::PieceKind;
 use crate::highscore::{Entry, Table};
 use crate::input::InputMode;
 use crate::ui::cells::CELL_WIDTH;
-use crate::ui::overlays::{Setting, box_over, centre};
+use crate::ui::overlays::{self, Setting, box_over, centre};
 use crate::ui::theme::{self, Theme};
 use crate::ui::{Chrome, centred};
 
@@ -514,7 +514,7 @@ pub fn draw(frame: &mut Frame, state: &Attract, cx: &Context) {
     match state.sub {
         None => {}
         Some(Sub::HighScores) => high_scores(frame, area, cx),
-        Some(Sub::Controls) => controls(frame, area, cx),
+        Some(Sub::Controls) => overlays::controls(frame, area, cx.chrome, cx.config, cx.mode),
         Some(Sub::Options { selected }) => {
             crate::ui::overlays::options(frame, area, cx.chrome, cx.config, selected)
         }
@@ -648,8 +648,6 @@ fn top_three(cx: &Context) -> Vec<String> {
 /// The interior width of the high-score sub-screen (§13.5): rank, name,
 /// score, level, lines and date, with a margin either side.
 const SCORES_WIDTH: usize = 54;
-/// The interior width of the controls sub-screen (§13.5).
-const CONTROLS_WIDTH: usize = 42;
 
 /// The full top-ten table (§13.5), with the most recent entry highlighted.
 fn high_scores(frame: &mut Frame, over: Rect, cx: &Context) {
@@ -698,57 +696,6 @@ fn entry_row(rank: usize, entry: &Entry) -> String {
         &entry.lines.to_string(),
         &entry.date,
     )
-}
-
-/// Every action of §10.1 and the key names bound to it, plus §8.2's live path
-/// (§13.5).
-fn controls(frame: &mut Frame, over: Rect, cx: &Context) {
-    let theme = cx.chrome.theme;
-    /// The eleven actions of §10.1, by the `[keys]` name that carries them.
-    const ACTIONS: [(&str, &str); 11] = [
-        ("move_left", "Move left"),
-        ("move_right", "Move right"),
-        ("soft_drop", "Soft drop"),
-        ("hard_drop", "Hard drop"),
-        ("rotate_cw", "Rotate clockwise"),
-        ("rotate_ccw", "Rotate counter-clockwise"),
-        ("rotate_180", "Rotate 180\u{b0}"),
-        ("hold", "Hold"),
-        ("pause", "Pause"),
-        ("restart", "Restart (hold 1 s)"),
-        ("quit", "Quit to menu"),
-    ];
-    let bound = cx.config.keys.each();
-    let mut lines = vec![
-        Line::styled(centre("CONTROLS", CONTROLS_WIDTH), theme.bold()),
-        Line::raw(" ".repeat(CONTROLS_WIDTH)),
-    ];
-    for (name, label) in ACTIONS {
-        // §13.3, A9: a binding whose setting is off is not shown at all.
-        let gated = match name {
-            "rotate_180" => cx.config.gameplay.allow_180_rotation,
-            "hold" => cx.config.gameplay.hold_enabled,
-            _ => true,
-        };
-        if !gated {
-            continue;
-        }
-        let keys = bound
-            .iter()
-            .find(|(key, _)| *key == name)
-            .map(|(_, names)| names.join(", "))
-            .unwrap_or_default();
-        lines.push(Line::raw(format!("  {label:<24}{keys:>14}  ")));
-    }
-    lines.push(Line::raw(" ".repeat(CONTROLS_WIDTH)));
-    lines.push(Line::styled(
-        centre(
-            &format!("input: {}   Esc returns", cx.mode.name()),
-            CONTROLS_WIDTH,
-        ),
-        theme.faint(),
-    ));
-    box_over(frame, over, CONTROLS_WIDTH, lines);
 }
 
 /// A block-width line, so the animation behind it is covered (§13.4).
