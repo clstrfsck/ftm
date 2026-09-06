@@ -662,7 +662,7 @@ fn top_three(cx: &Context) -> Vec<String> {
             "  {}. {:<12}{:>15}  ",
             index + 1,
             entry.name,
-            entry.score,
+            crate::ui::thousands(entry.score),
         ));
     }
     rows
@@ -670,7 +670,13 @@ fn top_three(cx: &Context) -> Vec<String> {
 
 /// The interior width of the high-score sub-screen (§13.5): rank, name,
 /// score, level, lines and date, with a margin either side.
-const SCORES_WIDTH: usize = 54;
+///
+/// Thirteen columns of it are the score, which is what a `u32::MAX` of them
+/// needs once the digits are grouped in threes — two more than the bare digits
+/// took. The box is 58 characters on screen and §12.1's minimum is 60, so it
+/// still fits, and `the_high_score_rows_are_all_the_same_width` is what keeps
+/// the table from going ragged if it ever stops fitting.
+const SCORES_WIDTH: usize = 56;
 
 /// The full top-ten table (§13.5), with the most recent entry highlighted.
 fn high_scores(frame: &mut Frame, over: Rect, cx: &Context) {
@@ -707,14 +713,14 @@ fn high_scores(frame: &mut Frame, over: Rect, cx: &Context) {
 /// One row of the high-score table (§13.5): rank, name, score, level, lines,
 /// date.
 fn score_row(rank: &str, name: &str, score: &str, level: &str, lines: &str, date: &str) -> String {
-    format!("  {rank:>2}  {name:<12}{score:>11}{level:>4}{lines:>7}  {date:<10}  ")
+    format!("  {rank:>2}  {name:<12}{score:>13}{level:>4}{lines:>7}  {date:<10}  ")
 }
 
 fn entry_row(rank: usize, entry: &Entry) -> String {
     score_row(
         &rank.to_string(),
         &entry.name,
-        &entry.score.to_string(),
+        &crate::ui::thousands(entry.score),
         &entry.level.to_string(),
         &entry.lines.to_string(),
         &entry.date,
@@ -998,8 +1004,11 @@ mod tests {
         let mut scores = Table::default();
         for n in 0..3 {
             scores.insert(Entry {
+                // The widest the score column is sized for, grouped in threes
+                // (§12.4): four digits would fit whatever the field did, and
+                // would not notice a score that had outgrown it.
                 name: format!("PLAYER{n}"),
-                score: 1_000 - n,
+                score: u64::from(u32::MAX) - n,
                 level: 3,
                 lines: 20,
                 duration_secs: 90,

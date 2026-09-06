@@ -37,7 +37,7 @@ Each of these was checked on its own, most of them on a pty through
 | | Criterion | How it was checked |
 |---|---|---|
 | A1 | Build clean | `cargo build --release` and `cargo clippy -- -D warnings`, both silent. `#![allow(dead_code)]` is gone. |
-| A2 | §17.1 and §17.2 pass | `cargo test`: 305 unit, 5 + 7 integration. |
+| A2 | §17.1 and §17.2 pass | `cargo test`: 306 unit, 5 + 7 integration. |
 | A3 | Attract on launch, PLAY starts a game | `tools/drive.py --size 24x60 enter`. |
 | A4 | §10.1 controls, working DAS | A 50 ms kitty tap moves exactly one cell either way; a 0.6 s hold slides to the wall and stops. T13 pins the arithmetic. |
 | A5 | `preview_count` 1-6, both sources | Next-box height measured for all six from `--preview` and from the file: 5, 8, 11, 14, 17, 20 rows, matching §12.4's `2 + 1 + 2n + (n-1)`. |

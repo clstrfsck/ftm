@@ -104,7 +104,7 @@ pub fn game_over(frame: &mut Frame, over: Rect, view: &GameView, chrome: &Chrome
     let lines = vec![
         Line::styled(centre("GAME OVER", OVER_WIDTH), chrome.theme.bold()),
         blank.clone(),
-        Line::raw(figure("SCORE", &view.score.to_string())),
+        Line::raw(figure("SCORE", &crate::ui::thousands(view.score))),
         Line::raw(figure("LEVEL", &view.level.to_string())),
         Line::raw(figure("LINES", &view.lines.to_string())),
         Line::raw(figure("TIME", &clock(view.ticks))),

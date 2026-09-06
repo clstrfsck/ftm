@@ -1393,7 +1393,13 @@ Rules for the layout:
   (100 %, 75 %, and 55 % for slot 2 and beyond) where the colour depth allows.
 - Should a future layout leave too little room for every slot, as many as fit are
   drawn and the last visible row of the box shows `+N` right-aligned.
-- **Stats box**: score, level, lines, time (`MM:SS`, capped at `99:59`).
+- **Stats box**: score, level, lines, time (`MM:SS`, capped at `99:59`). The
+  score is drawn as bare digits here, and here alone: the interior is 8
+  characters with one of them spent on the margin, which holds the seven digits
+  a game can plausibly reach — but only six once a comma costs a column every
+  thousand, and a box grown to fit would take the whole 44-character block with
+  it. Wherever a score is instead read at rest — §12.6's game-over box, §13.3's
+  panel and §13.5's table — its digits are **grouped in threes** with `,`.
 - **Debug strip**: with `show_debug = true` a bordered strip 44 characters wide
   and 5 rows tall is drawn **directly beneath the block**, making the whole
   thing 44 × 28. It shows the frame rate, ticks elapsed, any dropped ticks
@@ -1460,7 +1466,7 @@ with the cursor back on the item that opened them; neither abandons the run.
 ╔══════════════════════╗
 ║      GAME OVER       ║
 ║                      ║
-║  SCORE       12480   ║
+║  SCORE      12,480   ║
 ║  LEVEL           4   ║
 ║  LINES          37   ║
 ║  TIME        02:14   ║

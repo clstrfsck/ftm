@@ -31,6 +31,26 @@ use crate::ui::theme::Theme;
 /// The terminal the game draws on.
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;
 
+/// A score with `,` every three digits (§12.6, §13.3, §13.5).
+///
+/// Only where there is room for it. The stats box of §12.4 is eight characters
+/// wide with one of them spent on the margin, which holds seven digits and so
+/// every score a game can plausibly reach — but only six of them once a comma
+/// costs a column every thousand, and a box that grew to fit would take the
+/// whole 44-character block with it. The live figure is therefore plain, and
+/// the ones a player reads at rest are grouped.
+pub fn thousands(value: u64) -> String {
+    let digits = value.to_string();
+    let mut out = String::with_capacity(digits.len() + (digits.len() - 1) / 3);
+    for (i, digit) in digits.char_indices() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
 /// §12.1: the minimum supported terminal, in characters.
 ///
 /// The playing screen's block is 44 x 23 (§12.4) and the attract screen's is
@@ -503,6 +523,24 @@ const fn name(clear: ClearKind) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scores_are_grouped_in_threes() {
+        use super::thousands;
+        // The boundaries, because an off-by-one here puts a comma in front of
+        // the number or leaves the last group short.
+        assert_eq!(thousands(0), "0");
+        assert_eq!(thousands(7), "7");
+        assert_eq!(thousands(999), "999");
+        assert_eq!(thousands(1_000), "1,000");
+        assert_eq!(thousands(12_480), "12,480");
+        assert_eq!(thousands(999_999), "999,999");
+        assert_eq!(thousands(1_234_567), "1,234,567");
+        // The widest thing the §13.5 column is sized for, and the widest there
+        // is at all.
+        assert_eq!(thousands(u64::from(u32::MAX)), "4,294,967,295");
+        assert_eq!(thousands(u64::MAX), "18,446,744,073,709,551,615");
+    }
+
     use super::*;
     use crate::core::TopOutCause;
 
