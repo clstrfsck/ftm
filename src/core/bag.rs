@@ -8,7 +8,7 @@
 //! The shuffle is written out rather than delegated, because the piece sequence
 //! is part of the determinism contract (§15.4): the same seed must give the same
 //! game, so the exact order of draws is a rule, not an implementation detail.
-//! [`Bag::uniform`] is written out for the same reason, one level down.
+//! [`Bag::uniform_inclusive`] is written out for the same reason, one level down.
 
 use std::collections::VecDeque;
 
@@ -115,7 +115,7 @@ impl Bag {
         // Fisher-Yates, high to low: for i from n-1 down to 1, swap i with a
         // uniform j in 0..=i.
         for i in (1..pieces.len()).rev() {
-            let j = self.uniform(i);
+            let j = self.uniform_inclusive(i);
             pieces.swap(i, j);
         }
         if self.first_bag {
@@ -139,7 +139,7 @@ impl Bag {
     /// the high half, and reject the low half's short final bucket so every
     /// value is equally likely. `max` is at most 6 here, so the rejection loop
     /// effectively never runs a second time.
-    fn uniform(&mut self, max: usize) -> usize {
+    fn uniform_inclusive(&mut self, max: usize) -> usize {
         let range = max as u64 + 1;
         // `range << leading_zeros` always lands in `2^63..2^64`, so this is the
         // largest multiple of the range that fits, less one.
@@ -221,7 +221,7 @@ mod tests {
         // upgrades of `rand` too -- so the sequence is written down, not just
         // asserted to be self-consistent. These are the seven `rand` 0.8 dealt
         // before its seeding and its range draw both moved under us; `seeded`
-        // and `uniform` exist to keep them.
+        // and `uniform_inclusive` exist to keep them.
         //
         // If this fails after a dependency bump, the fix is in those two
         // functions, never in this list. The I1 snapshot fails with it.

@@ -205,7 +205,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   and its ghost are one hue.
 
 - **The piece sequence is the spec's, not `rand`'s** (§9.6). `bag::seeded`
-  expands a `u64` seed with PCG32 and `Bag::uniform` draws a range with
+  expands a `u64` seed with PCG32 and `Bag::uniform_inclusive` draws a range with
   Lemire's method, both written out. Do **not** "simplify" them back to
   `SmallRng::seed_from_u64` and `random_range`: `rand` has changed each of them
   once already — the seeding by 0.10, the range draw by 0.9 — and either change
