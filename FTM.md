@@ -984,7 +984,10 @@ Alternative rules selectable via `lock_down`:
 
 On lock:
 
-1. Write the piece's minos into the matrix.
+1. Write the piece's minos into the matrix, and clear the hold lock-out (§9.7):
+   it ends with the lock itself, so the piece spawned in step 9 may be held.
+   Clearing it at the spawn instead would let a piece taken out of hold be held
+   straight back, twice in one turn.
 2. Determine the T-spin status of the lock (§9.13) **before** clearing rows.
 3. Find all rows in `0..=39` that are completely filled.
 4. Award score (§9.14) using the number of complete rows and the T-spin status.
@@ -996,7 +999,7 @@ On lock:
    top of the buffer zone.
 7. Update line count and level (§9.9).
 8. Wait `entry_delay_ms` (ARE, default 0).
-9. Clear the hold lock-out and spawn the next piece (§9.4).
+9. Spawn the next piece (§9.4).
 
 ### 9.13 T-spin detection
 
