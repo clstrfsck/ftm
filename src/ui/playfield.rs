@@ -13,7 +13,7 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use crate::core::{GameView, PieceKind, Rotation, VIEW_HEIGHT, VIEW_WIDTH};
 use crate::ui::cells::{CELL_WIDTH, Paint, span};
@@ -121,9 +121,20 @@ pub fn render(
         next(view, chrome),
     );
 
-    let block = box_border().border_style(chrome.theme.plain());
+    // §12.4: the playfield has no lid. Its walls and floor are drawn, and the
+    // row the borders would have taken is left open, which is where a piece
+    // comes in from. The field itself keeps the twenty rows it always had, at
+    // the bottom of the box, so nothing below the mouth has moved.
+    let block = box_border()
+        .borders(Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
+        .border_style(chrome.theme.plain());
     let outer = at(FIELD_X, 0, FIELD_WIDTH, FIELD_HEIGHT);
-    let interior = block.inner(outer);
+    let open = block.inner(outer);
+    let interior = Rect {
+        y: open.y + open.height - VIEW_HEIGHT as u16,
+        height: VIEW_HEIGHT as u16,
+        ..open
+    };
     frame.render_widget(block, outer);
     frame.render_widget(Paragraph::new(field(view, chrome, fx, blanked)), interior);
     if let Some(banner) = fx.banner() {
@@ -508,7 +519,7 @@ mod tests {
     /// is the acceptance criterion for this stage, so it is compared character
     /// for character rather than approximated.
     const MOCK_UP: &str = "\
-▗▄▄▄▄▄▄▄▄▖ ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖ ▗▄▄▄▄▄▄▄▄▖
+▗▄▄▄▄▄▄▄▄▖ ▐                    ▌ ▗▄▄▄▄▄▄▄▄▖
 ▐ HOLD   ▌ ▐                    ▌ ▐ NEXT   ▌
 ▐  ██    ▌ ▐                    ▌ ▐  ████  ▌
 ▐██████  ▌ ▐                    ▌ ▐  ████  ▌
@@ -638,6 +649,41 @@ mod tests {
         assert_eq!(MOCK_UP.lines().count(), SCREEN_HEIGHT as usize);
         for line in MOCK_UP.lines() {
             assert_eq!(line.chars().count(), SCREEN_WIDTH as usize, "{line:?}");
+        }
+    }
+
+    #[test]
+    fn the_playfield_is_open_at_the_top() {
+        // §12.4: walls and a floor, no lid. The mouth takes the row the top
+        // border used to, so the twenty drawn rows and the floor are exactly
+        // where a closed box left them -- which is the half of this worth
+        // pinning, since a box that lost its lid *and* slid down a row would
+        // still look open.
+        let drawn = screenshot(&empty_view(), &chrome());
+        let rows: Vec<&str> = drawn.lines().collect();
+        let field = |row: &str| {
+            row.chars()
+                .skip(FIELD_X as usize)
+                .take(FIELD_WIDTH as usize)
+                .collect::<String>()
+        };
+        assert_eq!(
+            field(rows[0]),
+            format!("▐{}▌", " ".repeat(FIELD_WIDTH as usize - 2)),
+            "the mouth: walls, and nothing across them",
+        );
+        assert_eq!(
+            field(rows[(FIELD_HEIGHT - 1) as usize]),
+            format!("▝{}▘", "▀".repeat(FIELD_WIDTH as usize - 2)),
+            "the floor, still on the last row of the box",
+        );
+        for (i, row) in rows[1..(FIELD_HEIGHT - 1) as usize].iter().enumerate() {
+            let drawn = field(row);
+            assert!(
+                drawn.starts_with('▐') && drawn.ends_with('▌'),
+                "row {} has no walls: {drawn:?}",
+                i + 1,
+            );
         }
     }
 

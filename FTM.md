@@ -1339,7 +1339,7 @@ cell is two characters wide (§12.2).
 Concrete mock-up at `preview_count = 5`, drawn to exact size (44 × 23):
 
 ```
-▗▄▄▄▄▄▄▄▄▖ ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖ ▗▄▄▄▄▄▄▄▄▖
+▗▄▄▄▄▄▄▄▄▖ ▐                    ▌ ▗▄▄▄▄▄▄▄▄▖
 ▐ HOLD   ▌ ▐                    ▌ ▐ NEXT   ▌
 ▐  ██    ▌ ▐                    ▌ ▐  ████  ▌
 ▐██████  ▌ ▐                    ▌ ▐  ████  ▌
@@ -1369,16 +1369,22 @@ Rules for the layout:
 - **Box borders**: every box on this screen — playfield, hold, stats, next and
   the debug strip — is drawn one character thick in **quadrant half blocks**,
   inked on the half of the border cell that faces the interior: `▗▄▖` above,
-  `▐` and `▌` down the sides, `▝▀▘` below. Not the line-drawing set: a `│` is
+  `▐` and `▌` down the sides, `▝▀▘` below. On all four sides except the
+  playfield's top, which is open (below). Not the line-drawing set: a `│` is
   inked down the *middle* of its cell, so the wall it draws stands half a cell
   away from what it encloses, and with a matrix cell two characters wide (§12.2)
   that half cell reads as a gap. Inking the facing half instead puts the
   boundary of the playfield exactly on the boundary of a cell. The overlay boxes
   of §12.6 keep their double line, which is what distinguishes them from the
   screen behind.
-- **Playfield box**: 20 characters (10 cells) of interior, 20 rows tall. Only
-  matrix rows `20..=39` are drawn. A piece straddling row 20 is
-  clipped: minos above row 20 are simply not drawn.
+- **Playfield box**: 20 characters (10 cells) of interior, 20 rows tall, and
+  **open at the top**: the walls and the floor are drawn, the lid is not. The
+  row the top border would have occupied is left open above the field — the
+  mouth the piece comes in through — and the twenty drawn rows stay at the
+  bottom of the box, so the floor, the status line and every row between them
+  sit exactly where a closed box put them. Only matrix rows `20..=39` are
+  drawn. A piece straddling row 20 is clipped: minos above row 20 are simply
+  not drawn, which is why nothing is ever drawn in the mouth itself.
 - **Hold box**: interior 4 cells × 2 cells, enough for any piece in `North`
   orientation. The piece is centred horizontally in the box. Drawn dimmed when
   hold is locked out for the current piece. Omitted entirely when
