@@ -829,6 +829,15 @@ that bag before play begins. This applies only to the very first bag of a game.
   hold key does nothing and the hold box is drawn dimmed.
 - A hold never awards score, never resets the drop timer's line count, and clears
   the current piece's lock-delay state entirely (the incoming piece begins fresh).
+- **A hold ends the tick's movement phase.** The incoming piece takes no shift,
+  no gravity and no lock-delay step on the tick it arrives. §9.4 allows a
+  spawning piece exactly one row of downward movement — "a single unconditional
+  attempt, not a gravity step" — and a piece from the queue is never offered
+  more, because the lock that spawned it ended that tick. A hold is the one
+  spawn that happens mid-tick, and above 1 G the difference is whole rows: at
+  level 15 the piece would otherwise arrive 2.36 rows below where §9.4 puts it.
+  Actions later in the same tick still apply (§15.1); it is only the movement
+  that stops.
 - If spawning the piece taken out of hold is obstructed, the game ends by Block
   Out (§9.16).
 
@@ -1817,6 +1826,10 @@ remaining actions — and its movement and gravity — are **discarded**. Withou
 that, a hard drop sharing a tick with the hold that topped the game out would
 lock the final piece into the matrix and end the game a second time, and §9.16
 requires that piece to stay drawn where it did not fit.
+
+A hold that succeeds is the case in between. Its piece has just spawned, so the
+tick's movement and gravity are over (§9.7), but the tick's remaining actions
+are the player's and still apply: a hard drop after a hold is a hard drop.
 
 A fixed timestep is required, not merely tidy. With a variable `Duration` the
 gravity accumulator (§9.9) and the lock-delay timer (§9.11) depend on frame

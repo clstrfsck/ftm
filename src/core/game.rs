@@ -387,6 +387,7 @@ impl Game {
     /// then gravity, then the lock-down timer. Input first is what lets a piece
     /// be steered on the tick it would otherwise lock.
     fn tick_falling(&mut self, input: &TickInput, out: &mut Vec<GameEvent>) {
+        let mut swapped = false;
         for action in input.actions.iter() {
             match action {
                 Action::RotateCw => self.rotate(Rotation::cw, out),
@@ -396,7 +397,7 @@ impl Game {
                     self.hard_drop(out);
                     return;
                 }
-                Action::Hold => self.hold(out),
+                Action::Hold => swapped |= self.hold(out),
                 _ => {}
             }
             // §15.1: each action acts on what the one before it left -- but
@@ -408,6 +409,17 @@ impl Game {
             if self.state != PlayState::Falling {
                 return;
             }
+        }
+        // §9.7: a swap ends the tick's movement phase. The incoming piece
+        // begins fresh, and §9.4 allows a spawning piece exactly one row of
+        // downward movement -- "a single unconditional attempt, not a gravity
+        // step". A piece from the queue is never offered more, because the lock
+        // that spawned it ended that tick; hold is the one spawn that happens
+        // mid-tick, and above 1 G (§9.9, level 13+) the difference is whole
+        // rows. Actions later in the tick still apply (§15.1): they are the
+        // player's, and a hard drop after a hold is a hard drop.
+        if swapped {
+            return;
         }
 
         if let Some(shift) = input.shift {
@@ -562,19 +574,22 @@ impl Game {
     /// Like the 180 gate, `hold_enabled` is enforced at the input boundary
     /// (§10.1) so a disabled key never reaches the core; this is the backstop,
     /// and like that one it must return before touching any timer.
-    fn hold(&mut self, out: &mut Vec<GameEvent>) {
+    ///
+    /// Reports whether the swap happened, which is what tells the tick its
+    /// movement phase is over (§9.7).
+    fn hold(&mut self, out: &mut Vec<GameEvent>) -> bool {
         if !self.rules.hold_enabled {
             // An inert key raises nothing, exactly as it resets nothing.
-            return;
+            return false;
         }
         if self.hold_locked {
             // Once per piece (§9.7). Refused, but worth announcing: §12.5 has
             // the hold box to shake.
             out.push(GameEvent::HoldRejected);
-            return;
+            return false;
         }
         let Some(piece) = self.current.take() else {
-            return;
+            return false;
         };
         let incoming = self.hold.replace(piece.kind);
         self.hold_locked = true;
@@ -587,6 +602,7 @@ impl Game {
             Some(kind) => self.spawn_kind(kind, out),
             None => self.spawn(out),
         }
+        true
     }
 
     /// Drop to the floor and lock immediately, skipping lock delay (§9.10).
@@ -1924,6 +1940,58 @@ pub mod tests {
         assert_eq!(
             events.last(),
             Some(&GameEvent::ToppedOut(TopOutCause::BlockOut)),
+        );
+    }
+
+    /// Level 15, where the fall period is under one tick per row (§9.9's
+    /// table: 2.36 rows per tick). The tick a piece arrives on is worth
+    /// looking at only above 1 G.
+    fn at_high_gravity() -> GameplaySettings {
+        GameplaySettings {
+            start_level: 15,
+            ..GameplaySettings::default()
+        }
+    }
+
+    #[test]
+    fn the_piece_out_of_hold_does_not_move_on_the_tick_it_arrives() {
+        // §9.7: the incoming piece begins fresh, and §9.4 gives a spawning
+        // piece exactly one row of downward movement -- "a single
+        // unconditional attempt, not a gravity step". A piece from the queue
+        // is never offered more, because the lock that spawned it ended that
+        // tick. Hold is the one spawn that happens mid-tick, so it is the only
+        // place the difference can show, and it shows only above 1 G: at level
+        // 15 the piece used to arrive two rows below where a spawn leaves it.
+        let mut game = new_game_with(at_high_gravity(), TimingSettings::default(), 149);
+        let piece = game.current().unwrap();
+        assert_eq!(
+            piece.lowest_row(),
+            20,
+            "§9.4: spawned into row 19, then the drop of one",
+        );
+
+        tick(
+            &mut game,
+            &TickInput {
+                actions: [Action::Hold].into_iter().collect(),
+                shift: Some(Shift::Left),
+                shift_cells: 1,
+                ..TickInput::default()
+            },
+        );
+        let arrived = game.current().unwrap();
+        assert_eq!(arrived.lowest_row(), 20, "it took this tick's gravity");
+        assert_eq!(
+            arrived.origin.x,
+            arrived.kind.spawn_origin().x,
+            "and this tick's shift",
+        );
+
+        // The tick it arrives on is the only one it sits out.
+        tick(&mut game, &TickInput::default());
+        assert!(
+            game.current().unwrap().lowest_row() > 20,
+            "and then falls at level 15's 2.36 rows a tick",
         );
     }
 
