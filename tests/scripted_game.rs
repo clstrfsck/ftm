@@ -54,6 +54,35 @@ const SLOT: usize = 24;
 /// Total ticks: the whole log, played out.
 const TICKS: usize = 240 * SLOT;
 
+/// The same idea at level 15, where gravity does the landing (§9.9).
+///
+/// A second recording rather than the first one replayed faster, because the
+/// first stops meaning anything above about level 12. It slams the piece to the
+/// wall on one tick and walks it out on the next, which works only while the
+/// piece is still where it spawned; at 2.36 rows a tick it is five rows down
+/// and inside the stack by then, the recorded columns stop being reachable, and
+/// the game tops out inside forty pieces however fast it is played.
+///
+/// So each placement here is a single tick — the rotation and the whole shift
+/// together, while the piece is still on its spawn row — and nothing hard drops
+/// or soft drops: what puts every piece where it lands is gravity, and what
+/// ends its fall is §9.11's lock delay. Two characters each: the rotation (`N`
+/// none, `R` clockwise, `L` anticlockwise, `2` a half turn) and the shift, `0`
+/// to `9` cells right or `a` to `i` one to nine cells left. Recorded once by a
+/// throwaway greedy bot and checked in, as the log above was; nothing reads the
+/// board at run time.
+const HIGH_GRAVITY: &[&str] = &[
+    "NcN4N2R0N3R0N2R1L0NcRbNb20R3RfR4R3NaLbN4R123R0NdN2R32cR4NbNd",
+    "NaR3NcR2R0R0RcRaRaR0RaN4R0R1N4N1L4R2RaR120NdR5NcN4R4RcLcNcL2",
+    "R5R3N0L4NcR4NaR1R0RcL4N3RcN3LbR0RaL4RcRcN3N2NcNaR0R5NbR0L0Nb",
+    "RaR1R1L020RaN2R4R3L5L2N0RcR5LaNcR3",
+];
+
+/// Ticks per placement at level 15: about nine to fall the depth of the well,
+/// thirty of §9.11's lock delay and fifteen of §9.12's clear pause, with room
+/// over. The tail is idle, as it is above.
+const HIGH_GRAVITY_SLOT: usize = 60;
+
 /// Play `script` through a fresh game, `batch` ticks at a time, and hand back
 /// the final view.
 ///
@@ -124,10 +153,53 @@ fn recorded_log() -> Vec<TickInput> {
     log
 }
 
+/// Level 15 with everything else left alone.
+fn high_gravity_rules() -> RulesConfig {
+    RulesConfig {
+        start_level: 15,
+        ..RulesConfig::default()
+    }
+}
+
+/// The high-gravity log, expanded into one `TickInput` per tick.
+fn high_gravity_log() -> Vec<TickInput> {
+    let mut log = Vec::new();
+    for line in HIGH_GRAVITY {
+        let chars: Vec<char> = line.chars().collect();
+        assert_eq!(chars.len() % 2, 0, "placements come in pairs");
+        for pair in chars.chunks(2) {
+            let (direction, cells) = match pair[1] {
+                digit @ '0'..='9' => (Shift::Right, digit as u8 - b'0'),
+                letter @ 'a'..='i' => (Shift::Left, letter as u8 - b'a' + 1),
+                other => panic!("unknown shift {other:?} in the high-gravity log"),
+            };
+            // The rotation and the shift share the tick, in that order (§15.1),
+            // and are the only input the placement gets.
+            let mut slot = vec![TickInput {
+                actions: match pair[0] {
+                    'R' => Some(Action::RotateCw),
+                    'L' => Some(Action::RotateCcw),
+                    '2' => Some(Action::Rotate180),
+                    'N' => None,
+                    other => panic!("unknown rotation {other:?} in the high-gravity log"),
+                }
+                .into_iter()
+                .collect(),
+                shift: (cells > 0).then_some(direction),
+                shift_cells: cells,
+                ..TickInput::default()
+            }];
+            slot.resize(HIGH_GRAVITY_SLOT, TickInput::default());
+            log.extend(slot);
+        }
+    }
+    log
+}
+
 /// The snapshot format: the counters §17.2 names, then the matrix.
-fn render(view: &GameView) -> String {
+fn render(view: &GameView, placements: usize) -> String {
     let mut out = String::new();
-    out.push_str(&format!("seed {SEED}, {} placements\n", TICKS / SLOT));
+    out.push_str(&format!("seed {SEED}, {placements} placements\n"));
     out.push_str(&format!(
         "score {}  level {}  lines {}  pieces {}\n",
         view.score, view.level, view.lines, view.pieces
@@ -154,7 +226,7 @@ fn render(view: &GameView) -> String {
 fn a_scripted_game_matches_the_checked_in_snapshot() {
     let log = recorded_log();
     let view = play(RulesConfig::default(), SEED, &log, 1);
-    let rendered = render(&view);
+    let rendered = render(&view, TICKS / SLOT);
 
     // Stage 7 changes the score, and so has to regenerate this. Setting
     // UPDATE_SNAPSHOT is how, and reading the diff before committing it is the
@@ -171,6 +243,52 @@ fn a_scripted_game_matches_the_checked_in_snapshot() {
         "\nthe scripted game diverged from its snapshot; \
          re-run with UPDATE_SNAPSHOT=1 once you know why",
     );
+}
+
+/// The high-gravity snapshot (§9.9, level 15).
+const HIGH_GRAVITY_SNAPSHOT: &str = include_str!("snapshots/scripted_game_high_gravity.txt");
+
+#[test]
+fn the_high_gravity_game_matches_its_checked_in_snapshot() {
+    // The companion to the snapshot above, and the only test in the suite where
+    // gravity decides where a piece lands. The §17.2 log hard drops every
+    // placement, so nothing in it exercises a fall of more than a row a tick,
+    // the accumulator that pays one out, or a lock delay that has to expire on
+    // its own -- all of which §9.9 and §9.11 specify and only this fixture
+    // plays through.
+    let log = high_gravity_log();
+    let view = play(high_gravity_rules(), SEED, &log, 1);
+    let rendered = render(&view, log.len() / HIGH_GRAVITY_SLOT);
+
+    if std::env::var_os("UPDATE_SNAPSHOT").is_some() {
+        std::fs::write("tests/snapshots/scripted_game_high_gravity.txt", &rendered)
+            .expect("the snapshot is writable");
+        return;
+    }
+
+    assert_eq!(
+        rendered, HIGH_GRAVITY_SNAPSHOT,
+        "\nthe high-gravity game diverged from its snapshot; \
+         re-run with UPDATE_SNAPSHOT=1 once you know why",
+    );
+}
+
+#[test]
+fn the_high_gravity_game_is_worth_snapshotting() {
+    // The same guard the log above gets, and it earns it twice over: a level-15
+    // fixture that buried itself in ten pieces would still produce a stable
+    // snapshot and would prove nothing about gravity at all.
+    let log = high_gravity_log();
+    let view = play(high_gravity_rules(), SEED, &log, 1);
+    assert_ne!(view.state, PlayState::ToppedOut, "the game ran to the end");
+    // Two more pieces than placements: a slot is sixty ticks, and once the
+    // stack is tall enough that a piece lands as it spawns, thirty of §9.11's
+    // lock delay are all it needs, so a second piece can arrive and lock
+    // unsteered before the next placement's tick. That is the log being played
+    // faster than it was written, not a placement going missing.
+    assert_eq!(view.pieces, 109, "the whole log was played");
+    assert!(view.lines >= 25, "lines: {}", view.lines);
+    assert_eq!(view.level, 15, "the speed never dropped: {}", view.level);
 }
 
 #[test]
@@ -224,14 +342,28 @@ fn the_same_log_batched_differently_gives_the_same_game() {
     // decision ever depends on how the shell paced its calls, the core cannot
     // be run authoritatively anywhere else, and this is the cheapest test that
     // says so.
-    let log = recorded_log();
-    let one_at_a_time = play(RulesConfig::default(), SEED, &log, 1);
-    for batch in [2, 3, 5, 6, 7, 60, 600] {
-        let batched = play(RulesConfig::default(), SEED, &log, batch);
-        assert_eq!(
-            batched, one_at_a_time,
-            "the log fed {batch} ticks at a time is a different game",
-        );
+    //
+    // Both logs, because they stress it differently. The §17.2 log decides
+    // every landing with a hard drop, which is one tick's work however the
+    // ticks were grouped; the high-gravity log leaves the landings to §9.9's
+    // accumulator, which carries a fraction of a row from each tick to the
+    // next, and that is the state a batching bug would most easily disturb.
+    for (name, rules, log) in [
+        ("the recorded log", RulesConfig::default(), recorded_log()),
+        (
+            "the high-gravity log",
+            high_gravity_rules(),
+            high_gravity_log(),
+        ),
+    ] {
+        let one_at_a_time = play(rules.clone(), SEED, &log, 1);
+        for batch in [2, 3, 5, 6, 7, 60, 600] {
+            let batched = play(rules.clone(), SEED, &log, batch);
+            assert_eq!(
+                batched, one_at_a_time,
+                "{name} fed {batch} ticks at a time is a different game",
+            );
+        }
     }
 }
 

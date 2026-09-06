@@ -1,0 +1,26 @@
+seed 42, 107 placements
+score 54750  level 15  lines 28  pieces 109
+state Falling  combo -1  b2b false
+next ZJTSL
++----------+
+|..........|
+|...ZZ.T.L.|
+|.OO.ZZTTL.|
+|.OOZOOTJLL|
+|..ZZOO.JLL|
+|.IZJJJJJIL|
+|.IL.TJOOIL|
+|.ILTTSOOI.|
+|TILLTSS.I.|
+|TTOO.TSIS.|
+|.JJJSTIILS|
+|ZZZZSSIIL.|
+|J.LTZLLTZS|
+|L.IJ.ZIIJJ|
+|L.IJZZIIJJ|
+|ZZIL.JTSS.|
+|.ZZLLJTTOO|
+|.SSJTTZZSI|
+|ISZZTJJSS.|
+|I.SILJOOLI|
++----------+
