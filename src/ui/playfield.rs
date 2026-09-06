@@ -490,7 +490,7 @@ fn overlay_banner(frame: &mut Frame, field: Rect, chrome: &Chrome, banner: Banne
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     /// The plainest possible `Hud`: no overlay, no strip, no restart hold.
@@ -553,7 +553,7 @@ mod tests {
         }
     }
 
-    fn empty_view() -> GameView {
+    pub fn empty_view() -> GameView {
         GameView {
             rows: [[None; VIEW_WIDTH]; VIEW_HEIGHT],
             current: None,

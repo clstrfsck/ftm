@@ -67,20 +67,19 @@ pub fn paused(frame: &mut Frame, over: Rect, chrome: &Chrome, selected: usize) {
         Line::raw(" ".repeat(PAUSE_WIDTH)),
     ];
     for (index, choice) in PauseChoice::ALL.iter().enumerate() {
-        let marker = if index == selected {
-            "    \u{25b8} "
-        } else {
-            "      "
-        };
+        let marker = if index == selected { "\u{25b8} " } else { "  " };
         let style = if index == selected {
             chrome.theme.bold()
         } else {
             chrome.theme.plain()
         };
-        lines.push(Line::styled(
-            format!("{marker}{:<12}", choice.label()),
-            style,
-        ));
+        // The marker and the widest label are `MARKER + CHOICE` characters
+        // together, and that block is what is centred -- not each label on its
+        // own, which would shuffle them sideways as the cursor moved, and not
+        // the marker alone, which is what left the block hard against the
+        // right wall with four characters of air on the left.
+        let row = format!("{marker}{:<CHOICE$}", choice.label());
+        lines.push(Line::styled(centre(&row, PAUSE_WIDTH), style));
     }
     box_over(frame, over, PAUSE_WIDTH, lines);
 }
@@ -436,6 +435,8 @@ const CONTROLS_WIDTH: usize = 42;
 
 /// The interior width of the pause box (§12.6).
 const PAUSE_WIDTH: usize = 18;
+/// The longest pause-menu label, `Quit to menu` (§9.17).
+const CHOICE: usize = 12;
 /// The interior width of the game-over box (§12.6).
 const OVER_WIDTH: usize = 22;
 /// Wide enough for one digit and some air.
@@ -487,11 +488,11 @@ mod tests {
 ╔══════════════════╗
 ║      PAUSED      ║
 ║                  ║
-║    ▸ Resume      ║
-║      Restart     ║
-║      Options     ║
-║      Controls    ║
-║      Quit to menu║
+║  ▸ Resume        ║
+║    Restart       ║
+║    Options       ║
+║    Controls      ║
+║    Quit to menu  ║
 ╚══════════════════╝";
 
     /// §12.6, transcribed literally.
@@ -499,7 +500,7 @@ mod tests {
 ╔══════════════════════╗
 ║      GAME OVER       ║
 ║                      ║
-║  SCORE       12480   ║
+║  SCORE      12,480   ║
 ║  LEVEL           4   ║
 ║  LINES          37   ║
 ║  TIME        02:14   ║
@@ -509,58 +510,81 @@ mod tests {
 ║    Press any key     ║
 ╚══════════════════════╝";
 
-    fn drawn(width: usize, lines: &[Line<'static>]) -> String {
-        let mut out = format!("╔{}╗", "═".repeat(width));
-        for line in lines {
-            let text: String = line
-                .spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect();
-            out.push_str(&format!("\n║{text}║"));
+    fn chrome() -> Chrome {
+        Chrome {
+            theme: crate::ui::theme::Theme::new(crate::ui::theme::Depth::Truecolor),
+            show_grid: false,
+            hold_enabled: true,
         }
-        out.push_str(&format!("\n╚{}╝", "═".repeat(width)));
-        out
+    }
+
+    /// Render one overlay into a terminal exactly the size of its box.
+    ///
+    /// What is compared is then what the function actually draws — border,
+    /// padding and all. The transcription this replaced rebuilt the lines by
+    /// hand and never called the overlay at all, so it could only prove that
+    /// two copies of the same code agreed; when the game-over box learned to
+    /// group its digits (§12.4) the copy did not, and nothing failed.
+    fn shot(width: usize, rows: usize, draw: impl FnOnce(&mut Frame, Rect)) -> String {
+        let (width, height) = (width as u16 + 2, rows as u16 + 2);
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
+                .expect("a test terminal");
+        terminal
+            .draw(|frame| draw(frame, area))
+            .expect("drew a frame");
+        let buffer = terminal.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The view the §12.6 game-over mock-up depicts.
+    fn over_view() -> GameView {
+        let mut view = crate::ui::playfield::tests::empty_view();
+        view.score = 12_480;
+        view.level = 4;
+        view.lines = 37;
+        view.ticks = (2 * 60 + 14) * 60;
+        view.pieces = 128;
+        view
     }
 
     #[test]
     fn the_pause_box_matches_the_spec() {
-        let chrome = Chrome {
-            theme: crate::ui::theme::Theme::new(crate::ui::theme::Depth::Truecolor),
-            show_grid: false,
-            hold_enabled: true,
-        };
-        let mut lines = vec![
-            Line::styled(centre("PAUSED", PAUSE_WIDTH), chrome.theme.bold()),
-            Line::raw(" ".repeat(PAUSE_WIDTH)),
-        ];
-        for (index, choice) in PauseChoice::ALL.iter().enumerate() {
-            let marker = if index == 0 {
-                "    \u{25b8} "
-            } else {
-                "      "
-            };
-            lines.push(Line::raw(format!("{marker}{:<12}", choice.label())));
-        }
-        assert_eq!(drawn(PAUSE_WIDTH, &lines), PAUSE);
+        assert_eq!(
+            shot(PAUSE_WIDTH, 7, |frame, area| paused(
+                frame,
+                area,
+                &chrome(),
+                0
+            )),
+            PAUSE,
+        );
     }
 
     #[test]
     fn the_game_over_box_matches_the_spec() {
-        let blank = Line::raw(" ".repeat(OVER_WIDTH));
-        let lines = vec![
-            Line::raw(centre("GAME OVER", OVER_WIDTH)),
-            blank.clone(),
-            Line::raw(figure("SCORE", "12480")),
-            Line::raw(figure("LEVEL", "4")),
-            Line::raw(figure("LINES", "37")),
-            Line::raw(figure("TIME", &clock((2 * 60 + 14) * 60))),
-            Line::raw(figure("PIECES", "128")),
-            Line::raw(figure("PPS", &pps(128, (2 * 60 + 14) * 60))),
-            blank,
-            Line::raw(centre("Press any key", OVER_WIDTH)),
-        ];
-        assert_eq!(drawn(OVER_WIDTH, &lines), OVER);
+        assert_eq!(
+            shot(OVER_WIDTH, 10, |frame, area| game_over(
+                frame,
+                area,
+                &over_view(),
+                &chrome()
+            )),
+            OVER,
+        );
     }
 
     /// §12.6, transcribed literally.
@@ -576,16 +600,16 @@ mod tests {
 
     #[test]
     fn the_name_entry_box_matches_the_spec() {
-        let blank = Line::raw(" ".repeat(OVER_WIDTH));
-        let lines = vec![
-            Line::raw(centre("NEW HIGH SCORE", OVER_WIDTH)),
-            Line::raw(centre("#3", OVER_WIDTH)),
-            blank.clone(),
-            Line::raw(field("msandifo")),
-            blank,
-            Line::raw(centre("Enter to confirm", OVER_WIDTH)),
-        ];
-        assert_eq!(drawn(OVER_WIDTH, &lines), NAME);
+        assert_eq!(
+            shot(OVER_WIDTH, 6, |frame, area| name_entry(
+                frame,
+                area,
+                &chrome(),
+                3,
+                "msandifo"
+            )),
+            NAME,
+        );
     }
 
     #[test]
@@ -664,31 +688,17 @@ mod tests {
 
     #[test]
     fn the_options_panel_lists_every_setting_in_thirteen_five() {
-        let chrome = Chrome {
-            theme: crate::ui::theme::Theme::new(crate::ui::theme::Depth::Truecolor),
-            show_grid: false,
-            hold_enabled: true,
-        };
         let file = ConfigFile::default();
-        let mut lines = vec![
-            Line::raw(centre("OPTIONS", OPTIONS_WIDTH)),
-            Line::raw(" ".repeat(OPTIONS_WIDTH)),
-        ];
-        for (index, setting) in Setting::ALL.iter().enumerate() {
-            let marker = if index == 0 { "\u{25b8} " } else { "  " };
-            lines.push(Line::raw(format!(
-                "  {marker}{:<13}{:>9}  ",
-                setting.label(),
-                setting.value(&file),
-            )));
-        }
-        lines.push(Line::raw(" ".repeat(OPTIONS_WIDTH)));
-        lines.push(Line::raw(centre(
-            "\u{2190}\u{2192} change   Esc saves",
-            OPTIONS_WIDTH,
-        )));
-        assert_eq!(drawn(OPTIONS_WIDTH, &lines), OPTIONS);
-        let _ = chrome;
+        assert_eq!(
+            shot(OPTIONS_WIDTH, 12, |frame, area| options(
+                frame,
+                area,
+                &chrome(),
+                &file,
+                0
+            )),
+            OPTIONS,
+        );
     }
 
     #[test]

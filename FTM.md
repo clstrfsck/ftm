@@ -1445,17 +1445,24 @@ If the frame rate cannot be sustained, animations are skipped rather than slowed
 Overlays are drawn centred over the playfield with a cleared (space-filled)
 background and a double-line border.
 
+A menu of plain items inside one — the pause menu below — is centred as a
+**block**: the marker and the widest label together, with the labels
+left-aligned within it, so the items do not shuffle sideways as the cursor moves
+and the block is not pushed against one wall by the marker's indent. The attract
+screen's menu (§13.3) is laid out the same way. The Options panel of §13.5 is
+not: it is a two-column list of setting and value, and fills the box's width.
+
 **Pause**
 
 ```
 ╔══════════════════╗
 ║      PAUSED      ║
 ║                  ║
-║    ▸ Resume      ║
-║      Restart     ║
-║      Options     ║
-║      Controls    ║
-║      Quit to menu║
+║  ▸ Resume        ║
+║    Restart       ║
+║    Options       ║
+║    Controls      ║
+║    Quit to menu  ║
 ╚══════════════════╝
 ```
 
