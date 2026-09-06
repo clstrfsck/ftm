@@ -19,7 +19,7 @@ core is sealed behind its façade (A10), the shell is `app.rs`, `config.rs`,
 Section references written `§n` are to `FTM.md` and, after Stage G0, to whichever
 of the front-end documents keeps that number — see [The documentation
 split](#stage-g0--the-documentation-split). GUI sections are written `§Gn` and
-live in `GUI.md`. Stages are `G0`–`G12`; the existing stages 0–12 are not
+live in `GUI.md`. Stages are `G0`–`G13`; the existing stages 0–12 are not
 renumbered.
 
 ---
@@ -42,9 +42,10 @@ renumbered.
 - [Stage G7 — The playing screen](#stage-g7--the-playing-screen)
 - [Stage G8 — Overlays and the pause path](#stage-g8--overlays-and-the-pause-path)
 - [Stage G9 — Animations](#stage-g9--animations)
-- [Stage G10 — The attract screen](#stage-g10--the-attract-screen)
-- [Stage G11 — Config, CLI and persistence](#stage-g11--config-cli-and-persistence)
-- [Stage G12 — Testing, CI and acceptance](#stage-g12--testing-ci-and-acceptance)
+- [Stage G10 — Sub-cell gravity](#stage-g10--sub-cell-gravity)
+- [Stage G11 — The attract screen](#stage-g11--the-attract-screen)
+- [Stage G12 — Config, CLI and persistence](#stage-g12--config-cli-and-persistence)
+- [Stage G13 — Testing, CI and acceptance](#stage-g13--testing-ci-and-acceptance)
 - [Macroquad readiness](#macroquad-readiness)
 - [Invariants the front-ends must not break](#invariants-the-front-ends-must-not-break)
 - [Hazards that do not carry over](#hazards-that-do-not-carry-over)
@@ -168,7 +169,7 @@ done **before any GUI code exists**, so that the terminal front-end — which ha
 signed-off acceptance suite and a pty harness — is the thing that proves the
 inversion was faithful.
 
-**Fourth, the config file (G11).** All three builds read and write §6.2's
+**Fourth, the config file (G12).** All three builds read and write §6.2's
 configuration, two of them the same file. §6.3's loader is a value-by-value
 parser that rewrites the whole document on save. A GUI run that silently
 discards the terminal front-end's `[display]` table — or vice versa — is a
@@ -202,7 +203,7 @@ ftm/
 │   ├── scripted_game.rs      # I1, I2 + the §19.4 canary — untouched
 │   ├── pump.rs               # NEW: the shell driven headlessly (G4)
 │   ├── render_sizes.rs       # I4, TUI — behind `tui`
-│   └── gui_render.rs         # NEW: the GUI's I4 (G12) — behind `gui`
+│   └── gui_render.rs         # NEW: the GUI's I4 (G13) — behind `gui`
 ├── tools/
 │   └── drive.py              # the TUI pty harness — unchanged
 └── src/
@@ -286,7 +287,7 @@ rather than reading one.
 
 **Consequence to plan for:** a bare `cargo test` builds only the `tui` half.
 Every command in the Makefile grows `--all-features`, and CI runs that. This is
-called out again in G12 because it is the single easiest thing to forget and the
+called out again in G13 because it is the single easiest thing to forget and the
 failure mode is silent — the GUI simply stops being compiled.
 
 ---
@@ -295,10 +296,12 @@ failure mode is silent — the GUI simply stops being compiled.
 
 The `PLAN.md` agreements all still hold. These are the ones this plan adds.
 
-- **The core is not touched.** Not one line in `src/core/`. If a stage seems to
-  need a core change, that is a design error in the stage — with exactly one
-  candidate exception, sub-cell interpolation, which is named and deferred in
-  [G9](#stage-g9--animations).
+- **The core is touched exactly once, in exactly one place.** Every stage but
+  one leaves `src/core/` alone; if a stage seems to need a core change, that is a
+  design error in the stage. The single exception is
+  [G10](#stage-g10--sub-cell-gravity), which adds one field to `GameView` and
+  nothing else. It is isolated in its own stage precisely so that the exception
+  is visible in the history rather than smuggled into a rendering commit.
 - **The terminal front-end's behaviour does not change.** G1–G4 are refactors.
   After each of them, §17.3's A3, A4, A6 and A7 are re-run through
   `tools/drive.py` and must give the same answers. A stage that changes what the
@@ -329,8 +332,8 @@ The `PLAN.md` agreements all still hold. These are the ones this plan adds.
 | **MG3 — First pixels** | G5 | A window opens, a piece falls, the keys work; the eframe stack is retired as a risk. |
 | **MG4 — First pixels in a browser** | G6 | The same slice, served as wasm; the toolchain and the four web capabilities are retired as a risk. |
 | **MG5 — GUI playable** | G8 | A complete game can be played, paused, lost and recorded, natively and on the web. |
-| **MG6 — Parity** | G11 | Everything the terminal front-end does, the GUI does. |
-| **MG7 — Accepted** | G12 | B1–B12 signed off; CI builds and tests all three targets. |
+| **MG6 — Parity** | G12 | Everything the terminal front-end does, the GUI does. |
+| **MG7 — Accepted** | G13 | B1–B12 signed off; CI builds and tests all three targets. |
 
 ---
 
@@ -364,7 +367,7 @@ keeps a stub for each moved section reading, e.g., *"§12 — Rendering. Moved t
 | §12.7 (view model), §12.8 (event stream) | `FTM.md` | **The front-end contract.** These stay put precisely because they are what a front-end is written against. §12.1–§12.6 leave around them; the stubs say so. |
 | — | `FRONTEND.md` | **New, and the document a fourth front-end reads first.** What a front-end must provide (the four capabilities of G3, a key event stream, a draw surface), what it may assume, and what it must never do — reach into `core`, own the tick rate, or read a clock the shell has not been told about. It is a short document and it is the one that makes "add a front-end" a bounded task. |
 | §8 (terminal handling), §12.1–§12.6, §13 | `TUI.md` | Raw mode, the alternate screen, keyboard-enhancement flags, the 60 × 24 minimum, cell glyphs, colour depth, the 44 × 23 layout, the character-grid attract screen. |
-| §6.3's `[display]` table | `TUI.md` | `cell_filled`, `cell_empty`, `cell_ghost`, `color_depth` are meaningless off a terminal. `show_grid` and `show_debug` are *shared* and stay in `FTM.md` — see G11. |
+| §6.3's `[display]` table | `TUI.md` | `cell_filled`, `cell_empty`, `cell_ghost`, `color_depth` are meaningless off a terminal. `show_grid` and `show_debug` are *shared* and stay in `FTM.md` — see G12. |
 | §17.3's A1–A10 | `TUI.md` | They are terminal acceptance criteria and always were. B1–B12 are `GUI.md`'s. |
 | §G1– | `GUI.md` | New. Written stage by stage, not up front. Covers both the native and the web build, with the differences called out in place rather than in a separate document — they are the same code. |
 
@@ -611,7 +614,7 @@ technique.
 `tui/host.rs` implements it over `directories` + `std::fs`, preserving §6.2's
 path, §14's atomic write, and §16's "an unwritable file is a warning, never an
 abort". `gui/host_native.rs` uses the same implementation — the two native
-binaries share a config file, which is the point of G11.
+binaries share a config file, which is the point of G12.
 
 ### 3. Entropy
 
@@ -755,7 +758,7 @@ thing that makes every future front-end testable without a window:
   the same span of stamps, at 60 Hz, at 144 Hz, and at a deliberately jittery
   cadence including several frames with no elapsed time at all. All must produce
   the identical `GameView`. This is the §19.4 canary's sibling and it is here for
-  the same reason: the desync it catches is cheap now and expensive in G10.
+  the same reason: the desync it catches is cheap now and expensive in G11.
 - **A long-suspended front-end.** A single frame with ten seconds of elapsed
   stamps must run `MAX_CATCH_UP_TICKS` and discard the rest (§15.2 step 4) — the
   browser-tab-in-the-background case, which is far more common than a suspended
@@ -868,7 +871,7 @@ end.
    scores and their desktop scores are separate tables, by construction. §14 says
    so after G0's amendment; it is not a bug to be fixed.
 4. **There is no argv.** §6.4's CLI becomes URL query parameters for the web
-   build — `?seed=42&preview=3`. G11 does the general case; this stage needs only
+   build — `?seed=42&preview=3`. G12 does the general case; this stage needs only
    `seed`, and only to make the slice reproducible.
 
 ### Done when
@@ -950,11 +953,11 @@ the web build honest: a mobile browser's soft keyboard is a separate question,
 noted in [Open decisions](#open-decisions), and it must not be answered by
 accident here.
 
-The Options panel needs `Setting::ALL` split — see G11. Only one of its eight
+The Options panel needs `Setting::ALL` split — see G12. Only one of its eight
 items is terminal-only (`Colour`, §12.3's depth); the other seven — preview,
 start level, ghost, hold, 180 rotation, lock down and grid — are shared. So the
 split is small, but it is not empty, and the GUI wants `[gui]` items of its own
-in `Colour`'s place. Until G11 lands the split, the GUI's Options panel shows the
+in `Colour`'s place. Until G12 lands the split, the GUI's Options panel shows the
 seven shared items and nothing else.
 
 ### Done when
@@ -980,34 +983,198 @@ Pixels allow what characters did not — alpha fades rather than a two-state
 alternation, a trail that fades along its length, a wipe that is a gradient. Each
 is a rendering choice inside the same timings; none of them changes `Cosmetics`.
 
-### The one core change that is tempting, and is deferred
+### What this stage does not cover
 
-Smooth sub-cell gravity — a piece that slides between rows rather than stepping —
-is the obvious thing a GUI wants and the TUI cannot have, and it is the single
-strongest argument for the Macroquad front-end. It is **not** in this plan, for a
-specific reason: `GameView` carries integer cell positions only, and the
-fractional part lives in the core's 16.16 fall-period accumulator (§9.9), which
-is deliberately not exposed. Adding it means:
+Smooth sub-cell gravity is the other thing pixels allow, and it is a `GameView`
+question rather than a rendering one. It has its own stage —
+[G10](#stage-g10--sub-cell-gravity) — because it is the one change in this plan
+that touches the core.
 
-- a new field on `GameView`, which is a §12.7 amendment;
-- and therefore a §19 decision, because `GameView` is what a server sends a
-  player — a field that changes sixty times a second is a field on the wire.
-
-The alternative — interpolating in the shell by watching for row changes — is
-worse: it guesses at the core's state, and it will visibly desync at high levels
-and during soft drop, which is exactly where it would be most noticed.
-
-If it is wanted, it is its own decision with its own stage, and it should be
-taken *before* Macroquad rather than during it — it is a `GameView` question, not
-a rendering question, and answering it under the pressure of a new front-end is
-how it gets answered badly. It is recorded in [Open
-decisions](#open-decisions).
+Horizontal movement and rotation are **not** interpolated, here or in G10. The
+reasoning is in G10's second half; it is a rule about the whole project, not a
+GUI preference, so it is stated once there and referenced from the
+[invariants](#invariants-the-front-ends-must-not-break).
 
 ---
 
-## Stage G10 — The attract screen
+## Stage G10 — Sub-cell gravity
 
-**Depends on:** G9. **Spec:** `GUI.md` §G7.
+**Depends on:** G9. **Spec:** §9.9, §12.7, §19.2, `GUI.md` §G6.
+**The one stage that touches the core.**
+
+At level 1 a piece falls one row per second. In a terminal that lands as the
+blocky aesthetic; on a forty-pixel tile it lands as a stutter, once a second,
+for the whole first minute of every game. This stage fixes it, and it fixes it
+by *revealing* state the rules already keep rather than by inventing any.
+
+### Why gravity is the easy case
+
+`Gravity` (`src/core/gravity.rs`) holds `accumulator`, a 16.16 remainder that is
+always strictly below `period`. The piece's sub-row position is therefore exactly
+`accumulator / period`, a value in `[0, 1)` that the rules already compute and
+already depend on. Nothing is estimated, nothing is tweened, and nothing can
+drift out of step with the rules, because it *is* the rules' own number.
+
+It also scales itself, in the way one would have had to tune by hand otherwise.
+At level 1 the period is 60 ticks per row, so the fraction takes sixty distinct
+values on the way down — genuinely smooth. By level 10 it takes a handful. Above
+1 G (level 13+, and under any soft drop) `accrue` returns whole rows per tick and
+there is nothing left to interpolate — which is exactly where nobody could see it
+anyway. Slow fall gets many sub-steps, fast fall gets few, with no constant to
+choose.
+
+The edge cases fall out rather than needing handling:
+
+- §9.9 resets the accumulator on a blocked downward step, so a landed piece sits
+  at exactly `0.0` and cannot appear to hover through its lock delay (§9.11).
+- `current` is `None` during the clear and entry delays, so there is nothing to
+  draw and nothing to offset.
+- Soft drop is gravity, so it benefits for free: `soft_drop_period` divides the
+  period, and the fraction stays meaningful all the way down.
+
+### The change
+
+One field on `GameView`:
+
+```rust
+/// How far the falling piece has come toward its next row, as a fraction of
+/// the fall period in force (§9.9): 0 at the top of the row, 65535 just
+/// before the next one. Zero whenever there is no piece, and zero while the
+/// piece is landed, because §9.9 clears the accumulator on a blocked step.
+///
+/// Presentation only. The piece occupies `current.cells` and nothing else;
+/// this is how far between rows it should be *drawn*, and no rule reads it.
+pub fall_progress: u16,
+```
+
+Derived in `Game::view` from `accumulator` and the period in force. `&self`
+still, and `Game::view` still may not mutate — T15's property is untouched.
+
+**Not on `PieceView`**, and not on the ghost. The ghost marks a landing row,
+which is a discrete fact; leaving it snapped while the piece slides is what makes
+the gap close smoothly, and interpolating both would keep the gap constant and
+look wrong.
+
+### The §19 cost, stated accurately
+
+An earlier draft of this plan gave the objection as "a field that changes sixty
+times a second is a field on the wire". That is weaker than it sounded, and it
+should not be what decides this: `GameView` already carries `ticks: u64` and the
+whole two-hundred-cell `rows` array, both of which change every tick. One `u16`
+is noise beside them.
+
+The real cost is a §12.7 amendment and the discipline that goes with it — the
+field is presentation, it is derived, no rule may read it, and a §19 server sends
+it because a client cannot compute it without reimplementing §9.9. That is worth
+writing down; it is not worth refusing over.
+
+### The three alternatives, and why they lose
+
+- **Derive it from `DebugView`.** `DebugView` carries `fall_period` but not the
+  accumulator, and it is gated on `show_debug` and carries the hidden bag by
+  design (§12.7). It is the wrong type for this in three separate ways.
+- **Tween in the shell by watching for row changes.** No core change, and wrong:
+  a shell only learns the piece moved *after* it moved, so it either renders
+  behind the true position or extrapolates blind. It desyncs on soft drop, on a
+  level-up, above 1 G, and on the blocked step that clears the accumulator —
+  which is to say, everywhere it would be noticed. It is guessing at a number
+  that exists exactly.
+- **Raise the tick rate.** §15.1's 1/60 s tick is what the scoring, the speed
+  curve, the timing table and every recorded seed are defined against. Not
+  available, and named here only to be dismissed.
+
+### Optional, and additive: sub-tick extrapolation
+
+`fall_progress` changes sixty times a second, so on a 144 Hz display the motion
+is smooth but quantised to the tick. A front-end may extrapolate within the tick
+from its own elapsed time, **clamped so the drawn position can never pass the
+ghost's row**. Purely cosmetic, never fed back, and worth doing only if the
+quantisation is visible after the field lands. It needs no further spec change.
+
+### Horizontal movement and rotation are not interpolated
+
+The obvious next question, and the answer is no — for structural reasons, not
+taste. This is stated here because it is the natural place to ask it, and it is
+binding on every front-end.
+
+1. **There is no fractional horizontal state to reveal.** `Game::tick` applies a
+   shift as `for _ in 0..input.shift_cells { try_move(dx, 0) }` — a whole number
+   of cells, atomically, inside one tick. No sub-cell column exists anywhere in
+   the core. Interpolating it is the rejected shell-tween above, applied where
+   there is not even an exact answer to fall back on.
+2. **It would add lag to the signal the player is most sensitive to.** Gravity is
+   the game moving a piece along a trajectory the player already knows; drawing
+   that smoothly misleads nobody. Horizontal position is the player's primary
+   control, read against the stack, and a tween draws the piece where it *was*.
+   Tens of milliseconds are felt there, and they are felt as the game being
+   unresponsive.
+3. **DAS/ARR makes it incoherent anyway.** §10.3 step 3 gives `arr = 0` the
+   meaning "move to the wall instantly" — up to ten cells in one tick. Any
+   duration chosen to animate that contradicts the setting the player chose
+   precisely to have no delay, and at small ARR values successive tweens would
+   overlap and chase each other.
+4. **Rotation is the same case, worse.** An SRS kick can translate a piece two
+   cells and rotate it in a single atomic step (§9.5). There is no meaningful
+   intermediate pose, and animating through one would draw the piece passing
+   through occupied cells.
+
+**What to do instead**, when the movement wants softening: convey the motion
+without moving the piece off its true cell. A brief trailing smear over the
+vacated cells, fading in 60–80 ms — the same shape as §12.5's hard-drop trail,
+which already exists — or a short brightness pulse on arrival.
+
+Both are free within the existing invariants. `GameEvent::PieceMoved` already
+fires on every successful shift, so `Cosmetics` drives the timing from events and
+a clock exactly as it does today. `PieceMoved` does not say *which* cells were
+vacated, but a renderer may remember the previous frame's `PieceView` — which is
+still drawing from `GameView` alone, so `Cosmetics` keeps its "no path to `Game`"
+property and neither §12.7 nor §12.8 needs a second amendment.
+
+The one case with a fair argument is a DAS auto-repeat slide, where the movement
+is machine-paced rather than a discrete command. It still loses: the shell
+resolves ARR to whole cells at a configurable rate including zero, so the rate
+would have to be reconstructed in the renderer to tween against.
+
+### A wrinkle worth knowing
+
+§9.4 spawns every piece with minos in row 19 and then drops it one row, so a
+freshly spawned `T` has a mino above the visible field, which `to_visible`
+returns as `OFF_SCREEN` and the view omits. Three minos are drawn, not four,
+until the piece falls again. That is pre-existing and accepted — it is why the
+playfield was opened at the top — but sliding motion makes it more noticeable,
+because the fourth mino now appears abruptly against neighbours that are moving
+smoothly.
+
+Carrying a row or two of the buffer zone in the view would fix it and is a much
+larger §12.7 change, with §19 consequences of its own (the buffer zone is close
+to hidden information). **Accept the pop-in.** It is recorded here so that the
+next person to notice it knows it was seen.
+
+### Tests
+
+- **T15 still holds**: `Game::view` takes `&self` and mutates nothing.
+- New: `fall_progress` is zero with no piece, zero while the piece is landed, and
+  strictly increasing across ticks within one row at level 1.
+- New: it never reaches 65536, and it resets on the row change — the property
+  that keeps a piece from being drawn a full row low for one frame.
+- New: above 1 G the field is well-defined and the piece still moves whole rows;
+  nothing divides by zero when the period is 1.
+- **The §19.4 canary and I1's snapshot must not move.** `fall_progress` is
+  derived from state the core already had, so a snapshot that changes means the
+  field was computed from the wrong thing — or, worse, that something started
+  reading it. Read the diff before regenerating anything.
+
+### Done when
+
+A piece at level 1 falls visibly smoothly in both GUI builds; the terminal
+front-end ignores the field and its §12.4 mock-up test is unchanged; `cargo test`
+is green with no snapshot regenerated.
+
+---
+
+## Stage G11 — The attract screen
+
+**Depends on:** G10. **Spec:** `GUI.md` §G7.
 
 The wordmark (§13.2 — original block letters; §1.3's trademark constraint applies
 in full and is restated in `GUI.md`, and applies to the window title, the web
@@ -1028,9 +1195,9 @@ itself, and `GUI.md` §G8 says which).
 
 ---
 
-## Stage G11 — Config, CLI and persistence
+## Stage G12 — Config, CLI and persistence
 
-**Depends on:** G10. **Spec:** §6 as amended, §14, `GUI.md` §G8.
+**Depends on:** G11. **Spec:** §6 as amended, §14, `GUI.md` §G8.
 
 ### The config file is shared, and that is the hazard
 
@@ -1091,9 +1258,9 @@ binary loses the other's settings.
 
 ---
 
-## Stage G12 — Testing, CI and acceptance
+## Stage G13 — Testing, CI and acceptance
 
-**Depends on:** G11. **Spec:** §17 as amended, `GUI.md` §G9.
+**Depends on:** G12. **Spec:** §17 as amended, `GUI.md` §G9.
 
 ### Testing
 
@@ -1204,10 +1371,13 @@ where it happens.
    §19.2 uses for not building a transport before there is a second peer. Three
    front-ends that each call `Round` are simpler than three that each satisfy an
    interface designed before the third existed.
-5. **Settle sub-cell interpolation before starting, not during.** See
-   [G9](#stage-g9--animations). It is a `GameView` question with §19
-   consequences, and Macroquad is precisely the front-end that will want it on
-   day one.
+5. **Sub-cell gravity is already settled, and horizontal is settled against.**
+   [G10](#stage-g10--sub-cell-gravity) lands `GameView::fall_progress`, so the
+   front-end that most wants smooth motion finds it waiting rather than having to
+   argue for a core change on day one. The other half of that stage binds
+   Macroquad too: horizontal movement and rotation stay snapped to the cell, and
+   a framework whose whole idiom is per-frame tweening is exactly where that rule
+   will be most tempting to break.
 
 `MACROQUAD.md` is written when the work starts, not before.
 
@@ -1237,6 +1407,12 @@ front-end is *specifically* liable to break, and each has a stage that guards it
 - **Input the shell has resolved is held until a tick consumes it.** Far more
   load-bearing in the GUI than in the TUI, because a high-refresh window runs
   zero ticks on most frames.
+- **Only gravity is interpolated.** `GameView::fall_progress` (G10) is the sole
+  sub-cell position any front-end may draw. Horizontal movement and rotation are
+  snapped to the cell in every front-end, because no fractional state for them
+  exists in the core and inventing one costs input latency where players feel it
+  most. Motion there is conveyed by trails and pulses off `GameEvent::PieceMoved`,
+  never by moving the piece off its true cell.
 - **A four-line clear is a `QUAD`**, and §1.3's trademark rules extend to the
   window title, the page title, the wordmark and any icon or favicon.
 - **A score of 0 never qualifies, ties keep the older entry, a seeded run is
@@ -1291,10 +1467,12 @@ for no benefit.
 | `Stamp` arithmetic, `Storage` failure paths | G3 | New. §16's rules through the trait. |
 | `--target wasm32-unknown-unknown` | G3 | New. **The platform boundary, held by the compiler.** The highest-value step in this plan per second of CI time. |
 | `tests/pump.rs` | G4 | New. Cadence invariance, catch-up cap, phase transitions, deadlines. |
-| Config round-trip preservation | G11 | New. Every direction. The data-loss guard. |
-| Query-parameter precedence | G11 | New. §6.1, on the web build. |
-| `tests/gui_render.rs` | G12 | New. The GUI's I4, via `egui_kittest`, headless. |
-| B1–B12 | G12 | New. `GUI.md` §G9, checked one by one. |
+| Config round-trip preservation | G12 | New. Every direction. The data-loss guard. |
+| Query-parameter precedence | G12 | New. §6.1, on the web build. |
+| `fall_progress` behaviour | G10 | New. Zero when landed, resets on the row change, well-defined above 1 G. |
+| §19.4 canary + I1 snapshot | G10 | **Unchanged, and that is the assertion.** A snapshot that moves means the new field was computed from the wrong state, or that a rule started reading it. |
+| `tests/gui_render.rs` | G13 | New. The GUI's I4, via `egui_kittest`, headless. |
+| B1–B12 | G13 | New. `GUI.md` §G9, checked one by one. |
 
 ---
 
@@ -1304,11 +1482,12 @@ for no benefit.
 |---|---|---|
 | **MSRV conflict.** `eframe` 0.36 requires Rust 1.95; 0.33 requires 1.88, the current floor. | G5, and the CI `msrv` job. | Decide in G5, in one commit across `Cargo.toml`, §3 and the workflow. Recommendation: take 0.36 and raise the floor — §3 already states the floor moves with a dependency, and pinning to 0.33 to preserve a number means tracking a stale egui for the life of the project. |
 | **The G3 abstractions are done half-way**, leaving `cfg(target_arch)` sprinkled through the shell. | G3, discovered in G6 as a slow, miserable stage. | The wasm CI check lands *in* G3 and is what defines the stage as finished. A `cfg` in `shell/` is a stage that is not done. |
-| **The loop inversion changes TUI behaviour subtly.** A reordered step, a lost `dt`, a pause that no longer zeroes the accumulator. | G4, discovered in G10. | G4 lands with no GUI at all, and is validated by the terminal front-end's existing pty acceptance suite plus cadence invariance. |
+| **The loop inversion changes TUI behaviour subtly.** A reordered step, a lost `dt`, a pause that no longer zeroes the accumulator. | G4, discovered in G11. | G4 lands with no GUI at all, and is validated by the terminal front-end's existing pty acceptance suite plus cadence invariance. |
 | **Tick/frame coupling.** The easy GUI bug: advancing by frame time, or once per repaint. | G5 onward. | `ticks_due` is the only path; the invariance test runs at several cadences; B8 checks it on real hardware and in a real tab. |
 | **The browser swallows the game's keys.** `Space` scrolls, `Tab` moves focus, the canvas never had focus. | G6, and every web build after. | `GUI.md` §G8 makes canvas focus normative; B11 is a dedicated acceptance criterion, because this defect is invisible in every native test. |
-| **Config data loss between binaries.** | G11, in the field. | Round-trip preservation tests in every direction, and `ConfigFile` keeping every table whichever binary is running. |
-| **CI grows new classes of failure.** `eframe` needs X11/Wayland headers and a GL stack; the web job needs `trunk` and a wasm target. | G12. | An `apt-get` step and a pinned `trunk`; the headless render test uses no GPU; image snapshots stay out of CI deliberately. |
+| **Config data loss between binaries.** | G12, in the field. | Round-trip preservation tests in every direction, and `ConfigFile` keeping every table whichever binary is running. |
+| **CI grows new classes of failure.** `eframe` needs X11/Wayland headers and a GL stack; the web job needs `trunk` and a wasm target. | G13. | An `apt-get` step and a pinned `trunk`; the headless render test uses no GPU; image snapshots stay out of CI deliberately. |
+| **The one core change grows.** `fall_progress` is a foothold, and the next request will be a second field — piece opacity, a spawn animation, a lock-delay fraction. | G10, and every stage after it. | The field is presentation, derived, and read by no rule; G10 is the only stage licensed to touch `src/core/`, and the I1 snapshot going red is what catches a rule that started reading it. Anything further is a §12.7 amendment on its own merits, not a follow-on. |
 | **Feature-gate rot.** A bare `cargo test` stops compiling the GUI, and nobody notices for weeks. | Any stage after G2. | Every Makefile target takes `--all-features`, and the Makefile is the single source of truth CI runs. |
 | **`egui` minor-version churn.** egui breaks API across minors more freely than ratatui does, and `eframe`, `egui_kittest` and `web-sys` must move together. | Maintenance. | Pin the minor in `Cargo.toml` and record it in §3, as the existing table does for every other dependency. |
 | **Scope creep into §18.** A window — and especially a web page — makes sound, themes, touch and mouse input feel newly reachable. | Everywhere. | §1.2 and §18 are unchanged: still not work items. Parity is the deliverable. Touch is the one that deserves a real answer rather than a reflex; see below. |
@@ -1329,10 +1508,15 @@ not make on its own.
   a deliberate, specified web-only feature — which is a §1.2 amendment and a real
   piece of design, not a small addition. **Worth deciding before G6**, because it
   changes what "the web build is done" means.
-- **Sub-cell interpolation of gravity.** Deferred with reasons in
-  [G9](#stage-g9--animations). It is a §12.7 change and therefore a §19 decision.
-  It should be settled before any Macroquad work begins, since that front-end
-  will want it immediately.
+- **Sub-tick extrapolation on top of `fall_progress`.** The field itself is
+  settled — it is [G10](#stage-g10--sub-cell-gravity). What is not settled is
+  whether a front-end should also extrapolate *within* a tick for displays above
+  60 Hz. It needs no spec change and is purely cosmetic, so it can wait until the
+  quantisation has been looked at on real hardware rather than argued about now.
+- **Whether the view should carry a buffer row**, so a piece entering the field
+  slides in rather than popping. Recorded in G10's wrinkle; the recommendation is
+  to accept the pop-in, because the buffer zone is close to hidden information
+  and §19 would have to have an opinion about sending it.
 - **Whether `ftm-gui` should remember its window geometry.** §G8's `[gui]` table
   has a place for it, but a game that reopens where it was last is also a game
   that can reopen off-screen. Suggest: remember size, not position.
