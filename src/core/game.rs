@@ -399,12 +399,15 @@ impl Game {
                 Action::Hold => self.hold(out),
                 _ => {}
             }
-        }
-        // A hold spawns, and a spawn can end the game by Block Out (§9.16).
-        // Once it has, this is no longer a falling tick and there is nothing
-        // left to move.
-        if self.state != PlayState::Falling {
-            return;
+            // §15.1: each action acts on what the one before it left -- but
+            // only while a piece is still falling. A hold spawns, and a spawn
+            // can end the game by Block Out (§9.16), which leaves the piece
+            // shown where it would not fit. A hard drop later in the same tick
+            // would lock that piece into the matrix and top the game out a
+            // second time, so the rest of the tick's actions are discarded.
+            if self.state != PlayState::Falling {
+                return;
+            }
         }
 
         if let Some(shift) = input.shift {
@@ -1101,7 +1104,7 @@ pub mod tests {
     /// here is a completed row, and column 0 is left clear for the piece that
     /// has to lock first -- that piece must reach row 20 or below, or the game
     /// would end in a Lock Out before the spawn was ever attempted.
-    fn tower_over_the_spawn_columns() -> Matrix {
+    pub fn tower_over_the_spawn_columns() -> Matrix {
         let mut matrix = Matrix::new();
         for y in 19..HEIGHT {
             for x in 3..=5 {
@@ -1922,6 +1925,88 @@ pub mod tests {
             events.last(),
             Some(&GameEvent::ToppedOut(TopOutCause::BlockOut)),
         );
+    }
+
+    #[test]
+    fn a_hold_and_a_hard_drop_in_one_tick_drop_the_replacement() {
+        // §15.1: a tick's actions are applied in order, each to what the one
+        // before it left. That is the rule that makes a rotation into a hard
+        // drop a T-spin, and it is the same rule here -- the drop takes the
+        // piece the hold just spawned. Two edges inside 16 ms are rare, but
+        // §15.2 step 2 drains the whole event queue into one tick, so a
+        // buffered pair arrives together. What has to hold is that the pair in
+        // one tick agrees with the pair a tick apart.
+        let mut together = new_game(131);
+        let mut apart = new_game(131);
+
+        let events = tick_events(
+            &mut together,
+            &TickInput {
+                actions: [Action::Hold, Action::HardDrop].into_iter().collect(),
+                ..TickInput::default()
+            },
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, GameEvent::HardDropped { .. })),
+            "the drop took the piece the hold had just spawned",
+        );
+
+        tick(&mut apart, &TickInput::action(Action::Hold));
+        tick(&mut apart, &TickInput::action(Action::HardDrop));
+
+        // Everything but the tick counter, which counts ticks and so is the
+        // one field entitled to differ between one of them and two.
+        let mut expected = apart.view();
+        assert_eq!(expected.ticks, 2);
+        expected.ticks = 1;
+        assert_eq!(together.view(), expected, "batching changed the game");
+        assert_eq!(together.held(), apart.held());
+        assert!(
+            !together.hold_locked(),
+            "the replacement locked, and §9.12 step 1 cleared the lock-out",
+        );
+    }
+
+    #[test]
+    fn a_hold_that_blocks_out_discards_the_rest_of_the_tick() {
+        // §9.16 ends the game on the spawn and leaves the final piece "drawn in
+        // place" -- so a hard drop sharing that tick must not lock it into the
+        // matrix, and must not top the game out a second time.
+        let mut game = new_game(137);
+        tick(&mut game, &TickInput::action(Action::Hold));
+        let tower = tower_over_the_spawn_columns();
+        game.matrix = tower.clone();
+        // As the next lock would, so the second hold is allowed to happen.
+        game.hold_locked = false;
+
+        let events = tick_events(
+            &mut game,
+            &TickInput {
+                actions: [Action::Hold, Action::HardDrop].into_iter().collect(),
+                ..TickInput::default()
+            },
+        );
+        assert!(game.is_over());
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, GameEvent::ToppedOut(_)))
+                .count(),
+            1,
+            "one top out, not two: {events:?}",
+        );
+        assert_eq!(
+            events.last(),
+            Some(&GameEvent::ToppedOut(TopOutCause::BlockOut)),
+            "and the tick ended there",
+        );
+        assert_eq!(
+            game.matrix, tower,
+            "nothing was locked after the game ended"
+        );
+        assert_eq!(game.pieces(), 0, "and no piece was counted");
     }
 
     #[test]
