@@ -1953,6 +1953,189 @@ pub mod tests {
         }
     }
 
+    /// A stack filling every row from `top` down, leaving column 9 open as a
+    /// well, so pieces lock high and Lock Out is within reach.
+    fn a_stack_up_to(top: i32) -> Matrix {
+        let mut matrix = Matrix::new();
+        for y in top..HEIGHT {
+            for x in 0..WIDTH {
+                if x != 9 {
+                    matrix.set(x, y, Some(PieceKind::I));
+                }
+            }
+        }
+        matrix
+    }
+
+    /// Everything a tick may be asked to do, in every order.
+    ///
+    /// Both of the bugs this module has had in a multi-action tick -- a hard
+    /// drop that ran after a block out had ended the game, and a hold whose
+    /// replacement took the same tick's gravity -- were reachable only from a
+    /// tick carrying more than one action, and the suite fed exactly one such
+    /// combination before them. The space is five actions and at most four
+    /// slots (§15.1), which is small enough to sweep rather than sample, so it
+    /// is swept: every ordered pair and triple, on four boards, at both ends of
+    /// §9.9's speed curve, with and without a shift and a soft drop underneath.
+    ///
+    /// What is asserted is only what holds whatever was drawn. The rules that
+    /// depend on *which* actions arrived have their own tests; these are the
+    /// ones that must survive any of them.
+    #[test]
+    fn no_combination_of_actions_in_one_tick_leaves_the_game_unsound() {
+        const ACTIONS: [Action; 5] = [
+            Action::RotateCw,
+            Action::RotateCcw,
+            Action::Rotate180,
+            Action::Hold,
+            Action::HardDrop,
+        ];
+        // Long enough for the piece to land, spend §9.11's lock delay, clear a
+        // row and spawn its successor, so the tick under test is followed
+        // through to a resting board rather than judged where it left off.
+        const AFTERWARDS: usize = 60;
+
+        let boards: [(&str, Matrix); 4] = [
+            ("empty", Matrix::new()),
+            ("a three-corner slot", three_corner_slot()),
+            ("a stack at the ceiling", a_stack_up_to(21)),
+            ("a tower over the spawn", tower_over_the_spawn_columns()),
+        ];
+        let mut combinations = Vec::new();
+        for &a in &ACTIONS {
+            for &b in &ACTIONS {
+                combinations.push(vec![a, b]);
+                for &c in &ACTIONS {
+                    combinations.push(vec![a, b, c]);
+                }
+            }
+        }
+
+        for level in [1, 15] {
+            let gameplay = GameplaySettings {
+                start_level: level,
+                ..GameplaySettings::default()
+            };
+            for (board, matrix) in &boards {
+                for combination in &combinations {
+                    for underneath in [false, true] {
+                        let mut game =
+                            new_game_with(gameplay.clone(), TimingSettings::default(), 211);
+                        game.matrix = matrix.clone();
+                        if !park_in_the_clear(&mut game) {
+                            continue;
+                        }
+                        let input = TickInput {
+                            actions: combination.iter().copied().collect(),
+                            soft_drop: underneath,
+                            shift: underneath.then_some(Shift::Left),
+                            shift_cells: if underneath { 2 } else { 0 },
+                        };
+                        let case = format!(
+                            "{combination:?} on {board} at level {level}, held {underneath}"
+                        );
+                        play_out(&mut game, &input, AFTERWARDS, &case);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Move the piece in play somewhere it fits, reporting whether anywhere
+    /// does.
+    ///
+    /// Installing a board under a running game can leave the current piece
+    /// inside the stack, which is not a state a game can reach and so not one
+    /// worth asserting about. The other fixtures here get away with it because
+    /// they drop or swap the piece immediately; a sweep has to start sound to
+    /// mean anything.
+    fn park_in_the_clear(game: &mut Game) -> bool {
+        let piece = game.current.expect("a new game has a piece");
+        if !game
+            .matrix
+            .collides(piece.kind, piece.origin, piece.rotation)
+        {
+            return true;
+        }
+        for y in 18..HEIGHT {
+            for x in 0..WIDTH {
+                let origin = Point::new(x, y);
+                if !game.matrix.collides(piece.kind, origin, Rotation::North) {
+                    place(game, piece.kind, origin, Rotation::North);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Run `input`, then `afterwards` idle ticks, checking after every one of
+    /// them the invariants that no action can be allowed to break.
+    fn play_out(game: &mut Game, input: &TickInput, afterwards: usize, case: &str) {
+        let mut events = Vec::new();
+        let mut over: Option<(Matrix, u64, u32)> = None;
+        let mut top_outs = 0;
+
+        for tick in 0..=afterwards {
+            events.clear();
+            let this = if tick == 0 {
+                *input
+            } else {
+                TickInput::default()
+            };
+            game.tick(&this, &mut events);
+            let at = format!("{case}, tick {tick}");
+
+            // A tick locks at most one piece and swaps at most one, however
+            // many actions asked it to.
+            for (what, count) in [
+                (
+                    "locked",
+                    count_of(&events, |e| matches!(e, GameEvent::PieceLocked { .. })),
+                ),
+                (
+                    "held",
+                    count_of(&events, |e| matches!(e, GameEvent::HoldUsed)),
+                ),
+            ] {
+                assert!(count <= 1, "{at}: {what} {count} pieces in one tick");
+            }
+            top_outs += count_of(&events, |e| matches!(e, GameEvent::ToppedOut(_)));
+            assert!(top_outs <= 1, "{at}: the game ended {top_outs} times");
+
+            // A falling piece is a piece that fits where it is. §9.16's final
+            // piece is the exception the spec makes, and it is not falling.
+            if game.state == PlayState::Falling {
+                let piece = game.current.expect("§12.7: a falling game has a piece");
+                assert!(
+                    !game
+                        .matrix
+                        .collides(piece.kind, piece.origin, piece.rotation),
+                    "{at}: the piece overlaps the stack",
+                );
+            }
+
+            // Once the game is over it is over: §9.16 draws the final piece
+            // where it came to rest and nothing moves again.
+            match &over {
+                None if game.is_over() => {
+                    over = Some((game.matrix.clone(), game.score(), game.pieces));
+                }
+                Some((matrix, score, pieces)) => {
+                    assert!(events.is_empty(), "{at}: the game spoke after it ended");
+                    assert_eq!(&game.matrix, matrix, "{at}: the matrix moved after the end");
+                    assert_eq!(game.score(), *score, "{at}: scored after the end");
+                    assert_eq!(game.pieces, *pieces, "{at}: locked after the end");
+                }
+                None => {}
+            }
+        }
+    }
+
+    fn count_of(events: &[GameEvent], f: impl Fn(&GameEvent) -> bool) -> usize {
+        events.iter().filter(|e| f(e)).count()
+    }
+
     #[test]
     fn the_piece_out_of_hold_does_not_move_on_the_tick_it_arrives() {
         // §9.7: the incoming piece begins fresh, and §9.4 gives a spawning
