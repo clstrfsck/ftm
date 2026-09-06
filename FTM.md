@@ -1339,35 +1339,45 @@ cell is two characters wide (§12.2).
 Concrete mock-up at `preview_count = 5`, drawn to exact size (44 × 23):
 
 ```
-┌────────┐ ┌────────────────────┐ ┌────────┐
-│ HOLD   │ │                    │ │ NEXT   │
-│  ██    │ │                    │ │  ████  │
-│██████  │ │                    │ │  ████  │
-└────────┘ │        ██          │ │        │
-           │      ██████        │ │██      │
-┌────────┐ │                    │ │██████  │
-│ SCORE  │ │                    │ │        │
-│  12480 │ │                    │ │    ██  │
-│        │ │                    │ │██████  │
-│ LEVEL  │ │                    │ │        │
-│      4 │ │                    │ │        │
-│        │ │                    │ │████████│
-│ LINES  │ │                    │ │        │
-│     37 │ │                    │ │  ██    │
-│        │ │                    │ │██████  │
-│ TIME   │ │                    │ └────────┘
-│  02:14 │ │        ▒▒          │           
-└────────┘ │      ▒▒▒▒▒▒        │           
-           │      ██████████    │           
-           │██████████████████  │           
-           └────────────────────┘           
+▗▄▄▄▄▄▄▄▄▖ ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖ ▗▄▄▄▄▄▄▄▄▖
+▐ HOLD   ▌ ▐                    ▌ ▐ NEXT   ▌
+▐  ██    ▌ ▐                    ▌ ▐  ████  ▌
+▐██████  ▌ ▐                    ▌ ▐  ████  ▌
+▝▀▀▀▀▀▀▀▀▘ ▐        ██          ▌ ▐        ▌
+           ▐      ██████        ▌ ▐██      ▌
+▗▄▄▄▄▄▄▄▄▖ ▐                    ▌ ▐██████  ▌
+▐ SCORE  ▌ ▐                    ▌ ▐        ▌
+▐  12480 ▌ ▐                    ▌ ▐    ██  ▌
+▐        ▌ ▐                    ▌ ▐██████  ▌
+▐ LEVEL  ▌ ▐                    ▌ ▐        ▌
+▐      4 ▌ ▐                    ▌ ▐        ▌
+▐        ▌ ▐                    ▌ ▐████████▌
+▐ LINES  ▌ ▐                    ▌ ▐        ▌
+▐     37 ▌ ▐                    ▌ ▐  ██    ▌
+▐        ▌ ▐                    ▌ ▐██████  ▌
+▐ TIME   ▌ ▐                    ▌ ▝▀▀▀▀▀▀▀▀▘
+▐  02:14 ▌ ▐        ▒▒          ▌           
+▝▀▀▀▀▀▀▀▀▘ ▐      ▒▒▒▒▒▒        ▌           
+           ▐      ██████████    ▌           
+           ▐██████████████████  ▌           
+           ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▘           
                B2B  COMBO x3                
 ```
 
 Rules for the layout:
 
-- **Playfield box**: 20 characters (10 cells) of interior, 20 rows tall, single-
-  line border. Only matrix rows `20..=39` are drawn. A piece straddling row 20 is
+- **Box borders**: every box on this screen — playfield, hold, stats, next and
+  the debug strip — is drawn one character thick in **quadrant half blocks**,
+  inked on the half of the border cell that faces the interior: `▗▄▖` above,
+  `▐` and `▌` down the sides, `▝▀▘` below. Not the line-drawing set: a `│` is
+  inked down the *middle* of its cell, so the wall it draws stands half a cell
+  away from what it encloses, and with a matrix cell two characters wide (§12.2)
+  that half cell reads as a gap. Inking the facing half instead puts the
+  boundary of the playfield exactly on the boundary of a cell. The overlay boxes
+  of §12.6 keep their double line, which is what distinguishes them from the
+  screen behind.
+- **Playfield box**: 20 characters (10 cells) of interior, 20 rows tall. Only
+  matrix rows `20..=39` are drawn. A piece straddling row 20 is
   clipped: minos above row 20 are simply not drawn.
 - **Hold box**: interior 4 cells × 2 cells, enough for any piece in `North`
   orientation. The piece is centred horizontally in the box. Drawn dimmed when

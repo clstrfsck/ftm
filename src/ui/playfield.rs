@@ -13,7 +13,7 @@
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::core::{GameView, PieceKind, Rotation, VIEW_HEIGHT, VIEW_WIDTH};
 use crate::ui::cells::{CELL_WIDTH, Paint, span};
@@ -121,7 +121,7 @@ pub fn render(
         next(view, chrome),
     );
 
-    let block = Block::bordered().border_style(chrome.theme.plain());
+    let block = box_border().border_style(chrome.theme.plain());
     let outer = at(FIELD_X, 0, FIELD_WIDTH, FIELD_HEIGHT);
     let interior = block.inner(outer);
     frame.render_widget(block, outer);
@@ -207,9 +207,20 @@ fn optional(value: Option<u32>) -> String {
     value.map_or_else(|| "-".to_string(), |v| v.to_string())
 }
 
+/// The border every box on this screen is drawn with (§12.4).
+///
+/// Quadrant half blocks rather than the line-drawing set: a `│` is inked down
+/// the middle of its cell, so the wall it draws sits half a cell away from the
+/// field it encloses, and with a matrix cell two characters wide (§12.2) that
+/// half is visible. `▐` puts the same wall against the interior instead, so the
+/// boundary of the playfield falls exactly on the boundary of a cell.
+fn box_border() -> Block<'static> {
+    Block::bordered().border_type(BorderType::QuadrantInside)
+}
+
 /// A bordered box with `lines` inside it.
 fn panel(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
-    let block = Block::bordered();
+    let block = box_border();
     let interior = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(lines), interior);
@@ -497,28 +508,28 @@ mod tests {
     /// is the acceptance criterion for this stage, so it is compared character
     /// for character rather than approximated.
     const MOCK_UP: &str = "\
-┌────────┐ ┌────────────────────┐ ┌────────┐
-│ HOLD   │ │                    │ │ NEXT   │
-│  ██    │ │                    │ │  ████  │
-│██████  │ │                    │ │  ████  │
-└────────┘ │        ██          │ │        │
-           │      ██████        │ │██      │
-┌────────┐ │                    │ │██████  │
-│ SCORE  │ │                    │ │        │
-│  12480 │ │                    │ │    ██  │
-│        │ │                    │ │██████  │
-│ LEVEL  │ │                    │ │        │
-│      4 │ │                    │ │        │
-│        │ │                    │ │████████│
-│ LINES  │ │                    │ │        │
-│     37 │ │                    │ │  ██    │
-│        │ │                    │ │██████  │
-│ TIME   │ │                    │ └────────┘
-│  02:14 │ │        ▒▒          │           
-└────────┘ │      ▒▒▒▒▒▒        │           
-           │      ██████████    │           
-           │██████████████████  │           
-           └────────────────────┘           
+▗▄▄▄▄▄▄▄▄▖ ▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖ ▗▄▄▄▄▄▄▄▄▖
+▐ HOLD   ▌ ▐                    ▌ ▐ NEXT   ▌
+▐  ██    ▌ ▐                    ▌ ▐  ████  ▌
+▐██████  ▌ ▐                    ▌ ▐  ████  ▌
+▝▀▀▀▀▀▀▀▀▘ ▐        ██          ▌ ▐        ▌
+           ▐      ██████        ▌ ▐██      ▌
+▗▄▄▄▄▄▄▄▄▖ ▐                    ▌ ▐██████  ▌
+▐ SCORE  ▌ ▐                    ▌ ▐        ▌
+▐  12480 ▌ ▐                    ▌ ▐    ██  ▌
+▐        ▌ ▐                    ▌ ▐██████  ▌
+▐ LEVEL  ▌ ▐                    ▌ ▐        ▌
+▐      4 ▌ ▐                    ▌ ▐        ▌
+▐        ▌ ▐                    ▌ ▐████████▌
+▐ LINES  ▌ ▐                    ▌ ▐        ▌
+▐     37 ▌ ▐                    ▌ ▐  ██    ▌
+▐        ▌ ▐                    ▌ ▐██████  ▌
+▐ TIME   ▌ ▐                    ▌ ▝▀▀▀▀▀▀▀▀▘
+▐  02:14 ▌ ▐        ▒▒          ▌           
+▝▀▀▀▀▀▀▀▀▘ ▐      ▒▒▒▒▒▒        ▌           
+           ▐      ██████████    ▌           
+           ▐██████████████████  ▌           
+           ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▘           
                B2B  COMBO x3                ";
 
     fn chrome() -> Chrome {
@@ -650,7 +661,7 @@ mod tests {
             let drawn = screenshot(&view, &chrome());
             let bottom = drawn
                 .lines()
-                .position(|line| line.chars().nth(NEXT_X as usize) == Some('└'))
+                .position(|line| line.chars().nth(NEXT_X as usize) == Some('▝'))
                 .expect("the next box has a bottom");
             assert_eq!(bottom + 1, 3 * count + 2, "at preview_count = {count}");
         }
@@ -666,9 +677,9 @@ mod tests {
         };
         let drawn = screenshot(&mock_up_view(), &chrome);
         let rows: Vec<&str> = drawn.lines().collect();
-        assert!(rows[1].starts_with("│ SCORE  │"), "{:?}", rows[1]);
-        assert!(rows[12].starts_with("└────────┘"), "{:?}", rows[12]);
-        assert!(rows[2].starts_with("│  12480 │"));
+        assert!(rows[1].starts_with("▐ SCORE  ▌"), "{:?}", rows[1]);
+        assert!(rows[12].starts_with("▝▀▀▀▀▀▀▀▀▘"), "{:?}", rows[12]);
+        assert!(rows[2].starts_with("▐  12480 ▌"));
     }
 
     /// The foreground colour of one character cell of the rendered screen.
@@ -836,11 +847,11 @@ mod tests {
         assert_eq!(
             strip.join("\n"),
             "\
-┌──────────────────────────────────────────┐
-│FPS       60  TICKS   8040  DROPPED      3│
-│G      0.016  LOCK      27  PERIOD 3932160│
-│DAS     100%  BAG      TSZ  INPUT enhanced│
-└──────────────────────────────────────────┘",
+▗▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖
+▐FPS       60  TICKS   8040  DROPPED      3▌
+▐G      0.016  LOCK      27  PERIOD 3932160▌
+▐DAS     100%  BAG      TSZ  INPUT enhanced▌
+▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▘",
         );
         for row in strip {
             assert_eq!(row.chars().count(), SCREEN_WIDTH as usize);
