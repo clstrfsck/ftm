@@ -1,9 +1,5 @@
 # Falling Tetromino Manager
 
-Falling Tetromino Manager (FTM) is an enterprise-grade solution for the
-real-time management, rotation, and horizontal alignment of descending
-tetromino assets.
-
 > Falling Tetromino Manager (FTM) is a best-in-class, terminal-native solution
 > for the end-to-end lifecycle management of descending tetromino assets.
 > Leveraging a lightweight TUI architecture, FTM empowers users to orchestrate
@@ -29,6 +25,10 @@ game.
 
 <p align="center">
   <img src="ftm.png" alt="FTM in attract mode" />
+</p>
+
+<p align="center">
+  <img src="ftm-game.png" alt="FTM in game mode" />
 </p>
 
 ```
