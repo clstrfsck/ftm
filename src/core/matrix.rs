@@ -110,7 +110,6 @@ impl Matrix {
     }
 
     /// Fill a single cell. Out-of-bounds writes are ignored.
-    // TODO(stage 4): locking a piece and clearing lines (§9.12) build on this.
     pub fn set(&mut self, x: i32, y: i32, kind: Option<PieceKind>) {
         if Self::in_bounds(x, y) {
             self.rows[y as usize][x as usize] = kind;
