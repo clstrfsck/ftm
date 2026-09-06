@@ -984,7 +984,10 @@ Alternative rules selectable via `lock_down`:
 
 On lock:
 
-1. Write the piece's minos into the matrix.
+1. Write the piece's minos into the matrix, and clear the hold lock-out (§9.7):
+   it ends with the lock itself, so the piece spawned in step 9 may be held.
+   Clearing it at the spawn instead would let a piece taken out of hold be held
+   straight back, twice in one turn.
 2. Determine the T-spin status of the lock (§9.13) **before** clearing rows.
 3. Find all rows in `0..=39` that are completely filled.
 4. Award score (§9.14) using the number of complete rows and the T-spin status.
@@ -996,7 +999,7 @@ On lock:
    top of the buffer zone.
 7. Update line count and level (§9.9).
 8. Wait `entry_delay_ms` (ARE, default 0).
-9. Clear the hold lock-out and spawn the next piece (§9.4).
+9. Spawn the next piece (§9.4).
 
 ### 9.13 T-spin detection
 
@@ -1799,6 +1802,21 @@ the core is called sixty times a second and must not allocate in order to do
 nothing (§12.8). Four is more distinct actions than a player can produce in
 16 ms, and a fifth in one tick is dropped. It is a handful of lines in the core
 rather than a dependency, because §3's table is exhaustive.
+
+A tick's actions are applied **in the order the shell delivered them**, each to
+the state the one before it left. A rotation followed by a hard drop drops the
+rotated piece, and is still a T-spin (§9.13); a hold followed by a hard drop
+drops the piece the hold spawned. One tick carrying both edges therefore agrees
+with the two ticks the same edges would produce a frame apart — which is what
+stops §15.2 step 2's drained event queue from changing the game depending on how
+the edges happened to bundle.
+
+An action that ends the falling piece ends the tick with it: once a hard drop has
+locked, or a hold's spawn has ended the game by Block Out (§9.16), the tick's
+remaining actions — and its movement and gravity — are **discarded**. Without
+that, a hard drop sharing a tick with the hold that topped the game out would
+lock the final piece into the matrix and end the game a second time, and §9.16
+requires that piece to stay drawn where it did not fit.
 
 A fixed timestep is required, not merely tidy. With a variable `Duration` the
 gravity accumulator (§9.9) and the lock-delay timer (§9.11) depend on frame
