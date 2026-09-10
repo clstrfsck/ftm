@@ -14,7 +14,7 @@
 
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ftm::shell::keys::{Key, KeyEvent};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
@@ -164,14 +164,14 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
         ));
     }
     let mut config = ConfigFile::default();
-    let press = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    let press = |key| KeyEvent::press(key);
     let now = Instant::now();
     // The menu, then each of §13.5's three sub-screens over it.
-    let opened: [&[KeyCode]; 4] = [
+    let opened: [&[Key]; 4] = [
         &[],
-        &[KeyCode::Down, KeyCode::Enter],
-        &[KeyCode::Down, KeyCode::Down, KeyCode::Enter],
-        &[KeyCode::Down, KeyCode::Down, KeyCode::Down, KeyCode::Enter],
+        &[Key::Down, Key::Enter],
+        &[Key::Down, Key::Down, Key::Enter],
+        &[Key::Down, Key::Down, Key::Down, Key::Enter],
     ];
     for keys in opened {
         let mut state = Attract::new(now);

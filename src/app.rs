@@ -16,13 +16,15 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event};
 use ratatui::layout::Size;
 
 use crate::config::{self, ConfigFile, DisplaySettings, MAX_CATCH_UP_TICKS, Startup, TICK};
 use crate::core::{Action, Actions, Game, GameEvent, GameView, Shift, TickInput};
 use crate::highscore::{self, Entry};
 use crate::input::{Bindings, InputMode, InputState};
+use crate::shell::keys::{Key, KeyEvent, KeyKind};
+use crate::tui::keys::neutral;
 use crate::ui::attract::{self, Attract};
 use crate::ui::overlays::{NameEntry, PauseChoice, Setting};
 use crate::ui::theme::{Glyphs, Theme};
@@ -411,7 +413,7 @@ impl App {
             }
             // §9.16: any key, once the box has been up for a second.
             Phase::GameOver { since } => {
-                let pressed = event.kind != KeyEventKind::Release;
+                let pressed = event.kind != KeyKind::Release;
                 if pressed && now.saturating_duration_since(since) >= GAME_OVER_LOCKOUT {
                     return self.finish(session);
                 }
@@ -425,7 +427,7 @@ impl App {
         // §10.1: the restart key is held rather than pressed, so it is taken
         // off the edge-triggered path before `InputState` sees it.
         if self.bindings.action_of(event) == Some(Action::Restart) {
-            if event.kind == KeyEventKind::Release {
+            if event.kind == KeyKind::Release {
                 self.restart.release();
             } else {
                 self.restart.press(now);
@@ -489,26 +491,26 @@ impl App {
     /// The write happens here, on the way out, which is what §6.1 means by
     /// "written back to the config file immediately on leaving that screen".
     fn options_key(&mut self, session: &mut Session, event: &KeyEvent, selected: usize) -> Flow {
-        if event.kind == KeyEventKind::Release {
+        if event.kind == KeyKind::Release {
             return Flow::Continue;
         }
         let items = Setting::ALL.len();
-        match event.code {
-            KeyCode::Up => {
+        match event.key {
+            Key::Up => {
                 self.phase = Phase::Options {
                     selected: (selected + items - 1) % items,
                 }
             }
-            KeyCode::Down => {
+            Key::Down => {
                 self.phase = Phase::Options {
                     selected: (selected + 1) % items,
                 }
             }
-            KeyCode::Left | KeyCode::Right => {
-                Setting::ALL[selected].step(&mut session.config, event.code == KeyCode::Right);
+            Key::Left | Key::Right => {
+                Setting::ALL[selected].step(&mut session.config, event.key == Key::Right);
                 session.generation += 1;
             }
-            KeyCode::Esc | KeyCode::Enter => {
+            Key::Esc | Key::Enter => {
                 session.save_config();
                 self.phase = Phase::Paused {
                     selected: PauseChoice::Options.index(),
@@ -525,30 +527,30 @@ impl App {
     /// The rank the box is showing is not read here: it was decided when the
     /// game ended, and `Table::insert` settles the entry's place for itself.
     fn name_key(&mut self, session: &mut Session, event: &KeyEvent) -> Flow {
-        if event.kind == KeyEventKind::Release {
+        if event.kind == KeyKind::Release {
             return Flow::Continue;
         }
         // §16: Ctrl-C is a key event in raw mode, and it means leave — not a
         // `c` in the name field.
-        if event.modifiers.contains(KeyModifiers::CONTROL) {
-            if event.code == KeyCode::Char('c') {
+        if event.mods.ctrl {
+            if event.is_ctrl_c() {
                 return Flow::Leave(Next::Attract);
             }
             return Flow::Continue;
         }
-        match event.code {
-            KeyCode::Char(c) => {
+        match event.key {
+            Key::Char(c) => {
                 self.name.push(c);
             }
-            KeyCode::Backspace => {
+            Key::Backspace => {
                 self.name.backspace();
             }
-            KeyCode::Enter => {
+            Key::Enter => {
                 // An empty name becomes ANON, which `Entry::of` does for us.
                 session.record(self.name.as_str(), &self.game.view());
                 return Flow::Leave(Next::Attract);
             }
-            KeyCode::Esc => return Flow::Leave(Next::Attract),
+            Key::Esc => return Flow::Leave(Next::Attract),
             _ => {}
         }
         Flow::Continue
@@ -714,14 +716,14 @@ impl Fps {
 
 /// §10.1's fixed overlay navigation, which is deliberately *not* rebindable.
 fn menu_action(event: &KeyEvent) -> Option<Action> {
-    if event.kind == KeyEventKind::Release {
+    if event.kind == KeyKind::Release {
         return None;
     }
-    Some(match event.code {
-        KeyCode::Up => Action::MenuUp,
-        KeyCode::Down => Action::MenuDown,
-        KeyCode::Enter | KeyCode::Char(' ') => Action::MenuSelect,
-        KeyCode::Esc => Action::MenuBack,
+    Some(match event.key {
+        Key::Up => Action::MenuUp,
+        Key::Down => Action::MenuDown,
+        Key::Enter | Key::Char(' ') => Action::MenuSelect,
+        Key::Esc => Action::MenuBack,
         _ => return None,
     })
 }
@@ -784,7 +786,12 @@ fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
         // would leave fast typing lagging behind.
         while event::poll(Duration::ZERO)? {
             match event::read()? {
+                // §10.1's vocabulary is the shell's; crossterm's stops here
+                // (`FRONTEND.md` F5).
                 Event::Key(key) => {
+                    let Some(key) = neutral(key) else {
+                        continue;
+                    };
                     dirty = true;
                     match state.key(&key, &mut session.config, now) {
                         attract::Outcome::Stay => {}
@@ -887,8 +894,12 @@ fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
         let mut leaving = None;
         while event::poll(Duration::ZERO)? {
             match event::read()? {
+                // §10.1's vocabulary is the shell's; crossterm's stops here
+                // (`FRONTEND.md` F5).
                 Event::Key(key) => {
-                    if let Flow::Leave(next) = app.key(session, &key, now) {
+                    if let Some(key) = neutral(key)
+                        && let Flow::Leave(next) = app.key(session, &key, now)
+                    {
                         leaving = Some(next);
                     }
                 }
@@ -1052,8 +1063,8 @@ mod tests {
         (App::new(&session), session)
     }
 
-    fn press(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+    fn press(key: Key) -> KeyEvent {
+        KeyEvent::press(key)
     }
 
     #[test]
@@ -1131,10 +1142,7 @@ mod tests {
         let now = Instant::now();
         assert!(app.phase.running());
 
-        assert_eq!(
-            app.key(&mut session, &press(KeyCode::Esc), now),
-            Flow::Continue
-        );
+        assert_eq!(app.key(&mut session, &press(Key::Esc), now), Flow::Continue);
         assert_eq!(app.phase, Phase::Paused { selected: 0 });
         assert!(!app.phase.running(), "the clock is stopped");
 
@@ -1143,10 +1151,7 @@ mod tests {
         app.advance(60, now);
         assert_eq!(app.view(), before, "a paused game does not tick");
 
-        assert_eq!(
-            app.key(&mut session, &press(KeyCode::Esc), now),
-            Flow::Continue
-        );
+        assert_eq!(app.key(&mut session, &press(Key::Esc), now), Flow::Continue);
         assert_eq!(app.phase, Phase::Resuming { since: now });
         assert!(!app.phase.running(), "nor does it during the countdown");
         assert_eq!(app.overlay(now), Overlay::Resuming { count: 3 });
@@ -1165,10 +1170,10 @@ mod tests {
         let (mut app, mut session) = app();
         let now = Instant::now();
         app.pause(0);
-        app.key(&mut session, &press(KeyCode::Down), now);
+        app.key(&mut session, &press(Key::Down), now);
         assert_eq!(app.phase, Phase::Paused { selected: 1 });
-        app.key(&mut session, &press(KeyCode::Up), now);
-        app.key(&mut session, &press(KeyCode::Up), now);
+        app.key(&mut session, &press(Key::Up), now);
+        app.key(&mut session, &press(Key::Up), now);
         assert_eq!(
             app.phase,
             Phase::Paused {
@@ -1177,13 +1182,13 @@ mod tests {
             "up from the top wraps to Quit to menu",
         );
         assert_eq!(
-            app.key(&mut session, &press(KeyCode::Enter), now),
+            app.key(&mut session, &press(Key::Enter), now),
             Flow::Leave(Next::Attract)
         );
 
         app.pause(0);
         assert_eq!(
-            app.key(&mut session, &press(KeyCode::Enter), now),
+            app.key(&mut session, &press(Key::Enter), now),
             Flow::Continue
         );
         assert!(
@@ -1198,9 +1203,9 @@ mod tests {
         // be waiting to fire when the countdown ends.
         let (mut app, mut session) = app();
         let now = Instant::now();
-        app.key(&mut session, &press(KeyCode::Up), now);
+        app.key(&mut session, &press(Key::Up), now);
         assert_ne!(app.pending.actions, Actions::default());
-        app.key(&mut session, &press(KeyCode::Esc), now);
+        app.key(&mut session, &press(Key::Esc), now);
         assert_eq!(app.pending.actions, Actions::default());
     }
 
@@ -1212,13 +1217,13 @@ mod tests {
         let now = Instant::now();
         app.phase = Phase::GameOver { since: now };
         assert_eq!(
-            app.key(&mut session, &press(KeyCode::Char('x')), now),
+            app.key(&mut session, &press(Key::Char('x')), now),
             Flow::Continue
         );
         assert_eq!(
             app.key(
                 &mut session,
-                &press(KeyCode::Char('x')),
+                &press(Key::Char('x')),
                 now + Duration::from_millis(999)
             ),
             Flow::Continue,
@@ -1226,7 +1231,7 @@ mod tests {
         assert_eq!(
             app.key(
                 &mut session,
-                &press(KeyCode::Char('x')),
+                &press(Key::Char('x')),
                 now + GAME_OVER_LOCKOUT
             ),
             Flow::Leave(Next::Attract),
@@ -1257,14 +1262,14 @@ mod tests {
         let now = Instant::now();
         app.pause(0);
         for _ in 0..2 {
-            app.key(&mut session, &press(KeyCode::Down), now);
+            app.key(&mut session, &press(Key::Down), now);
         }
         assert_eq!(
             PauseChoice::ALL[2],
             PauseChoice::Options,
             "third item down (§12.6)",
         );
-        app.key(&mut session, &press(KeyCode::Enter), now);
+        app.key(&mut session, &press(Key::Enter), now);
         assert_eq!(app.phase, Phase::Options { selected: 0 });
     }
 
@@ -1283,20 +1288,17 @@ mod tests {
         let now = Instant::now();
         app.phase = Phase::Options { selected: 0 };
 
-        app.key(&mut session, &press(KeyCode::Right), now);
+        app.key(&mut session, &press(Key::Right), now);
         assert_eq!(session.config.gameplay.preview_count, 6);
-        app.key(&mut session, &press(KeyCode::Down), now);
-        app.key(&mut session, &press(KeyCode::Left), now);
+        app.key(&mut session, &press(Key::Down), now);
+        app.key(&mut session, &press(Key::Left), now);
         assert_eq!(
             session.config.gameplay.start_level, 15,
             "the second row, wrapping off the bottom",
         );
         assert!(!path.exists(), "nothing is written while the panel is up");
 
-        assert_eq!(
-            app.key(&mut session, &press(KeyCode::Esc), now),
-            Flow::Continue
-        );
+        assert_eq!(app.key(&mut session, &press(Key::Esc), now), Flow::Continue);
         assert_eq!(
             app.phase,
             Phase::Paused {
@@ -1329,7 +1331,7 @@ mod tests {
         };
         let mut app = App::new(&session);
         app.phase = Phase::Options { selected: 0 };
-        app.key(&mut session, &press(KeyCode::Esc), Instant::now());
+        app.key(&mut session, &press(Key::Esc), Instant::now());
         assert!(!session.saved);
         assert_eq!(session.warnings.len(), 1, "{:?}", session.warnings);
         assert_eq!(
@@ -1349,17 +1351,17 @@ mod tests {
         let now = Instant::now();
         app.phase = Phase::Options { selected: 0 };
         let before = session.generation;
-        app.key(&mut session, &press(KeyCode::Down), now);
+        app.key(&mut session, &press(Key::Down), now);
         assert_eq!(
             session.generation, before,
             "moving the cursor changes the overlay"
         );
-        app.key(&mut session, &press(KeyCode::Right), now);
+        app.key(&mut session, &press(Key::Right), now);
         assert_ne!(session.generation, before, "changing a value does not");
     }
 
-    fn release(code: KeyCode) -> KeyEvent {
-        KeyEvent::new_with_kind(code, KeyModifiers::NONE, KeyEventKind::Release)
+    fn release(key: Key) -> KeyEvent {
+        KeyEvent::release(key)
     }
 
     /// Play one hard drop, so the run has a score worth recording (§9.14).
@@ -1383,7 +1385,7 @@ mod tests {
         assert_eq!(
             app.key(
                 &mut session,
-                &press(KeyCode::Char('x')),
+                &press(Key::Char('x')),
                 now + GAME_OVER_LOCKOUT
             ),
             Flow::Continue,
@@ -1410,7 +1412,7 @@ mod tests {
         assert_eq!(
             app.key(
                 &mut session,
-                &press(KeyCode::Char('x')),
+                &press(Key::Char('x')),
                 now + GAME_OVER_LOCKOUT
             ),
             Flow::Leave(Next::Attract),
@@ -1430,7 +1432,7 @@ mod tests {
         assert_eq!(
             app.key(
                 &mut session,
-                &press(KeyCode::Char('x')),
+                &press(Key::Char('x')),
                 now + GAME_OVER_LOCKOUT
             ),
             Flow::Leave(Next::Attract),
@@ -1447,13 +1449,13 @@ mod tests {
         app.phase = Phase::NameEntry { rank: 0 };
         // Clear whatever `$USER` pre-filled, then type a name of our own.
         for _ in 0..crate::highscore::NAME_MAX {
-            app.key(&mut session, &press(KeyCode::Backspace), now);
+            app.key(&mut session, &press(Key::Backspace), now);
         }
         for c in "MS".chars() {
-            app.key(&mut session, &press(KeyCode::Char(c)), now);
+            app.key(&mut session, &press(Key::Char(c)), now);
         }
         assert_eq!(
-            app.key(&mut session, &press(KeyCode::Enter), now),
+            app.key(&mut session, &press(Key::Enter), now),
             Flow::Leave(Next::Attract),
         );
         assert_eq!(session.scores.entries.len(), 1);
@@ -1465,7 +1467,7 @@ mod tests {
         scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };
         assert_eq!(
-            app.key(&mut session, &press(KeyCode::Esc), now),
+            app.key(&mut session, &press(Key::Esc), now),
             Flow::Leave(Next::Attract),
         );
         assert_eq!(session.scores.entries.len(), 1, "nothing was added");
@@ -1480,9 +1482,9 @@ mod tests {
         scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };
         for _ in 0..crate::highscore::NAME_MAX {
-            app.key(&mut session, &press(KeyCode::Backspace), now);
+            app.key(&mut session, &press(Key::Backspace), now);
         }
-        app.key(&mut session, &press(KeyCode::Enter), now);
+        app.key(&mut session, &press(Key::Enter), now);
         assert_eq!(session.scores.entries[0].name, crate::highscore::ANONYMOUS);
     }
 
@@ -1494,14 +1496,14 @@ mod tests {
         let now = Instant::now();
         assert_eq!(app.restart.progress(now), None, "the key is up");
 
-        app.key(&mut session, &press(KeyCode::Char('r')), now);
+        app.key(&mut session, &press(Key::Char('r')), now);
         assert_eq!(app.restart.progress(now), Some(0));
         assert_eq!(app.restart.progress(now + RESTART_HOLD / 2), Some(50));
         assert!(!app.restart_due(now + RESTART_HOLD - Duration::from_millis(1)));
         assert!(app.restart_due(now + RESTART_HOLD));
 
         // Letting go cancels it (§10.3 step 4's rule, applied to a hold).
-        app.key(&mut session, &release(KeyCode::Char('r')), now);
+        app.key(&mut session, &release(Key::Char('r')), now);
         assert_eq!(app.restart.progress(now), None);
         assert!(!app.restart_due(now + RESTART_HOLD));
     }
@@ -1517,7 +1519,7 @@ mod tests {
         };
         let mut app = App::new(&session);
         let now = Instant::now();
-        app.key(&mut session, &press(KeyCode::Char('r')), now);
+        app.key(&mut session, &press(Key::Char('r')), now);
         assert!(
             RESTART_QUIET > crate::input::HOLD_TIMEOUT,
             "a soft drop's 90 ms would drop the hold before the first repeat",
@@ -1529,11 +1531,11 @@ mod tests {
         // A repeat before the window is out keeps the hold going, and the hold
         // is timed from the first press rather than the last repeat.
         let mut app = App::new(&session);
-        app.key(&mut session, &press(KeyCode::Char('r')), now);
+        app.key(&mut session, &press(Key::Char('r')), now);
         for step in 1..=3u32 {
             let at = now + RESTART_QUIET / 2 * step;
             assert!(app.restart_due(at) == (at >= now + RESTART_HOLD), "{step}");
-            app.key(&mut session, &press(KeyCode::Char('r')), at);
+            app.key(&mut session, &press(Key::Char('r')), at);
         }
     }
 
@@ -1542,8 +1544,8 @@ mod tests {
         // §9.17 stops the timers, and the restart hold is one of them.
         let (mut app, mut session) = app();
         let now = Instant::now();
-        app.key(&mut session, &press(KeyCode::Char('r')), now);
-        app.key(&mut session, &press(KeyCode::Esc), now);
+        app.key(&mut session, &press(Key::Char('r')), now);
+        app.key(&mut session, &press(Key::Esc), now);
         assert_eq!(app.restart.progress(now), None);
         assert!(!app.restart_due(now + RESTART_HOLD));
     }
@@ -1557,16 +1559,16 @@ mod tests {
         let now = Instant::now();
         app.pause(0);
         for _ in 0..PauseChoice::Controls.index() {
-            app.key(&mut session, &press(KeyCode::Down), now);
+            app.key(&mut session, &press(Key::Down), now);
         }
         assert_eq!(
-            app.key(&mut session, &press(KeyCode::Enter), now),
+            app.key(&mut session, &press(Key::Enter), now),
             Flow::Continue,
         );
         assert_eq!(app.phase, Phase::Controls);
         assert_eq!(app.overlay(now), Overlay::Controls);
 
-        app.key(&mut session, &press(KeyCode::Esc), now);
+        app.key(&mut session, &press(Key::Esc), now);
         assert_eq!(
             app.phase,
             Phase::Paused {
@@ -1583,15 +1585,15 @@ mod tests {
         let (mut app, mut session) = app();
         let now = Instant::now();
         assert_eq!(
-            app.key(&mut session, &press(KeyCode::Char('q')), now),
+            app.key(&mut session, &press(Key::Char('q')), now),
             Flow::Leave(Next::Attract),
         );
 
         app.pause(0);
-        app.key(&mut session, &press(KeyCode::Down), now);
+        app.key(&mut session, &press(Key::Down), now);
         assert_eq!(PauseChoice::ALL[1], PauseChoice::Restart);
         assert_eq!(
-            app.key(&mut session, &press(KeyCode::Enter), now),
+            app.key(&mut session, &press(Key::Enter), now),
             Flow::Leave(Next::Play),
         );
     }
@@ -1629,7 +1631,7 @@ mod tests {
         let mut app = App::new(&session);
         scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };
-        app.key(&mut session, &press(KeyCode::Enter), now);
+        app.key(&mut session, &press(Key::Enter), now);
         assert_eq!(session.scores.entries.len(), 1, "the table still took it");
         assert_eq!(session.warnings.len(), 1, "{:?}", session.warnings);
     }

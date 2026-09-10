@@ -562,8 +562,10 @@ Behind the wordmark and menu, a slow ambient animation runs at 10 fps:
 
 After 60 seconds with no key press on the attract screen, the wordmark's
 per-letter colours begin a slow cycle (one step per second) to show the program
-is alive. Any key stops it. (A self-playing demo is deliberately **not** in scope
-for v1.0; see §18.)
+is alive. Any key stops it — any key the game can *name*, that is: a key outside
+§10.1's vocabulary, such as `Insert` or a media key, is dropped by the front-end's
+adapter (`FRONTEND.md` F5) and never reaches the attract screen at all. (A
+self-playing demo is deliberately **not** in scope for v1.0; see §18.)
 
 ---
 

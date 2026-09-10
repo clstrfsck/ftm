@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [PLAN.md](PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** proposed; no stage started.
+**Status:** G0 and G1 complete; G2 next.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -444,11 +444,14 @@ name grammar is unchanged, so no config file's `[keys]` table changes meaning.
 `NOT_A_GAME_KEY` modifier test becomes a method on `Mods`. §16's Ctrl-C check is
 unchanged in behaviour.
 
-`src/tui/keys.rs`, new: `From<crossterm::event::KeyEvent> for shell::keys::KeyEvent`.
+`src/tui/keys.rs`, new: `neutral(crossterm::event::KeyEvent) -> Option<shell::keys::KeyEvent>`.
 `KeyEventKind::{Press, Repeat, Release}` map one to one. Any crossterm `KeyCode`
 with no neutral equivalent (`Insert`, `Home`, media keys) maps to `None` — the
 adapter returns `Option<KeyEvent>` and the loop drops what it cannot express,
-which is what the bindings table does with those keys today anyway.
+which is what the bindings table does with those keys today anyway. It is a free
+function and not a `From` impl because the conversion is partial and the orphan
+rule refuses `impl From<crossterm::event::KeyEvent> for Option<KeyEvent>`:
+`Option<Local>` is not itself a local type, `Option` not being fundamental.
 
 `app.rs` and `ui/attract.rs` are retyped to take neutral events; the TUI loop
 converts at the point it reads from crossterm, and nowhere else.
@@ -478,6 +481,14 @@ counts — and the rule is written into `FRONTEND.md` here so it stays true.
 - New: every §10.1 key name round-trips `is_key_name` → `parse_key` → adapter.
 - New: the crossterm adapter maps each of §10.1's names from the `KeyCode` a real
   terminal sends.
+
+### The spec amendment this stage forced
+
+§13.6's "Any key stops it" was literally true while every crossterm key event
+reached `Attract::key`. It is not, once the adapter drops what §10.1 cannot
+name: an `Insert` press no longer stops the idle colour cycle. `TUI.md` §13.6
+says so now. Nothing else in the game ever saw those keys — the bindings table
+has no name for any of them.
 
 ### Done when
 
@@ -1462,7 +1473,7 @@ for no benefit.
 | I1–I3, §19.4 canary | — | Untouched, on the default feature set. |
 | I4 (`render_sizes.rs`) | G2 | Gated on `feature = "tui"`. |
 | §12.4 mock-up test | G2 | Moves to `tui/playfield.rs`. Still the TUI's acceptance criterion. |
-| Key-name round trip | G1 | New. Every §10.1 name, through both adapters. |
+| Key-name round trip | G1 | New. Every §10.1 name, through each front-end's adapter — crossterm's at G1, egui's when G5 adds it. |
 | `cargo check --no-default-features` | G2 | New. The front-end boundary, held by the compiler. |
 | `Stamp` arithmetic, `Storage` failure paths | G3 | New. §16's rules through the trait. |
 | `--target wasm32-unknown-unknown` | G3 | New. **The platform boundary, held by the compiler.** The highest-value step in this plan per second of CI time. |

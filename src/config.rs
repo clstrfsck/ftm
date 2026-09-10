@@ -23,7 +23,7 @@ use clap::{Parser, ValueEnum};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
-use crate::input::is_key_name;
+use crate::shell::keys::is_key_name;
 
 /// Ticks per second. The core advances only in whole ticks (§15.1).
 pub const TICK_HZ: u64 = 60;

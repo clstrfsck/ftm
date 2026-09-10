@@ -1,4 +1,9 @@
-//! Key decoding, action mapping and DAS/ARR (§10).
+//! Action mapping and DAS/ARR (§10).
+//!
+//! Keys arrive as `FRONTEND.md` F5's neutral [`KeyEvent`], never as a
+//! toolkit's own type: §10.1's names and the `[keys]` table they are written in
+//! are shared property, so `shell::keys` owns the vocabulary and each
+//! front-end adapts its keyboard into it.
 //!
 //! DAS/ARR are resolved here in the shell, never in the core (§10.3): the core
 //! is told only *which* direction and *how many* whole cells to shift this
@@ -11,10 +16,9 @@
 
 use std::time::Duration;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-
 use crate::config::{KeyBindings, RulesConfig, TICK};
 use crate::core::{Action, Shift, VIEW_WIDTH};
+use crate::shell::keys::{Key, KeyEvent, KeyKind, parse_key};
 
 /// How long a key is considered held after its last event in legacy mode
 /// (§8.2). Longer than any common terminal auto-repeat interval (30-50 ms) and
@@ -70,7 +74,7 @@ enum Bound {
 /// is a key this table does not contain.
 #[derive(Clone, Debug, Default)]
 pub struct Bindings {
-    table: Vec<(KeyCode, Bound)>,
+    table: Vec<(Key, Bound)>,
 }
 
 impl Bindings {
@@ -82,8 +86,8 @@ impl Bindings {
         let mut table = Vec::new();
         let mut bind = |names: &[String], bound: Bound| {
             for name in names {
-                if let Some(code) = parse_key(name) {
-                    table.push((code, bound));
+                if let Some(key) = parse_key(name) {
+                    table.push((key, bound));
                 }
             }
         };
@@ -123,56 +127,14 @@ impl Bindings {
     /// A key carrying Ctrl, Alt or Super is not a game binding: the §10.1 names
     /// are all bare keys, and Ctrl-C in particular means something else (§16).
     fn get(&self, event: &KeyEvent) -> Option<Bound> {
-        const NOT_A_GAME_KEY: KeyModifiers = KeyModifiers::CONTROL
-            .union(KeyModifiers::ALT)
-            .union(KeyModifiers::SUPER);
-        if event.modifiers.intersects(NOT_A_GAME_KEY) {
+        if event.mods.not_a_game_key() {
             return None;
         }
         self.table
             .iter()
-            .find(|(code, _)| *code == event.code)
+            .find(|(key, _)| *key == event.key)
             .map(|(_, bound)| *bound)
     }
-}
-
-/// Whether `name` is a key name §10.1 recognises.
-///
-/// The grammar lives here, with the parser that owns it, and the config loader
-/// asks rather than keeping a second copy that could drift (§6.2).
-pub fn is_key_name(name: &str) -> bool {
-    parse_key(name).is_some()
-}
-
-/// A key name from §10.1 as a `KeyCode`.
-///
-/// `Left`, `Right`, `Up`, `Down`, `Space`, `Enter`, `Tab`, `Esc`, `Backspace`,
-/// `F1`-`F12`, and single characters, case-sensitive.
-fn parse_key(name: &str) -> Option<KeyCode> {
-    Some(match name {
-        "Left" => KeyCode::Left,
-        "Right" => KeyCode::Right,
-        "Up" => KeyCode::Up,
-        "Down" => KeyCode::Down,
-        "Space" => KeyCode::Char(' '),
-        "Enter" => KeyCode::Enter,
-        "Tab" => KeyCode::Tab,
-        "Esc" => KeyCode::Esc,
-        "Backspace" => KeyCode::Backspace,
-        _ => {
-            if let Some(number) = name.strip_prefix('F').and_then(|n| n.parse::<u8>().ok()) {
-                if (1..=12).contains(&number) {
-                    return Some(KeyCode::F(number));
-                }
-                return None;
-            }
-            let mut chars = name.chars();
-            match (chars.next(), chars.next()) {
-                (Some(c), None) => KeyCode::Char(c),
-                _ => return None,
-            }
-        }
-    })
 }
 
 /// One key's held state, and the DAS/ARR timers that go with it (§10.3).
@@ -180,7 +142,7 @@ fn parse_key(name: &str) -> Option<KeyCode> {
 /// `Default` is the released state, which is also §10.3 step 4: releasing
 /// cancels both timers.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Key {
+struct KeyTimer {
     held: bool,
     /// Time held since the press that started it — the DAS charge.
     elapsed: Duration,
@@ -194,7 +156,7 @@ struct Key {
     quiet: Duration,
 }
 
-impl Key {
+impl KeyTimer {
     /// A press, or in legacy mode a terminal auto-repeat.
     ///
     /// Only the first press starts the timers: an auto-repeat must refresh the
@@ -262,9 +224,9 @@ pub struct InputState {
     /// with the same `[timing]` table charge DAS at the same rate.
     das: Duration,
     arr: Duration,
-    left: Key,
-    right: Key,
-    soft_drop: Key,
+    left: KeyTimer,
+    right: KeyTimer,
+    soft_drop: KeyTimer,
     /// The most recently pressed direction, which wins while both are held
     /// (§10.3).
     priority: Option<Shift>,
@@ -276,9 +238,9 @@ impl InputState {
             mode,
             das: TICK * rules.das_ticks,
             arr: TICK * rules.arr_ticks,
-            left: Key::default(),
-            right: Key::default(),
-            soft_drop: Key::default(),
+            left: KeyTimer::default(),
+            right: KeyTimer::default(),
+            soft_drop: KeyTimer::default(),
             priority: None,
         }
     }
@@ -295,7 +257,7 @@ impl InputState {
     /// Fold one key event into the state, reporting the edge-triggered action
     /// it produced.
     pub fn key(&mut self, event: &KeyEvent, bindings: &Bindings) -> Option<Action> {
-        if event.kind == KeyEventKind::Release {
+        if event.kind == KeyKind::Release {
             // Only held keys care about a release; an action already fired on
             // its press.
             if let Some(Bound::Held(key)) = bindings.get(event) {
@@ -306,10 +268,10 @@ impl InputState {
         // §16: SIGINT is not trapped — raw mode delivers it as a key event, and
         // it means quit. This is checked before the bindings because Ctrl-C
         // would otherwise land on whatever `c` is bound to.
-        if event.modifiers.contains(KeyModifiers::CONTROL) && event.code == KeyCode::Char('c') {
+        if event.is_ctrl_c() {
             return Some(Action::Quit);
         }
-        if event.kind == KeyEventKind::Repeat && self.mode == InputMode::Enhanced {
+        if event.kind == KeyKind::Repeat && self.mode == InputMode::Enhanced {
             // §8.2: with true release events, the terminal's auto-repeat is
             // noise — DAS is driven by the clock alone.
             return None;
@@ -333,7 +295,7 @@ impl InputState {
     /// The overlays of §12.6 need to recognise the pause key without letting a
     /// stray direction charge DAS behind a menu (§10.4).
     pub fn binding(&self, event: &KeyEvent, bindings: &Bindings) -> Option<Action> {
-        if event.kind == KeyEventKind::Release {
+        if event.kind == KeyKind::Release {
             return None;
         }
         match bindings.get(event)? {
@@ -348,9 +310,9 @@ impl InputState {
     /// held until it falls quiet (§8.2), and `expire` only runs while the game
     /// does.
     pub fn release_all(&mut self) {
-        self.left = Key::default();
-        self.right = Key::default();
-        self.soft_drop = Key::default();
+        self.left = KeyTimer::default();
+        self.right = KeyTimer::default();
+        self.soft_drop = KeyTimer::default();
         self.priority = None;
     }
 
@@ -400,7 +362,7 @@ impl InputState {
         }
     }
 
-    fn key_mut(&mut self, key: HeldKey) -> &mut Key {
+    fn key_mut(&mut self, key: HeldKey) -> &mut KeyTimer {
         match key {
             HeldKey::Left => &mut self.left,
             HeldKey::Right => &mut self.right,
@@ -421,6 +383,7 @@ const fn shift_of(key: HeldKey) -> Option<Shift> {
 mod tests {
     use super::*;
     use crate::config::{GameplaySettings, KeyBindings, TimingSettings};
+    use crate::shell::keys::Mods;
 
     /// The default rules, so `das_ticks = 10` and `arr_ticks = 2` (§6.6).
     fn rules() -> RulesConfig {
@@ -433,12 +396,12 @@ mod tests {
         (InputState::new(&rules, mode), bindings)
     }
 
-    fn press(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, KeyModifiers::NONE)
+    fn press(key: Key) -> KeyEvent {
+        KeyEvent::press(key)
     }
 
-    fn kind(code: KeyCode, kind: KeyEventKind) -> KeyEvent {
-        KeyEvent::new_with_kind(code, KeyModifiers::NONE, kind)
+    fn kind(key: Key, kind: KeyKind) -> KeyEvent {
+        KeyEvent::new(key, Mods::NONE, kind)
     }
 
     /// One frame of exactly one tick, the pacing of §15.2 on an idle machine.
@@ -456,7 +419,7 @@ mod tests {
         // T13, §10.3 steps 1-2. das_ticks = 10, so the charge completes on the
         // tenth frame after the press and the piece does not move before it.
         let (mut input, bindings) = state(InputMode::Enhanced);
-        input.key(&press(KeyCode::Left), &bindings);
+        input.key(&press(Key::Left), &bindings);
         assert_eq!(
             frame(&mut input),
             (Some(Shift::Left), 1),
@@ -470,7 +433,7 @@ mod tests {
         // T13, §10.3 step 3. arr_ticks = 2: a cell on the tick DAS completes,
         // then one every second tick, and never one in between.
         let (mut input, bindings) = state(InputMode::Enhanced);
-        input.key(&press(KeyCode::Right), &bindings);
+        input.key(&press(Key::Right), &bindings);
         assert_eq!(frames(&mut input, 9), vec![1, 0, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(
             frames(&mut input, 8),
@@ -495,7 +458,7 @@ mod tests {
         assert_eq!(rules.arr_ticks, 0, "...and 0 ticks means the wall (§10.3)");
         // A whole-tick ARR is the finest the config can express (§6.6), so the
         // interesting case is proved directly on the timer instead.
-        let mut key = Key::default();
+        let mut key = KeyTimer::default();
         key.press();
         let das = TICK * 10;
         let arr = TICK / 2;
@@ -518,7 +481,7 @@ mod tests {
         assert_eq!(rules.arr_ticks, 0);
         let bindings = Bindings::new(&KeyBindings::default(), &rules);
         let mut input = InputState::new(&rules, InputMode::Enhanced);
-        input.key(&press(KeyCode::Left), &bindings);
+        input.key(&press(Key::Left), &bindings);
         assert_eq!(frames(&mut input, 9), vec![1, 0, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(frame(&mut input).1, 10, "the whole board in one tick");
         assert_eq!(frame(&mut input).1, 10, "and it stays against the wall");
@@ -529,9 +492,9 @@ mod tests {
         // T13, §10.3. Left is fully charged and repeating when right is
         // pressed; right takes over with its own immediate cell.
         let (mut input, bindings) = state(InputMode::Enhanced);
-        input.key(&press(KeyCode::Left), &bindings);
+        input.key(&press(Key::Left), &bindings);
         let _ = frames(&mut input, 12);
-        input.key(&press(KeyCode::Right), &bindings);
+        input.key(&press(Key::Right), &bindings);
         assert_eq!(frame(&mut input), (Some(Shift::Right), 1));
         assert_eq!(frames(&mut input, 4), vec![0; 4], "right is charging DAS");
     }
@@ -542,11 +505,11 @@ mod tests {
         // other key is released while it is still held". Left must resume
         // repeating at once, not serve another full DAS charge.
         let (mut input, bindings) = state(InputMode::Enhanced);
-        input.key(&press(KeyCode::Left), &bindings);
+        input.key(&press(Key::Left), &bindings);
         let _ = frames(&mut input, 12);
-        input.key(&press(KeyCode::Right), &bindings);
+        input.key(&press(Key::Right), &bindings);
         let _ = frames(&mut input, 3);
-        input.key(&kind(KeyCode::Right, KeyEventKind::Release), &bindings);
+        input.key(&kind(Key::Right, KeyKind::Release), &bindings);
 
         let resumed = frames(&mut input, 3);
         assert_eq!(input.active(), Some(Shift::Left));
@@ -561,24 +524,24 @@ mod tests {
         // §10.3 step 4. The next press starts from scratch: one cell, then a
         // full DAS charge.
         let (mut input, bindings) = state(InputMode::Enhanced);
-        input.key(&press(KeyCode::Left), &bindings);
+        input.key(&press(Key::Left), &bindings);
         let _ = frames(&mut input, 12);
-        input.key(&kind(KeyCode::Left, KeyEventKind::Release), &bindings);
+        input.key(&kind(Key::Left, KeyKind::Release), &bindings);
         assert_eq!(frame(&mut input), (None, 0));
-        input.key(&press(KeyCode::Left), &bindings);
+        input.key(&press(Key::Left), &bindings);
         assert_eq!(frames(&mut input, 9), vec![1, 0, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
     fn enhanced_mode_ignores_the_terminals_auto_repeat() {
         // §8.2: with true release events, DAS is driven entirely by the game
-        // clock and `KeyEventKind::Repeat` is discarded — a repeat must not
+        // clock and `KeyKind::Repeat` is discarded — a repeat must not
         // restart the charge or add a cell.
         let (mut input, bindings) = state(InputMode::Enhanced);
-        input.key(&press(KeyCode::Left), &bindings);
+        input.key(&press(Key::Left), &bindings);
         assert_eq!(frame(&mut input).1, 1);
         for _ in 0..8 {
-            input.key(&kind(KeyCode::Left, KeyEventKind::Repeat), &bindings);
+            input.key(&kind(Key::Left, KeyKind::Repeat), &bindings);
             assert_eq!(frame(&mut input).1, 0);
         }
         assert_eq!(frame(&mut input).1, 1, "DAS completed on the clock");
@@ -589,12 +552,12 @@ mod tests {
         // §8.2: no release events, so a key is held from its first press until
         // `hold_timeout` has passed with no further event for it.
         let (mut input, bindings) = state(InputMode::Legacy);
-        input.key(&press(KeyCode::Down), &bindings);
+        input.key(&press(Key::Down), &bindings);
         assert!(input.soft_drop());
         // Auto-repeat at a typical 40 ms keeps it held indefinitely.
         for _ in 0..10 {
             let _ = input.resolve(Duration::from_millis(40));
-            input.key(&press(KeyCode::Down), &bindings);
+            input.key(&press(Key::Down), &bindings);
             assert!(input.soft_drop());
         }
         let _ = input.resolve(HOLD_TIMEOUT);
@@ -609,59 +572,33 @@ mod tests {
         // §8.2: "incoming repeat events only refresh the still-held timestamp".
         // The repeats must not re-arm the immediate cell of §10.3 step 1.
         let (mut input, bindings) = state(InputMode::Legacy);
-        input.key(&press(KeyCode::Left), &bindings);
+        input.key(&press(Key::Left), &bindings);
         let mut cells = vec![frame(&mut input).1];
         for _ in 0..11 {
-            input.key(&press(KeyCode::Left), &bindings);
+            input.key(&press(Key::Left), &bindings);
             cells.push(frame(&mut input).1);
         }
         assert_eq!(cells, vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1]);
     }
 
     #[test]
-    fn the_key_names_of_the_spec_all_parse() {
-        // §10.1's list, exactly.
-        for (name, code) in [
-            ("Left", KeyCode::Left),
-            ("Right", KeyCode::Right),
-            ("Up", KeyCode::Up),
-            ("Down", KeyCode::Down),
-            ("Space", KeyCode::Char(' ')),
-            ("Enter", KeyCode::Enter),
-            ("Tab", KeyCode::Tab),
-            ("Esc", KeyCode::Esc),
-            ("Backspace", KeyCode::Backspace),
-            ("F1", KeyCode::F(1)),
-            ("F12", KeyCode::F(12)),
-            ("z", KeyCode::Char('z')),
-            ("Z", KeyCode::Char('Z')),
-            ("F", KeyCode::Char('F')),
-        ] {
-            assert_eq!(parse_key(name), Some(code), "{name}");
-        }
-        for name in ["", "F0", "F13", "Ctrl", "left", "PageUp"] {
-            assert_eq!(parse_key(name), None, "{name}");
-        }
-    }
-
-    #[test]
     fn the_default_bindings_are_the_ones_in_the_spec() {
         let (mut input, bindings) = state(InputMode::Enhanced);
         for (code, action) in [
-            (KeyCode::Char(' '), Action::HardDrop),
-            (KeyCode::Up, Action::RotateCw),
-            (KeyCode::Char('z'), Action::RotateCcw),
-            (KeyCode::Char('Z'), Action::RotateCcw),
-            (KeyCode::Char('a'), Action::Rotate180),
-            (KeyCode::Char('c'), Action::Hold),
-            (KeyCode::Esc, Action::Pause),
-            (KeyCode::F(1), Action::Pause),
-            (KeyCode::Char('r'), Action::Restart),
-            (KeyCode::Char('q'), Action::Quit),
+            (Key::Char(' '), Action::HardDrop),
+            (Key::Up, Action::RotateCw),
+            (Key::Char('z'), Action::RotateCcw),
+            (Key::Char('Z'), Action::RotateCcw),
+            (Key::Char('a'), Action::Rotate180),
+            (Key::Char('c'), Action::Hold),
+            (Key::Esc, Action::Pause),
+            (Key::F(1), Action::Pause),
+            (Key::Char('r'), Action::Restart),
+            (Key::Char('q'), Action::Quit),
         ] {
             assert_eq!(input.key(&press(code), &bindings), Some(action), "{code:?}");
         }
-        assert_eq!(input.key(&press(KeyCode::Char('x')), &bindings), None);
+        assert_eq!(input.key(&press(Key::Char('x')), &bindings), None);
     }
 
     #[test]
@@ -678,10 +615,10 @@ mod tests {
         );
         let bindings = Bindings::new(&KeyBindings::default(), &rules);
         let mut input = InputState::new(&rules, InputMode::Enhanced);
-        assert_eq!(input.key(&press(KeyCode::Char('c')), &bindings), None);
-        assert_eq!(input.key(&press(KeyCode::Char('a')), &bindings), None);
+        assert_eq!(input.key(&press(Key::Char('c')), &bindings), None);
+        assert_eq!(input.key(&press(Key::Char('a')), &bindings), None);
         assert_eq!(
-            input.key(&press(KeyCode::Up), &bindings),
+            input.key(&press(Key::Up), &bindings),
             Some(Action::RotateCw),
             "the rest of the keyboard is unaffected",
         );
@@ -692,10 +629,10 @@ mod tests {
         // §16: SIGINT is not trapped; raw mode delivers it as a key event. `c`
         // is bound to hold by default, so the check has to come first.
         let (mut input, bindings) = state(InputMode::Enhanced);
-        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        let ctrl_c = KeyEvent::new(Key::Char('c'), Mods::CTRL, KeyKind::Press);
         assert_eq!(input.key(&ctrl_c, &bindings), Some(Action::Quit));
         // Other modified keys are simply not game bindings.
-        let ctrl_left = KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL);
+        let ctrl_left = KeyEvent::new(Key::Left, Mods::CTRL, KeyKind::Press);
         assert_eq!(input.key(&ctrl_left, &bindings), None);
         assert_eq!(frame(&mut input), (None, 0));
     }

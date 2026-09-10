@@ -6,10 +6,15 @@
 //! canary (§19.4) — can drive the core from `tests/` without a terminal.
 //!
 //! The crate is split into a pure `core` (rules, no I/O, no clock — §3.1) and a
-//! shell (`app`, `config`, `input`, `highscore`, `ui`). The shell sees the core
-//! only through `core::GameView` (§12.7) and `core::GameEvent` (§12.8), which
-//! since Stage 12 the compiler enforces: every module inside `core` is
-//! `pub(crate)` and its façade is the whole of its public surface (A10).
+//! shell (`app`, `config`, `input`, `highscore`, `shell`, `ui`). The shell sees
+//! the core only through `core::GameView` (§12.7) and `core::GameEvent`
+//! (§12.8), which since Stage 12 the compiler enforces: every module inside
+//! `core` is `pub(crate)` and its façade is the whole of its public surface
+//! (A10).
+//!
+//! `shell` and `tui` are where `EGUI.md` is taking that split next: what no
+//! front-end owns against what the terminal one does. Stage G1 has moved the
+//! key vocabulary; stage G2 moves the rest.
 
 #![forbid(unsafe_code)]
 
@@ -18,4 +23,6 @@ pub mod config;
 pub mod core;
 pub mod highscore;
 pub mod input;
+pub mod shell;
+pub mod tui;
 pub mod ui;

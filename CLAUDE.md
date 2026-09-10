@@ -8,11 +8,11 @@ documents — see **The four documents** below.
 It is a terminal game today and a single binary today. Both are being widened:
 `EGUI.md` plans a second and third front-end (a native egui window, and the
 same code as wasm in a browser) and anticipates a fourth (Macroquad). None of
-that is built yet — the tree is exactly as Stage 12 left it, and G0 changed no
-code.
+that is built yet. G0 changed no code; G1 has moved the key vocabulary out of
+crossterm's hands and nothing else.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stage G0 complete (documentation only). Start at G1.** All
+stages G0 and G1 complete. Start at G2.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -31,13 +31,16 @@ progress into `Paused` (§8.4).
 and `Game::view()` still the only way to see the result — with `Game::debug()`
 beside it for the strip. The shell is `main.rs` (terminal), `app.rs` (§7's
 state machine and both loops of §15), `config.rs` (§6), `highscore.rs` (§14),
-`input.rs` (§10) and `ui/` (§12, §13). T1-T17 all pass, plus I1-I4, and the
-batch-invariance canary is in CI.
+`input.rs` (§10) and `ui/` (§12, §13), plus the two modules G1 opened:
+`shell/keys.rs` (F5's neutral `Key`/`KeyEvent` and §10.1's name grammar) and
+`tui/keys.rs` (the crossterm adapter). G2 moves the rest of the shell in
+beside them. T1-T17 all pass, plus I1-I4, and the batch-invariance canary is
+in CI.
 
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
-Start at G0. §18 remains out of scope and §19 remains a list of constraints to
+Start at G2. §18 remains out of scope and §19 remains a list of constraints to
 honour rather than a work item — see **Scope discipline** below.
 
 ## The §17.3 sign-off
@@ -242,6 +245,19 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   `theme.rs`** — `Colour::rgb` is still §9.2, which is what a §19 client is
   handed — and it is the *base* the §12.3 dimming scale runs from, so a piece
   and its ghost are one hue.
+
+- **Keys reach the shell neutral, and only the adapter knows otherwise**
+  (`FRONTEND.md` F5). `shell::keys::{Key, Mods, KeyKind, KeyEvent}` is the
+  vocabulary above the front-end, and §10.1's name grammar — `parse_key`,
+  `is_key_name` — lives with it, because the `[keys]` table a player writes is
+  shared property. `tui/keys.rs` is the only module in the terminal front-end
+  that may name a crossterm key type, and it converts at the point the loop
+  reads. A `KeyCode` §10.1 has no name for is dropped there and never reaches
+  the shell, which is why §13.6 says "any key the game can *name*".
+  `KeyEvent` must stay **synthesisable**: a front-end with polled input will
+  manufacture the stream by diffing frames, so nothing above may depend on
+  seeing every intermediate event, on sub-frame ordering, or on an event
+  arriving anywhere but a frame boundary.
 
 - **The piece sequence is the spec's, not `rand`'s** (§9.6). `bag::seeded`
   expands a `u64` seed with PCG32 and `Bag::uniform_inclusive` draws a range with

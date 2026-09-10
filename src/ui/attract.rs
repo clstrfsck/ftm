@@ -10,7 +10,7 @@
 
 use std::time::{Duration, Instant};
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use crate::shell::keys::{Key, KeyEvent, KeyKind};
 use rand::RngExt;
 use rand::rngs::SmallRng;
 use ratatui::Frame;
@@ -269,7 +269,7 @@ impl Attract {
     /// `config` is borrowed because the Options sub-screen edits it in place
     /// (§13.5); nothing else here touches it.
     pub fn key(&mut self, event: &KeyEvent, config: &mut ConfigFile, now: Instant) -> Outcome {
-        if event.kind == KeyEventKind::Release {
+        if event.kind == KeyKind::Release {
             return Outcome::Stay;
         }
         // §13.6: any key stops the idle colour cycle.
@@ -277,10 +277,7 @@ impl Attract {
         match self.sub {
             Some(Sub::Options { selected }) => self.options_key(event, config, selected),
             Some(_) => {
-                if matches!(
-                    event.code,
-                    KeyCode::Esc | KeyCode::Enter | KeyCode::Char(' ')
-                ) {
+                if matches!(event.key, Key::Esc | Key::Enter | Key::Char(' ')) {
                     self.sub = None;
                 }
                 Outcome::Stay
@@ -291,10 +288,10 @@ impl Attract {
 
     fn menu_key(&mut self, event: &KeyEvent) -> Outcome {
         let items = MenuChoice::ALL.len();
-        match event.code {
-            KeyCode::Up => self.selected = (self.selected + items - 1) % items,
-            KeyCode::Down => self.selected = (self.selected + 1) % items,
-            KeyCode::Enter | KeyCode::Char(' ') => match MenuChoice::ALL[self.selected] {
+        match event.key {
+            Key::Up => self.selected = (self.selected + items - 1) % items,
+            Key::Down => self.selected = (self.selected + 1) % items,
+            Key::Enter | Key::Char(' ') => match MenuChoice::ALL[self.selected] {
                 MenuChoice::Play => return Outcome::Play,
                 MenuChoice::HighScores => self.sub = Some(Sub::HighScores),
                 MenuChoice::Controls => self.sub = Some(Sub::Controls),
@@ -303,14 +300,8 @@ impl Attract {
             },
             // §16: Ctrl-C is delivered as a key event and means quit from the
             // attract screen. §10.1's `q` is the ordinary way.
-            KeyCode::Char('c')
-                if event
-                    .modifiers
-                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
-            {
-                return Outcome::Quit;
-            }
-            KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => return Outcome::Quit,
+            Key::Char('c') if event.mods.ctrl => return Outcome::Quit,
+            Key::Char('q') | Key::Char('Q') | Key::Esc => return Outcome::Quit,
             _ => {}
         }
         Outcome::Stay
@@ -325,21 +316,21 @@ impl Attract {
         selected: usize,
     ) -> Outcome {
         let items = Setting::ALL.len();
-        match event.code {
-            KeyCode::Up => {
+        match event.key {
+            Key::Up => {
                 self.sub = Some(Sub::Options {
                     selected: (selected + items - 1) % items,
                 })
             }
-            KeyCode::Down => {
+            Key::Down => {
                 self.sub = Some(Sub::Options {
                     selected: (selected + 1) % items,
                 })
             }
-            KeyCode::Left | KeyCode::Right => {
-                Setting::ALL[selected].step(config, event.code == KeyCode::Right);
+            Key::Left | Key::Right => {
+                Setting::ALL[selected].step(config, event.key == Key::Right);
             }
-            KeyCode::Esc | KeyCode::Enter => {
+            Key::Esc | Key::Enter => {
                 self.sub = None;
                 return Outcome::OptionsClosed;
             }
@@ -871,16 +862,12 @@ mod tests {
         let later = start + IDLE + IDLE_STEP * 3;
         state.step(later, (30, 24), false);
         assert_eq!(state.idle_shift(), 3);
-        state.key(
-            &press(KeyCode::Char('x')),
-            &mut ConfigFile::default(),
-            later,
-        );
+        state.key(&press(Key::Char('x')), &mut ConfigFile::default(), later);
         assert_eq!(state.idle_shift(), 0);
     }
 
-    fn press(code: KeyCode) -> KeyEvent {
-        KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+    fn press(key: Key) -> KeyEvent {
+        KeyEvent::press(key)
     }
 
     #[test]
@@ -890,21 +877,21 @@ mod tests {
         let mut config = ConfigFile::default();
         assert_eq!(MenuChoice::ALL[0], MenuChoice::Play);
         assert_eq!(
-            state.key(&press(KeyCode::Enter), &mut config, now),
+            state.key(&press(Key::Enter), &mut config, now),
             Outcome::Play
         );
 
-        state.key(&press(KeyCode::Up), &mut config, now);
+        state.key(&press(Key::Up), &mut config, now);
         assert_eq!(
             state.selected,
             MenuChoice::ALL.len() - 1,
             "up wraps to QUIT"
         );
         assert_eq!(
-            state.key(&press(KeyCode::Enter), &mut config, now),
+            state.key(&press(Key::Enter), &mut config, now),
             Outcome::Quit
         );
-        state.key(&press(KeyCode::Down), &mut config, now);
+        state.key(&press(Key::Down), &mut config, now);
         assert_eq!(state.selected, 0, "and down wraps back to PLAY");
     }
 
@@ -920,11 +907,11 @@ mod tests {
         ] {
             let mut state = Attract::new(now);
             for _ in 0..steps {
-                state.key(&press(KeyCode::Down), &mut config, now);
+                state.key(&press(Key::Down), &mut config, now);
             }
-            state.key(&press(KeyCode::Enter), &mut config, now);
+            state.key(&press(Key::Enter), &mut config, now);
             assert_eq!(state.sub, Some(sub));
-            state.key(&press(KeyCode::Esc), &mut config, now);
+            state.key(&press(Key::Esc), &mut config, now);
             assert_eq!(state.sub, None, "{sub:?}");
         }
     }
@@ -938,10 +925,10 @@ mod tests {
         let mut state = Attract::new(now);
         let mut config = ConfigFile::default();
         state.sub = Some(Sub::Options { selected: 0 });
-        state.key(&press(KeyCode::Right), &mut config, now);
+        state.key(&press(Key::Right), &mut config, now);
         assert_eq!(config.gameplay.preview_count, 6);
         assert_eq!(
-            state.key(&press(KeyCode::Esc), &mut config, now),
+            state.key(&press(Key::Esc), &mut config, now),
             Outcome::OptionsClosed,
         );
     }
