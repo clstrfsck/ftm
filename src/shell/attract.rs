@@ -7,11 +7,12 @@
 //! front-end keeps its own and folds its "did anything move" answer in beside
 //! [`Attract::step`]'s.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::shell::config::ConfigFile;
 use crate::shell::keys::{Key, KeyEvent, KeyKind};
 use crate::shell::menus::{MenuChoice, Setting, Sub};
+use crate::shell::time::Stamp;
 
 /// The panel cycles every six seconds (§13.3).
 const FACE: Duration = Duration::from_secs(6);
@@ -36,21 +37,21 @@ pub enum Outcome {
 
 /// The attract screen's whole state (§13).
 pub struct Attract {
-    now: Instant,
+    now: Stamp,
     selected: usize,
     sub: Option<Sub>,
     /// §13.6: when a key was last pressed.
-    last_key: Instant,
+    last_key: Stamp,
     /// §13.3: when the panel's face last changed. Held at `now` — so the
     /// elapsed time stays zero — while the cycle is paused.
-    face_since: Instant,
+    face_since: Stamp,
     /// Counts faces shown, not the face on show: the third face's reminder is
     /// `face / FACES` so the tips rotate without a second counter.
     face: usize,
 }
 
 impl Attract {
-    pub fn new(now: Instant) -> Self {
+    pub fn new(now: Stamp) -> Self {
         Self {
             now,
             selected: 0,
@@ -92,14 +93,14 @@ impl Attract {
     /// halves: the panel's cycle and §13.6's idle colours. §13.4's drift is
     /// the other, and it belongs to whichever front-end is drawing it, so its
     /// answer is folded in by the caller.
-    pub fn step(&mut self, now: Instant) -> bool {
+    pub fn step(&mut self, now: Stamp) -> bool {
         let was = (self.face, self.idle_shift());
         self.now = now;
         // §13.3: the cycle pauses while a menu item other than PLAY is
         // selected. Holding the mark at `now` keeps the elapsed time at zero,
         // so the face that is up stays up rather than jumping when it resumes.
         if self.selected == 0 && self.sub.is_none() {
-            while now.saturating_duration_since(self.face_since) >= FACE {
+            while now.saturating_since(self.face_since) >= FACE {
                 self.face_since += FACE;
                 self.face += 1;
             }
@@ -113,7 +114,7 @@ impl Attract {
     ///
     /// `config` is borrowed because the Options sub-screen edits it in place
     /// (§13.5); nothing else here touches it.
-    pub fn key(&mut self, event: &KeyEvent, config: &mut ConfigFile, now: Instant) -> Outcome {
+    pub fn key(&mut self, event: &KeyEvent, config: &mut ConfigFile, now: Stamp) -> Outcome {
         if event.kind == KeyKind::Release {
             return Outcome::Stay;
         }
@@ -186,7 +187,7 @@ impl Attract {
 
     /// §13.6: how many steps the wordmark's colours have rotated.
     pub fn idle_shift(&self) -> usize {
-        let idle = self.now.saturating_duration_since(self.last_key);
+        let idle = self.now.saturating_since(self.last_key);
         let Some(cycling) = idle.checked_sub(IDLE) else {
             return 0;
         };
@@ -201,7 +202,7 @@ mod tests {
     #[test]
     fn the_idle_cycle_starts_after_a_minute_and_steps_once_a_second() {
         // §13.6.
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut state = Attract::new(start);
         state.step(start + IDLE - Duration::from_millis(1));
         assert_eq!(state.idle_shift(), 0, "not yet");
@@ -215,7 +216,7 @@ mod tests {
 
     #[test]
     fn any_key_stops_the_idle_cycle() {
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut state = Attract::new(start);
         let later = start + IDLE + IDLE_STEP * 3;
         state.step(later);
@@ -230,7 +231,7 @@ mod tests {
 
     #[test]
     fn the_menu_wraps_and_play_is_the_first_item() {
-        let now = Instant::now();
+        let now = Stamp::ZERO;
         let mut state = Attract::new(now);
         let mut config = ConfigFile::default();
         assert_eq!(MenuChoice::ALL[0], MenuChoice::Play);
@@ -256,7 +257,7 @@ mod tests {
     #[test]
     fn every_sub_screen_opens_and_esc_returns() {
         // §13.5.
-        let now = Instant::now();
+        let now = Stamp::ZERO;
         let mut config = ConfigFile::default();
         for (steps, sub) in [
             (1, Sub::HighScores),
@@ -279,7 +280,7 @@ mod tests {
         // §13.5: "`Esc` saves the config file (§6.2) and returns". The panel
         // itself only edits; saving is the caller's, as it is from the pause
         // menu.
-        let now = Instant::now();
+        let now = Stamp::ZERO;
         let mut state = Attract::new(now);
         let mut config = ConfigFile::default();
         state.sub = Some(Sub::Options { selected: 0 });
@@ -295,7 +296,7 @@ mod tests {
     fn the_panel_cycles_every_six_seconds_and_pauses_off_play() {
         // §13.3: "cycles every 6 seconds between three faces... The cycle
         // pauses while a menu item other than PLAY is selected."
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut state = Attract::new(start);
         assert_eq!(state.face, 0);
         assert!(state.step(start + FACE), "the face changed");

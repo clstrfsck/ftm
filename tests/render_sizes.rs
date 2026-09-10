@@ -14,7 +14,7 @@
 
 #![cfg(feature = "tui")]
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -27,6 +27,7 @@ use ftm::shell::highscore::{Entry, Table};
 use ftm::shell::input::InputMode;
 use ftm::shell::keys::{Key, KeyEvent};
 use ftm::shell::menus::Overlay;
+use ftm::shell::time::Stamp;
 use ftm::tui::attract::{self, Background};
 use ftm::tui::theme::{Depth, Glyphs, Theme};
 use ftm::tui::{Chrome, Debug, Hud};
@@ -102,7 +103,7 @@ fn the_playing_screen_renders_at_every_size() {
     let game = played();
     let view: GameView = game.view();
     let config = ConfigFile::default();
-    let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
+    let fx = Cosmetics::new(Duration::from_millis(250), Stamp::ZERO);
     let debug = Debug {
         fps: 60,
         dropped: 0,
@@ -135,7 +136,7 @@ fn every_colour_depth_renders_at_every_size() {
     // the same four sizes as the rest.
     let view = played().view();
     let config = ConfigFile::default();
-    let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
+    let fx = Cosmetics::new(Duration::from_millis(250), Stamp::ZERO);
     for size in SIZES {
         for depth in [Depth::Truecolor, Depth::Ansi256, Depth::Ansi16, Depth::Mono] {
             for hold_enabled in [true, false] {
@@ -170,7 +171,7 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
     }
     let mut config = ConfigFile::default();
     let press = |key| KeyEvent::press(key);
-    let now = Instant::now();
+    let now = Stamp::ZERO;
     // The menu, then each of §13.5's three sub-screens over it.
     let opened: [&[Key]; 4] = [
         &[],
@@ -223,7 +224,7 @@ fn the_minimum_terminal_gets_the_real_screen_and_one_short_of_it_does_not() {
     // is drawn, and one column narrower it is replaced (§12.1, §8.4).
     let view = played().view();
     let config = ConfigFile::default();
-    let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
+    let fx = Cosmetics::new(Duration::from_millis(250), Stamp::ZERO);
     let chrome = chrome(Depth::Truecolor, false, true);
     let shown = |width, height| {
         let backend = TestBackend::new(width, height);

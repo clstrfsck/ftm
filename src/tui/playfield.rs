@@ -511,11 +511,12 @@ pub mod tests {
         }
     }
     use crate::core::{PieceView, PlayState};
+    use crate::shell::time::Stamp;
     use crate::tui::theme::{Depth, Theme};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::style::Color;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     /// The §12.4 mock-up, transcribed literally. It is drawn to exact size and
     /// is the acceptance criterion for this stage, so it is compared character
@@ -613,7 +614,7 @@ pub mod tests {
     fn screenshot(view: &GameView, chrome: &Chrome) -> String {
         let backend = TestBackend::new(SCREEN_WIDTH, SCREEN_HEIGHT);
         let mut terminal = Terminal::new(backend).expect("a test terminal");
-        let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
+        let fx = Cosmetics::new(Duration::from_millis(250), Stamp::ZERO);
         terminal
             .draw(|frame| {
                 render(frame, view, chrome, &fx, false, &hud(None));
@@ -734,7 +735,7 @@ pub mod tests {
     fn colour_at(view: &GameView, chrome: &Chrome, x: u16, y: u16) -> Color {
         let backend = TestBackend::new(SCREEN_WIDTH, SCREEN_HEIGHT);
         let mut terminal = Terminal::new(backend).expect("a test terminal");
-        let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
+        let fx = Cosmetics::new(Duration::from_millis(250), Stamp::ZERO);
         terminal
             .draw(|frame| {
                 render(frame, view, chrome, &fx, false, &hud(None));
@@ -821,7 +822,7 @@ pub mod tests {
         // the stack. The boxes around it stay.
         let backend = TestBackend::new(SCREEN_WIDTH, SCREEN_HEIGHT);
         let mut terminal = Terminal::new(backend).expect("a test terminal");
-        let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
+        let fx = Cosmetics::new(Duration::from_millis(250), Stamp::ZERO);
         let view = mock_up_view();
         let chrome = chrome();
         terminal
@@ -852,7 +853,7 @@ pub mod tests {
     fn screenshot_with_debug(view: &GameView, chrome: &Chrome, rows: u16) -> Vec<String> {
         let backend = TestBackend::new(SCREEN_WIDTH, rows);
         let mut terminal = Terminal::new(backend).expect("a test terminal");
-        let fx = Cosmetics::new(Duration::from_millis(250), Instant::now());
+        let fx = Cosmetics::new(Duration::from_millis(250), Stamp::ZERO);
         let debug = Debug {
             fps: 60,
             dropped: 3,

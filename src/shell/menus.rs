@@ -99,6 +99,12 @@ pub struct NameEntry {
 
 impl NameEntry {
     /// Pre-filled from `$USER` (or `$USERNAME` on Windows), truncated (§12.6).
+    ///
+    /// The environment is the one platform facility the shell still reads, and
+    /// it is left here deliberately: it is a *courtesy*, not a capability, and
+    /// where there is no environment to read — a browser tab — the answer is
+    /// an empty field, which is exactly what the player should see anyway.
+    /// Nothing downstream distinguishes the two cases.
     pub fn prefilled() -> Self {
         let user = std::env::var("USER")
             .or_else(|_| std::env::var("USERNAME"))

@@ -8,7 +8,7 @@
 //! §13.4 drift, because it is positioned in a character grid's own cells.
 //! Neither half has a path to a `Game`, because on this screen there isn't one.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rand::RngExt;
 use rand::rngs::SmallRng;
@@ -24,6 +24,7 @@ use crate::shell::highscore::{Entry, Table};
 use crate::shell::input::InputMode;
 use crate::shell::menus::{MenuChoice, Sub};
 use crate::shell::palette;
+use crate::shell::time::Stamp;
 use crate::tui::cells::CELL_WIDTH;
 use crate::tui::overlays::{self, box_over, centre};
 use crate::tui::theme::{self, Theme};
@@ -158,7 +159,7 @@ struct Drifter {
     col: i16,
     row: i16,
     period: Duration,
-    since: Instant,
+    since: Stamp,
 }
 
 /// §13.4's ambient animation, in the terminal's own units.
@@ -170,11 +171,11 @@ struct Drifter {
 pub struct Background {
     pieces: Vec<Drifter>,
     rng: SmallRng,
-    spawned: Instant,
+    spawned: Stamp,
 }
 
 impl Background {
-    pub fn new(now: Instant) -> Self {
+    pub fn new(now: Stamp) -> Self {
         Self {
             pieces: Vec::new(),
             // Cosmetic, so it is seeded from the environment: nothing here is
@@ -185,9 +186,9 @@ impl Background {
     }
 
     /// Spawn, fall and retire, reporting whether anything moved.
-    pub fn step(&mut self, now: Instant, (columns, rows): (u16, u16)) -> bool {
+    pub fn step(&mut self, now: Stamp, (columns, rows): (u16, u16)) -> bool {
         let mut moved = false;
-        if now.saturating_duration_since(self.spawned) >= SPAWN {
+        if now.saturating_since(self.spawned) >= SPAWN {
             self.spawned = now;
             if self.pieces.len() < DRIFTERS && columns > 4 {
                 let jitter = self
@@ -207,7 +208,7 @@ impl Background {
             }
         }
         for piece in &mut self.pieces {
-            while now.saturating_duration_since(piece.since) >= piece.period {
+            while now.saturating_since(piece.since) >= piece.period {
                 piece.since += piece.period;
                 piece.row += 1;
                 moved = true;
@@ -724,7 +725,7 @@ mod tests {
         // The background is deliberately empty: it is the one part of the
         // screen that is not reproducible, and it is drawn behind everything
         // else (§13.4).
-        let background = Background::new(Instant::now());
+        let background = Background::new(Stamp::ZERO);
         let mut terminal = Terminal::new(TestBackend::new(60, 24)).expect("a test terminal");
         terminal
             .draw(|frame| draw(frame, state, &background, cx))
@@ -752,7 +753,7 @@ mod tests {
         config.display.show_debug = true;
         let scores = Table::default();
         let cx = context(&chrome, &config, &scores);
-        let state = Attract::new(Instant::now());
+        let state = Attract::new(Stamp::ZERO);
         let screen = render(&state, &cx);
         for line in ART.lines() {
             assert!(screen.contains(line.trim_end()), "{screen}");
@@ -795,7 +796,7 @@ mod tests {
             mode: InputMode::Legacy,
             ..context(&chrome, &config, &scores)
         };
-        let mut state = Attract::new(Instant::now());
+        let mut state = Attract::new(Stamp::ZERO);
 
         state.open(Sub::HighScores);
         let screen = render(&state, &cx);
@@ -837,7 +838,7 @@ mod tests {
     fn a_drifting_piece_falls_and_is_retired_at_the_bottom() {
         // §13.4: one new piece every ~1.2 s, falling a row at a time, removed
         // when it leaves the bottom, at most twelve at once.
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut background = Background::new(start);
         // Tall enough that nothing retires while the cap is being tested.
         let deep = (30u16, 4_000u16);

@@ -12,18 +12,22 @@
 //!
 //! The conversion in step 2 happens exactly once, so two peers with the same
 //! `[timing]` table derive the same tick counts on any platform (§6.6).
+//!
+//! **Where the bytes live is not this module's question** (§3.1, §6.2). Every
+//! rule about the document is here — the value-by-value parse, the clamping,
+//! the warnings, the commented file §6.2 writes on a first clean exit — and the
+//! bytes themselves come from and go to a [`Storage`] slot the front-end
+//! supplies. So does the command line: §6.4's flags arrive as [`Overrides`],
+//! which `clap` fills in on a machine that has an argv and a URL query string
+//! fills in in a browser tab.
 
-use std::fs;
-use std::io;
 use std::ops::RangeInclusive;
-use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use clap::{Parser, ValueEnum};
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
 use crate::shell::keys::is_key_name;
+use crate::shell::storage::{Slot, Storage, StorageError};
 
 /// Ticks per second. The core advances only in whole ticks (§15.1).
 pub const TICK_HZ: u64 = 60;
@@ -80,7 +84,7 @@ pub const fn ms_to_ticks_at_least_one(ms: u32) -> u32 {
 }
 
 /// The lock-down rule (§9.11).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LockDownRule {
     /// Extended placement: 15 resets, restored on reaching a new lowest row.
@@ -93,7 +97,7 @@ pub enum LockDownRule {
 }
 
 /// The requested colour depth (§12.3).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ColorDepth {
     /// Detect from `$COLORTERM`, `$TERM` and `$NO_COLOR` (§12.3).
@@ -101,10 +105,8 @@ pub enum ColorDepth {
     Auto,
     Truecolor,
     #[serde(rename = "256")]
-    #[value(name = "256")]
     Ansi256,
     #[serde(rename = "16")]
-    #[value(name = "16")]
     Ansi16,
     Mono,
 }
@@ -371,20 +373,8 @@ impl ConfigFile {
 // §6.2: the file on disk
 // ---------------------------------------------------------------------------
 
-/// The file name under the platform config directory (§6.2).
-pub const FILE_NAME: &str = "config.toml";
-
 /// The display columns one cell glyph must occupy (§12.2).
 pub const CELL_COLUMNS: usize = 2;
-
-/// `{config_dir}/ftm/config.toml` (§6.2).
-///
-/// `None` only when the platform admits to no config directory at all, which is
-/// a documented degradation rather than a failure: the game runs on defaults
-/// and says so in the warnings (§16).
-pub fn default_path() -> Option<PathBuf> {
-    ProjectDirs::from("", "", "ftm").map(|dirs| dirs.config_dir().join(FILE_NAME))
-}
 
 /// The outcome of a load (§6.2).
 ///
@@ -394,35 +384,34 @@ pub fn default_path() -> Option<PathBuf> {
 #[derive(Clone, Debug)]
 pub struct Loaded {
     pub file: ConfigFile,
-    pub path: Option<PathBuf>,
     pub existed: bool,
 }
 
-/// Read the config file, degrading to defaults for anything unusable (§6.2).
+/// Read the config, degrading to defaults for anything unusable (§6.2).
 ///
-/// Never fails. A file that cannot be read, cannot be parsed, or holds values
-/// the schema cannot use adds a line to `warnings` — printed after terminal
-/// teardown (§16) — and leaves a playable game.
-pub fn load(path: Option<&Path>, warnings: &mut Vec<String>) -> Loaded {
-    let Some(path) = path.map(Path::to_path_buf).or_else(default_path) else {
-        warnings.push("no config directory on this platform; using defaults".to_string());
-        return Loaded {
-            file: ConfigFile::default(),
-            path: None,
-            existed: false,
-        };
-    };
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) => {
-            // An absent file is the ordinary first run, not a problem: §6.2
-            // answers it by writing the defaults out on the first clean exit.
-            if error.kind() != io::ErrorKind::NotFound {
-                warnings.push(format!("{}: {error}; using defaults", path.display()));
-            }
+/// Never fails. Bytes that cannot be read, cannot be parsed, or hold values the
+/// schema cannot use add a line to `warnings` — printed after terminal teardown
+/// (§16) — and leave a playable game.
+pub fn load(storage: &dyn Storage, warnings: &mut Vec<String>) -> Loaded {
+    let text = match storage.read(Slot::Config) {
+        Ok(Some(text)) => text,
+        // Nothing stored is the ordinary first run, not a problem: §6.2
+        // answers it by writing the defaults out on the first clean exit.
+        Ok(None) => {
             return Loaded {
                 file: ConfigFile::default(),
-                path: Some(path),
+                existed: false,
+            };
+        }
+        Err(error) => {
+            warnings.push(match error {
+                StorageError::Unavailable => {
+                    "no config directory on this platform; using defaults".to_string()
+                }
+                StorageError::Failed(message) => format!("{message}; using defaults"),
+            });
+            return Loaded {
+                file: ConfigFile::default(),
                 existed: false,
             };
         }
@@ -431,18 +420,18 @@ pub fn load(path: Option<&Path>, warnings: &mut Vec<String>) -> Loaded {
     validate(&mut file, warnings);
     Loaded {
         file,
-        path: Some(path),
-        // The file is there and was read: leave it alone, whatever it held.
+        // Something was there and was read: leave it alone, whatever it held.
         existed: true,
     }
 }
 
-/// Write the commented document of §6.2, creating the directory if need be.
-pub fn save(path: &Path, file: &ConfigFile) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, document(file))
+/// Write the commented document of §6.2.
+///
+/// §16 makes every failure here a warning rather than an abort, so the error is
+/// handed back for the caller to file — see [`StorageError::warning`], which is
+/// what decides whether it is worth saying twice.
+pub fn save(storage: &mut dyn Storage, file: &ConfigFile) -> Result<(), StorageError> {
+    storage.write(Slot::Config, &document(file))
 }
 
 /// Parse the document one value at a time (§6.2, §6.3).
@@ -967,65 +956,46 @@ fn range_text<T: std::fmt::Display>(range: &RangeInclusive<T>) -> String {
 // §6.4: the command line
 // ---------------------------------------------------------------------------
 
-/// The §6.4 command line.
+/// §6.4's flags, decoded (§6.1 step 3).
 ///
-/// Every flag here overrides the config file for one run and is never written
-/// back (§6.1): the file is the player's, and a flag is an experiment.
-#[derive(Debug, Default, Parser)]
-#[command(
-    name = "ftm",
-    version,
-    about = "A guideline-conformant falling-block game for the terminal",
-    // The struct's doc comment explains the type, not the program; without
-    // this clap would print it as the long help.
-    long_about = None,
-    disable_help_subcommand = true
-)]
-pub struct Cli {
-    /// Pieces shown in the preview window [1-6]
-    #[arg(long, value_name = "N")]
+/// The *grammar* of the command line is the front-end's — `clap` on a machine
+/// with an argv, a URL query string in a browser tab — but what a flag *means*
+/// is shared, so what crosses into the shell is this: the settings one run
+/// asked to override, and nothing about how they were written. `None` is
+/// "leave whatever the file said" for every one of them, which is what §6.1's
+/// precedence is made of.
+///
+/// Nothing here is ever written back to the config file: a flag is for one run
+/// (§6.1), and [`Startup::on_disk`] is the copy that has not had them applied.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Overrides {
+    /// `--preview <N>`
     pub preview: Option<u8>,
-    /// Starting level [1-15]
-    #[arg(long, value_name = "N")]
+    /// `--level <N>`
     pub level: Option<u32>,
-    /// Disable the ghost piece
-    #[arg(long)]
-    pub no_ghost: bool,
-    /// Enable the hold mechanic
-    #[arg(long, overrides_with = "no_hold")]
-    hold: bool,
-    /// Disable the hold mechanic
-    #[arg(long, overrides_with = "hold")]
-    no_hold: bool,
-    /// Enable 180-degree rotation
-    #[arg(long, overrides_with = "no_rot180")]
-    rot180: bool,
-    /// Disable 180-degree rotation
-    #[arg(long, overrides_with = "rot180")]
-    no_rot180: bool,
-    /// Lock-down rule
-    #[arg(long, value_name = "RULE")]
+    /// `--no-ghost`. An `Option` although §6.4 gives it only one half: the
+    /// shell does not know which front-end's grammar it came through, and a
+    /// front-end that grows the other half is a §6.4 amendment, not a change
+    /// here.
+    pub ghost: Option<bool>,
+    /// `--hold` / `--no-hold`
+    pub hold: Option<bool>,
+    /// `--rot180` / `--no-rot180`
+    pub rot180: Option<bool>,
+    /// `--lock-down <RULE>`
     pub lock_down: Option<LockDownRule>,
-    /// Colour depth
-    #[arg(long = "color", value_name = "MODE")]
+    /// `--color <MODE>`
     pub color: Option<ColorDepth>,
-    /// Seed the randomiser (implies no high-score recording)
-    #[arg(long, value_name = "N")]
+    /// `--seed <N>`: §6.4 makes the run reproducible and §14 never records it.
     pub seed: Option<u64>,
-    /// Use an alternative config file
-    #[arg(long, value_name = "PATH")]
-    pub config: Option<PathBuf>,
-    /// Write the effective config to stdout and exit
-    #[arg(long)]
-    pub print_config: bool,
 }
 
-impl Cli {
+impl Overrides {
     /// §6.4: "each paired flag overrides the corresponding config key in both
     /// directions, so a setting turned off in the config file can still be
     /// turned on for one run". The two halves override each other, so the last
-    /// one written on the command line is the one that counts.
-    fn paired(yes: bool, no: bool) -> Option<bool> {
+    /// one written is the one that counts.
+    pub fn paired(yes: bool, no: bool) -> Option<bool> {
         match (yes, no) {
             (true, _) => Some(true),
             (_, true) => Some(false),
@@ -1042,13 +1012,13 @@ impl Cli {
         if let Some(level) = self.level {
             g.start_level = level;
         }
-        if self.no_ghost {
-            g.ghost_piece = false;
+        if let Some(ghost) = self.ghost {
+            g.ghost_piece = ghost;
         }
-        if let Some(hold) = Self::paired(self.hold, self.no_hold) {
+        if let Some(hold) = self.hold {
             g.hold_enabled = hold;
         }
-        if let Some(rot180) = Self::paired(self.rot180, self.no_rot180) {
+        if let Some(rot180) = self.rot180 {
             g.allow_180_rotation = rot180;
         }
         if let Some(rule) = self.lock_down {
@@ -1071,7 +1041,6 @@ impl Cli {
 pub struct Startup {
     pub file: ConfigFile,
     pub on_disk: ConfigFile,
-    pub path: Option<PathBuf>,
     pub existed: bool,
     /// Set when the §13.5 Options panel wrote the file during the run, so the
     /// §6.2 first-clean-exit write does not undo what the player just saved.
@@ -1086,25 +1055,32 @@ pub struct Startup {
 
 impl Startup {
     /// Resolve the three sources of §6.1, in order.
-    pub fn resolve(cli: &Cli, seed: impl FnOnce() -> u64) -> Self {
+    ///
+    /// `seed` is the front-end's entropy (`FRONTEND.md` F3) and is called only
+    /// when §6.4 did not give one; `storage` is where §6.2's document is kept
+    /// (F2), which is the front-end's question too.
+    pub fn resolve(
+        overrides: &Overrides,
+        storage: &dyn Storage,
+        seed: impl FnOnce() -> u64,
+    ) -> Self {
         let mut warnings = Vec::new();
-        let loaded = load(cli.config.as_deref(), &mut warnings);
+        let loaded = load(storage, &mut warnings);
         let mut file = loaded.file.clone();
-        cli.apply(&mut file);
-        // The command line is not validated the way the file is: clap has
-        // already rejected what it cannot parse, and §6.3's ranges still apply
-        // through `RulesConfig::from_settings`. What is worth saying is when a
-        // flag asked for something outside them.
+        overrides.apply(&mut file);
+        // The command line is not validated the way the file is: the front-end
+        // has already rejected what it cannot parse, and §6.3's ranges still
+        // apply through `RulesConfig::from_settings`. What is worth saying is
+        // when a flag asked for something outside them.
         let mut clamped = ConfigFile::clone(&file);
         validate(&mut clamped, &mut warnings);
         Self {
             file: clamped,
             on_disk: loaded.file,
-            path: loaded.path,
             existed: loaded.existed,
             wrote_config: false,
-            seed: cli.seed.unwrap_or_else(seed),
-            seeded: cli.seed.is_some(),
+            seed: overrides.seed.unwrap_or_else(seed),
+            seeded: overrides.seed.is_some(),
             warnings,
         }
     }
@@ -1113,6 +1089,7 @@ impl Startup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::storage::{Homeless, Memory, Unwritable};
 
     /// The conversion table of §6.6, transcribed literally.
     const MS_TO_TICKS_TABLE: [(&str, u32, u32); 5] = [
@@ -1605,22 +1582,19 @@ x = 1
     }
 
     #[test]
-    fn an_absent_file_is_not_a_problem_and_is_not_a_warning() {
+    fn nothing_stored_is_not_a_problem_and_is_not_a_warning() {
         // §6.2: the ordinary first run. The defaults are used and the file is
         // written on the first clean exit, which `existed` is what decides.
-        let path = std::env::temp_dir().join("ftm-absent-config-test.toml");
-        let _ = fs::remove_file(&path);
         let mut warnings = Vec::new();
-        let loaded = load(Some(&path), &mut warnings);
+        let loaded = load(&Memory::new(), &mut warnings);
         assert_eq!(loaded.file, ConfigFile::default());
         assert!(!loaded.existed);
         assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     #[test]
-    fn a_saved_file_loads_back_unchanged() {
-        let path = std::env::temp_dir().join("ftm-roundtrip-config-test/config.toml");
-        let _ = fs::remove_dir_all(path.parent().expect("a parent"));
+    fn a_saved_document_loads_back_unchanged() {
+        let mut storage = Memory::new();
         let file = ConfigFile {
             gameplay: GameplaySettings {
                 preview_count: 1,
@@ -1628,60 +1602,44 @@ x = 1
             },
             ..ConfigFile::default()
         };
-        save(&path, &file).expect("writes, creating the directory");
+        save(&mut storage, &file).expect("writes");
         let mut warnings = Vec::new();
-        let loaded = load(Some(&path), &mut warnings);
+        let loaded = load(&storage, &mut warnings);
         assert_eq!(loaded.file, file);
         assert!(loaded.existed);
         assert!(warnings.is_empty(), "{warnings:?}");
-        let _ = fs::remove_dir_all(path.parent().expect("a parent"));
+    }
+
+    #[test]
+    fn a_store_with_nowhere_to_keep_it_warns_once_and_plays_on() {
+        // §6.2, §16: a platform that admits to no config directory is a
+        // documented degradation, not a failure. The warning belongs to the
+        // read; the write that fails a moment later has nothing to add.
+        let mut warnings = Vec::new();
+        let loaded = load(&Homeless, &mut warnings);
+        assert_eq!(loaded.file, ConfigFile::default());
+        assert!(!loaded.existed);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        let error = save(&mut Homeless, &ConfigFile::default()).expect_err("nowhere to put it");
+        assert_eq!(error.warning(), None, "and it is not said twice");
+    }
+
+    #[test]
+    fn a_store_that_cannot_be_written_says_so_once() {
+        // §16: the other half — the directory is there and the write failed.
+        // That the player has not been told, so it is worth a line.
+        let error = save(&mut Unwritable, &ConfigFile::default()).expect_err("refused");
+        assert!(error.warning().is_some(), "{error:?}");
     }
     // -- §6.4: the command line ---------------------------------------------
-
-    fn cli(args: &[&str]) -> Cli {
-        let mut argv = vec!["ftm"];
-        argv.extend_from_slice(args);
-        Cli::try_parse_from(argv).expect("parses")
-    }
-
-    #[test]
-    fn the_command_line_matches_the_spec_synopsis() {
-        // §6.4, flag by flag. `try_parse_from` fails on a name that is not
-        // there, so this is a transcription check of the whole synopsis.
-        let all = cli(&[
-            "--preview",
-            "3",
-            "--level",
-            "9",
-            "--no-ghost",
-            "--no-hold",
-            "--no-rot180",
-            "--lock-down",
-            "classic",
-            "--color",
-            "256",
-            "--seed",
-            "42",
-            "--config",
-            "/tmp/x.toml",
-            "--print-config",
-        ]);
-        let mut file = ConfigFile::default();
-        all.apply(&mut file);
-        assert_eq!(file.gameplay.preview_count, 3);
-        assert_eq!(file.gameplay.start_level, 9);
-        assert!(!file.gameplay.ghost_piece);
-        assert!(!file.gameplay.hold_enabled);
-        assert!(!file.gameplay.allow_180_rotation);
-        assert_eq!(file.gameplay.lock_down, LockDownRule::Classic);
-        assert_eq!(file.display.color_depth, ColorDepth::Ansi256);
-        assert_eq!(all.seed, Some(42));
-        assert_eq!(all.config.as_deref(), Some(Path::new("/tmp/x.toml")));
-        assert!(all.print_config);
-    }
+    //
+    // The *grammar* of §6.4 belongs to whichever front-end has an argv, and so
+    // do its tests: `tui::cli` is where the flag-by-flag transcription of the
+    // synopsis lives. What is checked here is what an override *means* once
+    // one has been decoded.
 
     #[test]
-    fn a_paired_flag_overrides_the_file_in_both_directions() {
+    fn a_paired_override_beats_the_file_in_both_directions() {
         // §6.4: "a setting turned off in the config file can still be turned on
         // for one run", which is the whole reason the pairs exist. A9 turns
         // each of them both ways.
@@ -1694,42 +1652,47 @@ x = 1
             ..ConfigFile::default()
         };
         let mut file = off.clone();
-        cli(&["--hold", "--rot180"]).apply(&mut file);
+        Overrides {
+            hold: Some(true),
+            rot180: Some(true),
+            ..Overrides::default()
+        }
+        .apply(&mut file);
         assert!(file.gameplay.hold_enabled);
         assert!(file.gameplay.allow_180_rotation);
 
         let mut file = ConfigFile::default();
-        cli(&["--no-hold", "--no-rot180"]).apply(&mut file);
+        Overrides {
+            hold: Some(false),
+            rot180: Some(false),
+            ..Overrides::default()
+        }
+        .apply(&mut file);
         assert!(!file.gameplay.hold_enabled);
         assert!(!file.gameplay.allow_180_rotation);
 
         // Neither half given leaves the file's own answer alone.
         let mut file = off.clone();
-        cli(&[]).apply(&mut file);
+        Overrides::default().apply(&mut file);
         assert_eq!(file, off);
     }
 
     #[test]
     fn the_last_half_of_a_pair_written_is_the_one_that_counts() {
-        for (args, expected) in [
-            (["--hold", "--no-hold"], false),
-            (["--no-hold", "--hold"], true),
-        ] {
-            let mut file = ConfigFile::default();
-            cli(&args).apply(&mut file);
-            assert_eq!(file.gameplay.hold_enabled, expected, "{args:?}");
-        }
+        // §6.4's `overrides_with`, as a rule rather than as a clap attribute.
+        assert_eq!(Overrides::paired(true, true), Some(true));
+        assert_eq!(Overrides::paired(false, true), Some(false));
+        assert_eq!(Overrides::paired(true, false), Some(true));
+        assert_eq!(Overrides::paired(false, false), None);
     }
 
     #[test]
     fn the_three_sources_resolve_in_order() {
         // §6.1: defaults, then the file, then the command line. And the file
         // written on a first clean exit is the file *without* the flags.
-        let dir = std::env::temp_dir().join("ftm-precedence-test");
-        let _ = fs::remove_dir_all(&dir);
-        let path = dir.join(FILE_NAME);
+        let mut storage = Memory::new();
         save(
-            &path,
+            &mut storage,
             &ConfigFile {
                 gameplay: GameplaySettings {
                     preview_count: 2,
@@ -1741,8 +1704,11 @@ x = 1
         )
         .expect("writes");
 
-        let cli = cli(&["--config", path.to_str().expect("utf-8"), "--preview", "6"]);
-        let startup = Startup::resolve(&cli, || 7);
+        let overrides = Overrides {
+            preview: Some(6),
+            ..Overrides::default()
+        };
+        let startup = Startup::resolve(&overrides, &storage, || 7);
         assert_eq!(startup.file.gameplay.preview_count, 6, "the flag wins");
         assert_eq!(
             startup.file.gameplay.start_level, 4,
@@ -1758,40 +1724,51 @@ x = 1
         );
         assert!(startup.existed);
         assert!(startup.warnings.is_empty(), "{:?}", startup.warnings);
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_seed_is_taken_from_the_flag_and_marks_the_run() {
         // §6.4: `--seed` makes a run reproducible, and such a run is never
         // written to the high-score table (§14).
-        let startup = Startup::resolve(&cli(&["--seed", "1234"]), || 9999);
+        let storage = Memory::new();
+        let seeded = Overrides {
+            seed: Some(1234),
+            ..Overrides::default()
+        };
+        let startup = Startup::resolve(&seeded, &storage, || 9999);
         assert_eq!(startup.seed, 1234);
         assert!(startup.seeded);
-        let startup = Startup::resolve(&cli(&[]), || 9999);
-        assert_eq!(startup.seed, 9999, "otherwise the randomiser is seeded");
+        let startup = Startup::resolve(&Overrides::default(), &storage, || 9999);
+        assert_eq!(
+            startup.seed, 9999,
+            "otherwise the front-end's entropy is asked (F3)",
+        );
         assert!(!startup.seeded);
     }
 
     #[test]
     fn a_flag_outside_its_range_is_clamped_and_reported() {
         // §6.3's ranges belong to the setting, not to where it was written.
-        let startup = Startup::resolve(&cli(&["--preview", "9", "--level", "0"]), || 1);
+        let overrides = Overrides {
+            preview: Some(9),
+            level: Some(0),
+            ..Overrides::default()
+        };
+        let startup = Startup::resolve(&overrides, &Memory::new(), || 1);
         assert_eq!(startup.file.gameplay.preview_count, 6);
         assert_eq!(startup.file.gameplay.start_level, 1);
         assert_eq!(startup.warnings.len(), 2, "{:?}", startup.warnings);
     }
+
     #[test]
     fn every_preview_count_is_honoured_from_the_file_and_from_the_flag() {
         // A5. The layout's half of it is
         // `tui::playfield::tests::the_next_box_is_sized_to_the_preview_count`;
         // this is the config's, over all six values and both sources.
-        let dir = std::env::temp_dir().join("ftm-preview-count-test");
-        let _ = fs::remove_dir_all(&dir);
-        let path = dir.join(FILE_NAME);
         for count in 1..=6u8 {
+            let mut storage = Memory::new();
             save(
-                &path,
+                &mut storage,
                 &ConfigFile {
                     gameplay: GameplaySettings {
                         preview_count: count,
@@ -1801,8 +1778,7 @@ x = 1
                 },
             )
             .expect("writes");
-            let from_file = cli(&["--config", path.to_str().expect("utf-8")]);
-            let startup = Startup::resolve(&from_file, || 1);
+            let startup = Startup::resolve(&Overrides::default(), &storage, || 1);
             assert!(startup.warnings.is_empty(), "{:?}", startup.warnings);
             assert_eq!(
                 startup.file.resolve().0.preview_count,
@@ -1810,11 +1786,13 @@ x = 1
                 "from the file"
             );
 
-            let from_flag = cli(&["--preview", &count.to_string()]);
             let mut file = ConfigFile::default();
-            from_flag.apply(&mut file);
+            Overrides {
+                preview: Some(count),
+                ..Overrides::default()
+            }
+            .apply(&mut file);
             assert_eq!(file.resolve().0.preview_count, count, "from the flag");
         }
-        let _ = fs::remove_dir_all(&dir);
     }
 }

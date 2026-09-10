@@ -164,11 +164,11 @@ are visible to another.
 
 | Crate | Version | Purpose |
 |---|---|---|
-| `rand` | 0.10 | `SmallRng` — `Xoshiro256PlusPlus` — as the bag's bit source. Its seeding and its range draw are §9.6's, not `rand`'s. |
+| `rand` | 0.10 | `SmallRng` — `Xoshiro256PlusPlus` — as the bag's bit source. Its seeding and its range draw are §9.6's, not `rand`'s. **`default-features = false`**: an OS entropy source is a front-end capability (§3.1), the front-end features turn it back on, and without that `getrandom` will not compile for `wasm32-unknown-unknown` at all. |
 | `serde` + `serde_derive` | 1 | Config and high-score (de)serialisation. |
 | `toml` | 1 | Config file format. |
 | `serde_json` | 1 | High-score file format. |
-| `thiserror` | 2 | Typed errors in the config loader. |
+| `thiserror` | 2 | Typed errors in the config loader and at the storage boundary. |
 
 **Terminal front-end** (`tui`):
 
@@ -199,9 +199,11 @@ because this is the first front-end for which the distinction matters.
 
 `unsafe` is forbidden (`#![forbid(unsafe_code)]` at crate root).
 
-> The feature split above is `EGUI.md`'s work, landing across stages G2, G3, G5
-> and G6. Until it has, the crates are simply all shared; the classification
-> here is what they are being sorted into and what a review checks against.
+> The **Shared** and **Terminal front-end** halves of the split are real as of
+> `EGUI.md` stage G3, and the compiler holds them: `cargo check
+> --no-default-features --target wasm32-unknown-unknown` builds the first list
+> and nothing else. The two `gui` rows are still a classification, and land at
+> G5 and G6.
 
 ### 3.1 Layering rule
 

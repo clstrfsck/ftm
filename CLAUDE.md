@@ -14,7 +14,7 @@ G1 moved the key vocabulary out of crossterm's hands; G2 was a move, a rename
 and a feature gate, with no logic changed.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0-G2 complete. Start at G3.** All
+stages G0-G3 complete — milestone MG1. Start at G4.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -31,21 +31,24 @@ progress into `Paused` (§8.4).
 
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
 and `Game::view()` still the only way to see the result — with `Game::debug()`
-beside it for the strip. Above it, `shell/` is what no front-end owns —
-`config.rs` (§6), `input.rs` (§10), `highscore.rs` (§14), `keys.rs` (F5's
-neutral `Key`/`KeyEvent` and §10.1's name grammar), `menus.rs` (the §12.6 and
-§13 menu models), `attract.rs` (§13's state machine), `cosmetics.rs` (§12.5's
-timers) and `palette.rs` (§9.2 levelled) — and `tui/` is the terminal front-end:
-`keys.rs` (the crossterm adapter), `term.rs` (§8.1-§8.3), `run.rs` (§7's state
-machine and both loops of §15, which is still where `Session` and `App` live
-until G4 prises them out), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
-`overlays.rs` and `attract.rs` (§12, §13). T1-T17 all pass, plus I1-I4, and the
-batch-invariance canary is in CI.
+beside it for the strip. Above it, `shell/` is what no front-end owns *and no
+platform reaches* — `config.rs` (§6), `input.rs` (§10), `highscore.rs` (§14),
+`keys.rs` (F5's neutral `Key`/`KeyEvent` and §10.1's name grammar), `menus.rs`
+(the §12.6 and §13 menu models), `attract.rs` (§13's state machine),
+`cosmetics.rs` (§12.5's timers), `palette.rs` (§9.2 levelled), and since G3
+`time.rs` (F1's `Stamp`), `storage.rs` (F2's `Slot`/`Storage`) and `host.rs`
+(F2-F4 as one borrowed bundle) — and `tui/` is the terminal front-end:
+`keys.rs` (the crossterm adapter), `host.rs` (F1-F4, natively), `cli.rs`
+(§6.4's grammar), `term.rs` (§8.1-§8.3), `run.rs` (§7's state machine and both
+loops of §15, which is still where `Session` and `App` live until G4 prises them
+out), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`, `overlays.rs` and
+`attract.rs` (§12, §13). T1-T17 all pass, plus I1-I4, and the batch-invariance
+canary is in CI.
 
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
-Start at G2. §18 remains out of scope and §19 remains a list of constraints to
+Start at G4. §18 remains out of scope and §19 remains a list of constraints to
 honour rather than a work item — see **Scope discipline** below.
 
 ## The §17.3 sign-off
@@ -127,7 +130,13 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **Coordinates are y-down** (§5): `row` 0 is the top of the 40-row buffer, 39 is
   the floor, positive `dy` moves a piece **down**. The SRS kick tables in §9.5
   are **already converted** to this convention. Do not negate them again.
-- **The core takes no clock and no I/O** (§3.1). Time enters only as ticks.
+- **The core takes no clock and no I/O** (§3.1), **and neither does the shell**.
+  Time enters the core only as ticks, and enters the shell only as a
+  `shell::time::Stamp` the front-end hands over. Nothing in `shell/` may name
+  `Instant::now`, `std::fs`, `rand::random` or a calendar — `make portable`
+  (`cargo check --no-default-features --target wasm32-unknown-unknown`) is the
+  compiler holding that, exactly as A10 holds the core's façade. A
+  `cfg(target_arch)` in `shell/` passes that check and is a bug, not a fix.
 - **The core advances in fixed 1/60 s ticks** (§15.1), never a variable
   `Duration`, and must be **deterministic**: same `RulesConfig` + seed + inputs ⇒
   byte-identical state.
@@ -254,6 +263,34 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   a §19 client is handed, and the levelled value is the *base* the §12.3
   dimming scale runs from, so a piece and its ghost are one hue.
 
+- **The four capabilities are the front-end's, and three of them travel as
+  `shell::host::Host`** (§3.1, `FRONTEND.md` F1-F4). Storage, the seed and the
+  date are values a run borrows; time is the fourth and arrives as a `Stamp`
+  argument instead, because every entry point already takes the moment it is
+  called at. `Host` is a struct of *values* and must not become a
+  `trait Frontend` — the front-ends share the shell by calling it.
+
+- **`Ok(None)` and `StorageError::Unavailable` are different answers** (§6.2,
+  §14, §16). Nothing stored yet is the ordinary first run and is never a
+  warning; nowhere to store it warns **once, on the read**, and
+  `StorageError::warning()` returns `None` for it so the write that fails the
+  same way a moment later stays quiet. Getting this wrong changes I3's warning
+  count without changing any test.
+
+- **§14's atomic write is §14's alone** (§6.2, §14). `tui::host::Files` renames
+  a temp file into place for the high-score table and does a plain `fs::write`
+  for the config, deliberately: a rename goes straight over a read-only file
+  where a write is refused by one, and §17.3 checked the Options panel over a
+  read-only config. §16's line names the *target* either way — a player has
+  never heard of the temp file.
+
+- **§6.4's grammar is a front-end's and its meaning is the shell's.** `clap`
+  lives in `tui/cli.rs`; what crosses into `shell/config.rs` is `Overrides`,
+  which a URL query string will fill in just as well (G12). `ColorDepth` and
+  `LockDownRule` therefore have hand-written `ValueEnum` impls beside the flags
+  rather than derives on the types, and the test that they still match §6.3's
+  tables lives with them.
+
 - **Keys reach the shell neutral, and only the adapter knows otherwise**
   (`FRONTEND.md` F5). `shell::keys::{Key, Mods, KeyKind, KeyEvent}` is the
   vocabulary above the front-end, and §10.1's name grammar — `parse_key`,
@@ -375,11 +412,6 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   Makefile grew `--all-features`**, and this is the single easiest thing to
   forget: a bare `cargo test` builds only the `tui` half, and the failure mode
   is silent — the other front-end simply stops being compiled.
-- **`clap`, `directories` and `chrono` are still shared dependencies.** Only
-  `ratatui` and `crossterm` went behind `tui`. G3 is the stage that takes the
-  filesystem, the command line and the clock out of the shell, and they join
-  the front-end features there; until then the `--no-default-features` check
-  proves the *toolkit* is out, not the platform.
 - **`Session` and `App` are in `tui/run.rs`, and that is deliberate.** They are
   shell objects and `EGUI.md`'s target layout names them as `shell/session.rs`
   and `shell/round.rs`, but they cannot move while they own crossterm's event
@@ -393,6 +425,37 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **The menu models are the specification's words.** `label` and `value` moved
   to `shell/menus.rs` with their types and became `pub`, because a second
   front-end that invented its own labels would be a second §13.5.
+
+## What G3 settled
+
+- **The shell is portable, and the compiler says so.** `make portable` is
+  `cargo check --no-default-features --target wasm32-unknown-unknown`, it is a
+  `make check` step, and CI installs the target for it. It is the stage's real
+  deliverable: it is what makes G6 a short stage rather than a long one.
+- **`rand` is the one that would have crept back.** `getrandom` refuses to
+  *compile* for `wasm32-unknown-unknown` without a build-time `--cfg`, so the
+  shared `rand` is `default-features = false` and `tui` turns the OS source back
+  on with `rand/thread_rng`. `core/bag.rs` is untouched, and the warning above
+  about not simplifying §9.6 back into `rand`'s own API stands unchanged.
+- **The shared dependency set is now exactly §3's five**: `rand`, `serde`,
+  `toml`, `serde_json`, `thiserror`. `clap`, `directories`, `chrono` and
+  `anyhow` all moved behind `tui`; `thiserror`, which had become unused, is
+  what `StorageError` is written with, so §3's row for it is true again.
+- **The failure paths were re-run end to end, and one of them found a bug in
+  this stage.** Writing the config atomically "for symmetry" would have silently
+  started replacing a read-only config file, and naming the temp file in §16's
+  warning would have told the player about a file they have never seen. Both are
+  fixed and both now have tests; §17.3's A7 and I3 are unchanged.
+- **`Session` grew a lifetime**, because it borrows the front-end's store for
+  the length of the run and `main` needs it back afterwards for §6.2's
+  first-clean-exit write. That is `Session<'a>` until G4 moves it to
+  `shell/session.rs`, where it will still have one.
+- **Two identical warnings are still possible**, and were before this stage: a
+  config that fails to save from the Options panel *and* on the first-clean-exit
+  write says so twice, because `Session::warn` dedupes and `main`'s own push
+  does not. It is only reachable when the file did not already exist, which is
+  why §17.3 never saw it. Left alone deliberately — it is a §16 wording question
+  rather than a G3 one.
 
 ## Open decisions
 
@@ -415,6 +478,8 @@ make check           # everything CI runs: fmt, clippy, test, shell, release bui
 cargo check          # fast feedback
 cargo test --all-features      # unit + integration
 cargo check --no-default-features   # core + shell alone: the G2 boundary
+make portable        # ...and with no platform under them: the G3 boundary
+                     # (needs `rustup target add wasm32-unknown-unknown`)
 cargo clippy --all-features --all-targets -- -D warnings
 cargo fmt --check
 cargo run --release  # play it (`default-run` picks `ftm` of the two bins)

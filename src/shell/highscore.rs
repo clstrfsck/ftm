@@ -5,19 +5,17 @@
 //! path here degrades to an empty table plus a line in the warnings printed at
 //! exit (§16), and none of them can stop a game starting.
 //!
-//! Nothing in here reads a clock except [`today`], which is the only reason
-//! `chrono` is a dependency at all. Every other function takes the date it is
-//! to stamp, so the qualification and ordering rules of §14 are testable
-//! without one.
+//! Nothing in here reads a clock or a calendar: the date an entry is stamped
+//! with arrives as a `String` the front-end produced (§3.1, `FRONTEND.md` F4),
+//! so the qualification and ordering rules of §14 are testable without one.
+//! Nor does anything here know where the table is kept — that is a
+//! [`Storage`] slot, and §14's atomic write is the native store's technique
+//! rather than this module's rule (F2).
 
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
-
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
 use crate::core::GameView;
+use crate::shell::storage::{Slot, Storage, StorageError};
 
 /// §14: the table holds the top ten.
 pub const CAPACITY: usize = 10;
@@ -25,8 +23,6 @@ pub const CAPACITY: usize = 10;
 pub const NAME_MAX: usize = 12;
 /// §12.6: an empty name becomes this.
 pub const ANONYMOUS: &str = "ANON";
-/// The file name under the platform data directory (§14).
-pub const FILE_NAME: &str = "highscores.json";
 /// The only format version this build writes, and the only one it reads (§14).
 const VERSION: u32 = 1;
 
@@ -136,28 +132,22 @@ impl Table {
         }
     }
 
-    /// Write the table atomically (§14): a sibling temp file, then a rename.
+    /// Write the table (§14).
     ///
-    /// The rename is what makes it atomic, and it is only atomic because the
-    /// temp file is in the same directory — a rename across filesystems is a
-    /// copy.
-    pub fn save(&self, path: &Path) -> io::Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let text = serde_json::to_string_pretty(self).map_err(io::Error::other)?;
-        let temporary = path.with_extension("json.tmp");
-        fs::write(&temporary, text)?;
-        fs::rename(&temporary, path)
+    /// §14 requires the write to be **durable against a crash mid-write** — a
+    /// run that dies while saving leaves the old table or the new one, never a
+    /// truncated file. That is a promise the store keeps, and how it keeps it
+    /// is its own business: a temp file renamed over the target on a
+    /// filesystem, nothing at all in `localStorage`, where `setItem` is
+    /// already atomic (`FRONTEND.md` F2).
+    ///
+    /// §16 makes every failure here a warning rather than an abort, so the
+    /// error is handed back for the caller to file.
+    pub fn save(&self, storage: &mut dyn Storage) -> Result<(), StorageError> {
+        let text = serde_json::to_string_pretty(self)
+            .map_err(|error| StorageError::Failed(error.to_string()))?;
+        storage.write(Slot::HighScores, &text)
     }
-}
-
-/// `{data_dir}/ftm/highscores.json` (§14).
-///
-/// `None` only when the platform admits to no data directory, which is a
-/// documented degradation: the game plays and simply records nothing.
-pub fn default_path() -> Option<PathBuf> {
-    ProjectDirs::from("", "", "ftm").map(|dirs| dirs.data_dir().join(FILE_NAME))
 }
 
 /// Read the table, degrading to an empty one for anything unusable (§14).
@@ -165,48 +155,39 @@ pub fn default_path() -> Option<PathBuf> {
 /// Never fails. "Missing, malformed, unreadable" all yield an empty table; only
 /// the last two are worth a warning, because a missing file is what every first
 /// run looks like.
-pub fn load(path: Option<&Path>, warnings: &mut Vec<String>) -> Table {
-    let Some(path) = path else {
-        warnings.push("no data directory on this platform; scores are not recorded".to_string());
-        return Table::default();
-    };
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) => {
-            if error.kind() != io::ErrorKind::NotFound {
-                warnings.push(format!(
-                    "{}: {error}; starting an empty table",
-                    path.display()
-                ));
-            }
+pub fn load(storage: &dyn Storage, warnings: &mut Vec<String>) -> Table {
+    let text = match storage.read(Slot::HighScores) {
+        Ok(Some(text)) => text,
+        Ok(None) => return Table::default(),
+        Err(StorageError::Unavailable) => {
+            warnings
+                .push("no data directory on this platform; scores are not recorded".to_string());
+            return Table::default();
+        }
+        Err(StorageError::Failed(message)) => {
+            warnings.push(format!("{message}; starting an empty table"));
             return Table::default();
         }
     };
+    // A parse failure is the parser's complaint and it has no idea where the
+    // bytes came from, so it is the slot that gets named rather than a path.
+    let name = Slot::HighScores.name();
     let mut table: Table = match serde_json::from_str(&text) {
         Ok(table) => table,
         Err(error) => {
-            warnings.push(format!(
-                "{}: {error}; starting an empty table",
-                path.display(),
-            ));
+            warnings.push(format!("{name}: {error}; starting an empty table"));
             return Table::default();
         }
     };
     if table.version != VERSION {
         warnings.push(format!(
-            "{}: version {} is not {VERSION}; starting an empty table",
-            path.display(),
+            "{name}: version {} is not {VERSION}; starting an empty table",
             table.version,
         ));
         return Table::default();
     }
     table.tidy();
     table
-}
-
-/// Today, as §14 stamps it. The one clock in this module.
-pub fn today() -> String {
-    chrono::Local::now().format("%Y-%m-%d").to_string()
 }
 
 /// A name as the table stores it (§12.6): printable ASCII, at most twelve
@@ -232,6 +213,7 @@ pub fn tidy_name(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::storage::{Homeless, Memory, Unwritable};
 
     fn entry(name: &str, score: u64, date: &str) -> Entry {
         Entry {
@@ -317,70 +299,74 @@ mod tests {
     }
 
     #[test]
-    fn a_round_trip_through_the_file_keeps_every_entry() {
-        let dir = std::env::temp_dir().join("ftm-highscore-round-trip");
-        let _ = std::fs::remove_dir_all(&dir);
-        let path = dir.join(FILE_NAME);
+    fn a_round_trip_through_the_store_keeps_every_entry() {
+        let mut storage = Memory::new();
         let mut table = filled(&[500, 300]);
         table.insert(entry("NEW", 400, "2026-09-05"));
-        table.save(&path).expect("saved");
+        table.save(&mut storage).expect("saved");
 
         let mut warnings = Vec::new();
-        assert_eq!(load(Some(&path), &mut warnings), table);
+        assert_eq!(load(&storage, &mut warnings), table);
         assert!(warnings.is_empty(), "{warnings:?}");
-        assert!(
-            !dir.join("highscores.json.tmp").exists(),
-            "the temp file is renamed, not left behind",
-        );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn a_missing_file_is_an_empty_table_and_no_warning() {
+    fn nothing_stored_is_an_empty_table_and_no_warning() {
         // §14: the game must never fail to start because of the table, and a
         // first run is not a problem worth mentioning.
         let mut warnings = Vec::new();
-        let path = std::env::temp_dir().join("ftm-no-such-highscores.json");
-        let _ = std::fs::remove_file(&path);
-        assert_eq!(load(Some(&path), &mut warnings), Table::default());
+        assert_eq!(load(&Memory::new(), &mut warnings), Table::default());
         assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     #[test]
-    fn a_malformed_file_is_an_empty_table_and_one_warning() {
-        let dir = std::env::temp_dir().join("ftm-highscore-malformed");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("made the directory");
-        let path = dir.join(FILE_NAME);
-        std::fs::write(&path, "{ not json at all").expect("wrote it");
-
+    fn a_malformed_table_is_an_empty_one_and_one_warning() {
+        let storage = Memory::holding(Slot::HighScores, "{ not json at all");
         let mut warnings = Vec::new();
-        assert_eq!(load(Some(&path), &mut warnings), Table::default());
+        assert_eq!(load(&storage, &mut warnings), Table::default());
         assert_eq!(warnings.len(), 1, "{warnings:?}");
 
         // A future version is refused the same way, rather than being read as
         // though its fields meant what they mean here.
-        std::fs::write(&path, r#"{"version":2,"entries":[]}"#).expect("wrote it");
+        let storage = Memory::holding(Slot::HighScores, r#"{"version":2,"entries":[]}"#);
         let mut warnings = Vec::new();
-        assert_eq!(load(Some(&path), &mut warnings), Table::default());
+        assert_eq!(load(&storage, &mut warnings), Table::default());
         assert_eq!(warnings.len(), 1, "{warnings:?}");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn a_hand_edited_file_is_sorted_rather_than_rejected() {
-        let dir = std::env::temp_dir().join("ftm-highscore-unsorted");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("made the directory");
-        let path = dir.join(FILE_NAME);
+    fn a_store_that_cannot_be_read_is_an_empty_table_and_one_warning() {
+        // §14, §16: "missing, malformed, unreadable" all yield an empty table.
+        // A platform with no data directory says so in its own words.
+        let mut warnings = Vec::new();
+        assert_eq!(load(&Homeless, &mut warnings), Table::default());
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+    }
+
+    #[test]
+    fn a_store_that_cannot_be_written_is_a_warning_and_nothing_else() {
+        // §14: "any failure to write yields a warning at exit and is otherwise
+        // ignored". The table in memory still holds the entry.
+        let mut table = filled(&[500]);
+        assert_eq!(table.insert(entry("NEW", 900, "2026-09-05")), Some(0));
+        let error = table.save(&mut Unwritable).expect_err("refused");
+        assert!(error.warning().is_some(), "{error:?}");
+        assert_eq!(table.entries.len(), 2);
+    }
+
+    #[test]
+    fn a_hand_edited_table_is_sorted_rather_than_rejected() {
         let mut table = Table::default();
         table.entries.push(entry("LOW", 10, "2026-01-01"));
         table.entries.push(entry("HIGH", 900, "2026-01-01"));
         table.entries.push(entry("MID", 500, "2026-01-01"));
-        std::fs::write(&path, serde_json::to_string(&table).unwrap()).expect("wrote it");
+        let storage = Memory::holding(
+            Slot::HighScores,
+            &serde_json::to_string(&table).expect("serialises"),
+        );
 
         let mut warnings = Vec::new();
-        let loaded = load(Some(&path), &mut warnings);
+        let loaded = load(&storage, &mut warnings);
         assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(
             loaded
@@ -389,25 +375,6 @@ mod tests {
                 .map(|e| e.name.as_str())
                 .collect::<Vec<_>>(),
             ["HIGH", "MID", "LOW"],
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn the_date_stamp_is_the_format_the_spec_writes() {
-        // §14's example entry: "2026-09-04".
-        let today = today();
-        assert_eq!(today.len(), 10, "{today}");
-        assert!(
-            today
-                .chars()
-                .enumerate()
-                .all(|(at, c)| if at == 4 || at == 7 {
-                    c == '-'
-                } else {
-                    c.is_ascii_digit()
-                }),
-            "{today}",
         );
     }
 }

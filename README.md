@@ -55,6 +55,9 @@ front-end in a window and in a browser.
 are complete. [EGUI.md](EGUI.md) is the live plan, and adds the second and
 third front-ends.
 
-Requires Rust 1.88 or later (edition 2024 needs only 1.85; `ratatui` sets the floor). `make check` runs everything CI runs:
-`cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` and a release
-build.
+Requires Rust 1.88 or later (edition 2024 needs only 1.85; `ratatui` sets the
+floor). `make check` runs everything CI runs: `cargo fmt --check`, `cargo
+clippy -- -D warnings`, `cargo test`, the two boundary checks and a release
+build. The second boundary check builds the rules and the shell for
+`wasm32-unknown-unknown` — they use no clock, no filesystem, no entropy and no
+calendar of their own — so it wants `rustup target add wasm32-unknown-unknown`.

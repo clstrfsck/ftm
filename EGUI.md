@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [PLAN.md](PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** G0–G2 complete; G3 next.
+**Status:** G0–G3 complete (**MG1**); G4 next.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -259,7 +259,10 @@ ftm/
 ```toml
 [features]
 default = ["tui"]
-tui = ["dep:ratatui", "dep:crossterm", "dep:directories", "dep:clap"]
+tui = [
+    "dep:ratatui", "dep:crossterm", "dep:directories", "dep:clap",
+    "dep:chrono", "dep:anyhow", "rand/thread_rng",
+]
 gui = ["dep:eframe", "dep:egui"]
 
 [[bin]]
@@ -280,10 +283,13 @@ required-features = ["gui"]
 than staying shared, because neither has any meaning in a browser tab — the
 shell after G3 does not use them.
 
-The shared, always-on dependencies shrink to `serde`, `toml`, `serde_json` and
-`rand` (the last only inside `core/bag.rs`, as §9.6's bit source). `chrono`
-becomes a front-end dependency, because after G3 the shell is handed a date
-rather than reading one.
+The shared, always-on dependencies shrink to `serde`, `toml`, `serde_json`,
+`thiserror` and `rand` (the last only inside `core/bag.rs`, as §9.6's bit
+source, and with `default-features = false` so that no `getrandom` comes with
+it — an OS entropy source is F3's, and the front-end features turn it back on
+with `rand/thread_rng`). `chrono` becomes a front-end dependency, because after
+G3 the shell is handed a date rather than reading one; so does `anyhow`, which
+only ever appeared in `main` and the terminal's loop.
 
 **Consequence to plan for:** a bare `cargo test` builds only the `tui` half.
 Every command in the Makefile grows `--all-features`, and CI runs that. This is
@@ -584,12 +590,23 @@ pub struct Stamp(u64);
 
 impl Stamp {
     pub const ZERO: Stamp;
-    pub fn from_micros(us: u64) -> Stamp;
-    pub fn from_secs_f64(s: f64) -> Stamp;   // macroquad's get_time(), later
+    pub const fn from_micros(micros: u64) -> Stamp;
+    pub fn from_elapsed(elapsed: Duration) -> Stamp;  // an Instant origin
+    pub fn from_secs_f64(seconds: f64) -> Stamp;      // macroquad's get_time(), later
+    pub const fn as_micros(self) -> u64;
     pub fn saturating_since(self, earlier: Stamp) -> Duration;
-    pub fn checked_add(self, d: Duration) -> Stamp;
+    pub fn saturating_add(self, duration: Duration) -> Stamp;
 }
+// plus Add<Duration>, Sub<Duration> and AddAssign<Duration>, all saturating.
 ```
+
+**Amended as built.** The plan first wrote the last of those as `checked_add`
+returning a `Stamp`, which is two things at once and neither of them clearly:
+`saturating_add` is what the shell actually needs and what the name then means.
+The operators come with it because the arithmetic reads better as
+`start + FACE * 3` than as a method chain, and because `Attract::step` adds to a
+mark in place. Nothing saturates in practice — the range is 584,000 years — but
+nothing can panic either, which is what §16 asks of a front-end that breaks F1.
 
 Every `Instant` in `Cosmetics`, `Attract`, `Confirm`, `Fps` and `App` becomes a
 `Stamp`. `Duration` stays — it is `core::time::Duration`, has no platform
@@ -637,10 +654,23 @@ path, §14's atomic write, and §16's "an unwritable file is a warning, never an
 abort". `gui/host_native.rs` uses the same implementation — the two native
 binaries share a config file, which is the point of G12.
 
+Two details the trait's two methods do not carry, and that turned out to matter:
+
+- **`Ok(None)` and `Unavailable` are different answers.** Nothing stored yet is
+  the ordinary first run and is never a warning; nowhere to store it is §6.2's
+  and §14's "no config directory on this platform", which warns once — on the
+  *read*, so the write that fails the same way a moment later stays quiet and
+  the warning count is what it was before this stage.
+- **The atomic write is §14's alone.** Giving §6.2's document the same treatment
+  looks like tidiness and is a behaviour change: a rename replaces a read-only
+  file, where the `fs::write` it had is refused by one. §17.3's sign-off checked
+  the Options panel over a read-only config, and that is the case it would have
+  quietly broken.
+
 ### 3. Entropy
 
 `Session::next_seed` currently calls `rand::random()`. It becomes a
-front-end-supplied `FnMut() -> u64`, exactly as `Startup::resolve` already takes
+front-end-supplied `fn() -> u64`, exactly as `Startup::resolve` already takes
 one. `core/bag.rs` is untouched — §9.6's PCG32 expansion and Lemire draw stay
 where they are, `rand` remains the bit source, and the CLAUDE.md warning about
 not "simplifying" them back to `rand`'s own API stands.
@@ -652,9 +682,28 @@ composes a `u64`, and nothing else in the tree needs an entropy source.
 ### 4. Date
 
 `highscore::today()` uses `chrono`. It becomes a front-end-supplied
-`FnOnce() -> String` producing §14's date stamp. `chrono` moves to the
-front-end features; the web host uses `js_sys::Date`, avoiding `chrono`'s
-`wasmbind` feature and the `wasm-bindgen` version coupling it brings.
+`fn() -> String` producing §14's date stamp. `chrono` moves to the front-end
+features; the web host uses `js_sys::Date`, avoiding `chrono`'s `wasmbind`
+feature and the `wasm-bindgen` version coupling it brings.
+
+### 5. The command line, which is a capability too
+
+Not on the plan's original list of four, and it belongs with them: `clap` reads
+an argv, a browser tab has none, and §6.4's flags become URL query parameters
+there (G12). So §6.4 splits the way §6.2 does — the *grammar* is the
+front-end's and moves to `tui/cli.rs`, and what crosses into the shell is
+`config::Overrides`, a plain struct of `Option`s with `apply` and §6.4's
+both-directions pairing rule on it. `Startup::resolve` takes that and a
+`Storage` instead of a `Cli`, and `Startup` loses its `PathBuf`.
+
+`ColorDepth` and `LockDownRule` keep their §6.3 spellings and lose their
+`#[derive(ValueEnum)]`; `tui/cli.rs` writes the two impls out, which is also
+where the test that they still match §6.3's tables belongs.
+
+The three shell-side capabilities travel together as `shell::host::Host` — the
+`&mut dyn Storage`, the seed and the date — because five arguments to
+`Session::new` is not a design. It is a struct of values and must not become a
+`trait Frontend`; `FRONTEND.md`'s "Adding a front-end" says why.
 
 ### The CI step that makes it stick
 
@@ -676,6 +725,11 @@ in the same commit.
   non-monotonic pair yields zero rather than panicking.
 - New: §16's failure paths through the trait — a `Storage` that always fails to
   write produces exactly the warnings §16 requires, and never an abort.
+- New, in `tui/host.rs`: §14's temp file is renamed rather than left behind, a
+  read-only config is refused rather than replaced, and a failed write names the
+  *target* in §16's line and never the temp file.
+- Moved, to `tui/cli.rs`: §6.4's synopsis, flag by flag, plus a value-by-value
+  check of the two hand-written `ValueEnum` impls against §6.3's tables.
 
 ### Done when
 
@@ -684,6 +738,11 @@ in the same commit.
 I3's "exactly one warning" for a config that is not TOML.
 
 **MG1.**
+
+> **Done.** `make portable` is the step, and CI installs the target for it. The
+> shared dependency set is now exactly §3's five. A3, A4, A6, A7, I3 and all
+> four of §16's failure paths were re-run on a pty and give the same answers;
+> `CLAUDE.md`'s "What G3 settled" has what that turned up.
 
 ---
 

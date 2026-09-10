@@ -8,7 +8,7 @@
 //!
 //! The loops are the only places that touch a clock: the core below them never
 //! does (§3.1), the DAS/ARR machine above is handed a `Duration` rather than
-//! reading one (§10.3), and the §12.5 animations get the same `Instant` the
+//! reading one (§10.3), and the §12.5 animations get the same `Stamp` the
 //! frame was drawn at.
 //!
 //! [`Session`] and [`App`] are shell objects living in a front-end's module,
@@ -17,8 +17,7 @@
 //! seven numbered steps of §15.2 inside out into methods any front-end can
 //! pump. G2 moved files; G4 moves the boundary.
 
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::event::{self, Event};
@@ -29,10 +28,13 @@ use crate::shell::attract::{Attract, Outcome};
 use crate::shell::config::{self, ConfigFile, DisplaySettings, MAX_CATCH_UP_TICKS, Startup, TICK};
 use crate::shell::cosmetics::Cosmetics;
 use crate::shell::highscore::{self, Entry};
+use crate::shell::host::Host;
 use crate::shell::input::{Bindings, InputMode, InputState};
 use crate::shell::keys::{Key, KeyEvent, KeyKind};
 use crate::shell::menus::{NameEntry, Overlay, PauseChoice, Setting};
+use crate::shell::time::Stamp;
 use crate::tui::attract::{self, Background};
+use crate::tui::host::Clock;
 use crate::tui::keys::neutral;
 use crate::tui::theme::{Glyphs, Theme};
 use crate::tui::{self, Chrome, Debug, Hud, Tui};
@@ -80,10 +82,10 @@ enum Phase {
     /// §12.6's Controls item, over the same blanked playfield.
     Controls,
     Resuming {
-        since: Instant,
+        since: Stamp,
     },
     GameOver {
-        since: Instant,
+        since: Stamp,
     },
     /// §12.6, only when the score qualifies. `rank` is zero-based, as the
     /// table counts it.
@@ -149,15 +151,15 @@ struct Frame {
 /// defaults, not the 90 ms that separates repeats once they are flowing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct Confirm {
-    since: Option<Instant>,
-    last: Option<Instant>,
+    since: Option<Stamp>,
+    last: Option<Stamp>,
 }
 
 /// How long a restart hold survives silence in legacy mode (§8.2).
 const RESTART_QUIET: Duration = Duration::from_millis(700);
 
 impl Confirm {
-    fn press(&mut self, now: Instant) {
+    fn press(&mut self, now: Stamp) {
         self.since.get_or_insert(now);
         self.last = Some(now);
     }
@@ -168,23 +170,23 @@ impl Confirm {
 
     /// Age out a legacy-mode hold that has fallen quiet (§8.2). Never called in
     /// enhanced mode, where the release event is authoritative.
-    fn expire(&mut self, now: Instant) {
+    fn expire(&mut self, now: Stamp) {
         if self
             .last
-            .is_some_and(|last| now.saturating_duration_since(last) >= RESTART_QUIET)
+            .is_some_and(|last| now.saturating_since(last) >= RESTART_QUIET)
         {
             self.release();
         }
     }
 
     /// How far the hold has come, as a percentage, or `None` if the key is up.
-    fn progress(&self, now: Instant) -> Option<u8> {
+    fn progress(&self, now: Stamp) -> Option<u8> {
         let since = self.since?;
-        let elapsed = now.saturating_duration_since(since);
+        let elapsed = now.saturating_since(since);
         Some((elapsed.as_millis() * 100 / RESTART_HOLD.as_millis()).min(100) as u8)
     }
 
-    fn done(&self, now: Instant) -> bool {
+    fn done(&self, now: Stamp) -> bool {
         self.progress(now) == Some(100)
     }
 }
@@ -195,13 +197,16 @@ impl Confirm {
 /// [`App`] because a run is not one game any more: the §13.5 Options panel is
 /// reachable from the attract screen as well as from the pause menu, and the
 /// high-score table is what the two screens have to agree about.
-pub struct Session {
+pub struct Session<'a> {
     /// The effective configuration (§6.1), which the Options panel edits in
     /// place and writes back on the way out.
     pub config: ConfigFile,
-    config_path: Option<PathBuf>,
+    /// The three capabilities a run borrows from the front-end (§3.1,
+    /// `FRONTEND.md` F2-F4): §6.2's and §14's bytes, the seed for the next
+    /// game and §14's date stamp. The fourth, time, arrives as a [`Stamp`]
+    /// argument instead.
+    host: Host<'a>,
     scores: highscore::Table,
-    scores_path: Option<PathBuf>,
     /// The entry the run that just finished added, highlighted by §13.5's
     /// high-score screen.
     recent: Option<usize>,
@@ -226,20 +231,18 @@ pub struct Session {
     generation: u32,
 }
 
-impl Session {
+impl<'a> Session<'a> {
     /// Resolve what start-up found into what the two screens share.
-    pub fn new(startup: &Startup, mode: InputMode) -> Self {
+    pub fn new(startup: &Startup, mode: InputMode, host: Host<'a>) -> Self {
         let mut warnings = Vec::new();
-        let scores_path = highscore::default_path();
         // §14: a table that cannot be read is an empty table and a warning; it
         // is never a reason not to start.
-        let scores = highscore::load(scores_path.as_deref(), &mut warnings);
+        let scores = highscore::load(host.storage, &mut warnings);
         Self {
             glyphs: Glyphs::configured(&startup.file.display),
             config: startup.file.clone(),
-            config_path: startup.path.clone(),
+            host,
             scores,
-            scores_path,
             recent: None,
             warnings,
             saved: false,
@@ -259,7 +262,7 @@ impl Session {
         if self.seeded {
             self.seed
         } else {
-            rand::random()
+            (self.host.seed)()
         }
     }
 
@@ -275,30 +278,32 @@ impl Session {
     /// §6.1: write the edited settings back. §16: an unwritable file never
     /// aborts — it adds a line to the warnings printed at exit.
     fn save_config(&mut self) {
-        let Some(path) = self.config_path.as_deref() else {
-            return;
-        };
-        match config::save(path, &self.config) {
+        match config::save(self.host.storage, &self.config) {
             Ok(()) => self.saved = true,
-            Err(error) => self.warn(format!("{}: {error}", path.display())),
+            // §16: a store with nowhere to keep it said so at load, and has
+            // nothing to add here.
+            Err(error) => {
+                if let Some(line) = error.warning() {
+                    self.warn(line.to_string());
+                }
+            }
         }
     }
 
     /// File a finished run (§14), reporting nothing: a score that did not make
     /// the table and a table that could not be written look the same from here.
     fn record(&mut self, name: &str, view: &GameView) {
-        let entry = Entry::of(name, view, highscore::today());
+        let entry = Entry::of(name, view, (self.host.today)());
         self.recent = self.scores.insert(entry);
         if self.recent.is_none() {
             return;
         }
-        let Some(path) = self.scores_path.as_deref() else {
-            return;
-        };
-        if let Err(error) = self.scores.save(path) {
+        if let Err(error) = self.scores.save(self.host.storage) {
             // §14: "any failure to write yields a warning at exit and is
             // otherwise ignored".
-            self.warn(format!("{}: {error}", path.display()));
+            if let Some(line) = error.warning() {
+                self.warn(line.to_string());
+            }
         }
     }
 
@@ -341,7 +346,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(session: &Session) -> Self {
+    pub fn new(session: &Session<'_>) -> Self {
         let (rules, presentation) = session.config.resolve();
         Self {
             bindings: Bindings::new(&presentation.keys, &rules),
@@ -374,13 +379,13 @@ impl App {
     }
 
     /// What the screen should draw on top of the playfield (§12.6).
-    fn overlay(&self, now: Instant) -> Overlay {
+    fn overlay(&self, now: Stamp) -> Overlay {
         match self.phase {
             Phase::Playing => Overlay::None,
             Phase::Paused { selected } => Overlay::Paused { selected },
             Phase::Options { selected } => Overlay::Options { selected },
             Phase::Resuming { since } => {
-                let elapsed = now.saturating_duration_since(since);
+                let elapsed = now.saturating_since(since);
                 let left = COUNTDOWN.saturating_sub(elapsed);
                 Overlay::Resuming {
                     count: (left.as_secs() as u8 + 1).min(3),
@@ -396,7 +401,7 @@ impl App {
     }
 
     /// Fold in one key event, reporting whether the player asked to leave.
-    fn key(&mut self, session: &mut Session, event: &KeyEvent, now: Instant) -> Flow {
+    fn key(&mut self, session: &mut Session<'_>, event: &KeyEvent, now: Stamp) -> Flow {
         match self.phase {
             Phase::Playing => self.play_key(event, now),
             Phase::Paused { selected } => self.pause_key(event, selected, now),
@@ -421,7 +426,7 @@ impl App {
             // §9.16: any key, once the box has been up for a second.
             Phase::GameOver { since } => {
                 let pressed = event.kind != KeyKind::Release;
-                if pressed && now.saturating_duration_since(since) >= GAME_OVER_LOCKOUT {
+                if pressed && now.saturating_since(since) >= GAME_OVER_LOCKOUT {
                     return self.finish(session);
                 }
                 Flow::Continue
@@ -430,7 +435,7 @@ impl App {
         }
     }
 
-    fn play_key(&mut self, event: &KeyEvent, now: Instant) -> Flow {
+    fn play_key(&mut self, event: &KeyEvent, now: Stamp) -> Flow {
         // §10.1: the restart key is held rather than pressed, so it is taken
         // off the edge-triggered path before `InputState` sees it.
         if self.bindings.action_of(event) == Some(Action::Restart) {
@@ -460,7 +465,7 @@ impl App {
     /// §10.1: overlay navigation is `↑`/`↓`, `Enter`/`Space` and `Esc`,
     /// regardless of the game bindings — and the configured pause key toggles
     /// out again, because §9.17 calls it a toggle.
-    fn pause_key(&mut self, event: &KeyEvent, selected: usize, now: Instant) -> Flow {
+    fn pause_key(&mut self, event: &KeyEvent, selected: usize, now: Stamp) -> Flow {
         if self.is_pause(event) {
             self.resume(now);
             return Flow::Continue;
@@ -497,7 +502,12 @@ impl App {
     ///
     /// The write happens here, on the way out, which is what §6.1 means by
     /// "written back to the config file immediately on leaving that screen".
-    fn options_key(&mut self, session: &mut Session, event: &KeyEvent, selected: usize) -> Flow {
+    fn options_key(
+        &mut self,
+        session: &mut Session<'_>,
+        event: &KeyEvent,
+        selected: usize,
+    ) -> Flow {
         if event.kind == KeyKind::Release {
             return Flow::Continue;
         }
@@ -533,7 +543,7 @@ impl App {
     ///
     /// The rank the box is showing is not read here: it was decided when the
     /// game ended, and `Table::insert` settles the entry's place for itself.
-    fn name_key(&mut self, session: &mut Session, event: &KeyEvent) -> Flow {
+    fn name_key(&mut self, session: &mut Session<'_>, event: &KeyEvent) -> Flow {
         if event.kind == KeyKind::Release {
             return Flow::Continue;
         }
@@ -565,7 +575,7 @@ impl App {
 
     /// §7: a finished game goes to name entry if the score qualifies and the
     /// run was not seeded, and to the attract screen otherwise.
-    fn finish(&mut self, session: &Session) -> Flow {
+    fn finish(&mut self, session: &Session<'_>) -> Flow {
         // §6.4, §14: a seeded run is reproducible and is never recorded.
         let rank = (!session.seeded)
             .then(|| session.scores.rank_for(self.game.view().score))
@@ -607,7 +617,7 @@ impl App {
         self.pending = Pending::default();
     }
 
-    fn resume(&mut self, now: Instant) {
+    fn resume(&mut self, now: Stamp) {
         self.phase = Phase::Resuming { since: now };
     }
 
@@ -640,7 +650,7 @@ impl App {
     /// Edge-triggered actions and the DAS-resolved shift are consumed by the
     /// first tick of the batch only; the held soft drop applies to every tick
     /// in it.
-    fn advance(&mut self, ticks: u32, now: Instant) {
+    fn advance(&mut self, ticks: u32, now: Stamp) {
         // Cleared unconditionally, and *before* the early return: the events of
         // a frame belong to that frame, and the cosmetics absorb this buffer
         // every frame (§12.5). Leaving the last frame's events in it would
@@ -680,7 +690,7 @@ impl App {
 
     /// Age the restart hold and report whether it has been held long enough
     /// (§10.1).
-    fn restart_due(&mut self, now: Instant) -> bool {
+    fn restart_due(&mut self, now: Stamp) -> bool {
         if self.input.mode() == InputMode::Legacy {
             self.restart.expire(now);
         }
@@ -695,13 +705,13 @@ impl App {
 /// were drawn, not how fast one of them was.
 #[derive(Debug)]
 struct Fps {
-    since: Instant,
+    since: Stamp,
     frames: u32,
     rate: u32,
 }
 
 impl Fps {
-    fn new(now: Instant) -> Self {
+    fn new(now: Stamp) -> Self {
         Self {
             since: now,
             frames: 0,
@@ -710,9 +720,9 @@ impl Fps {
     }
 
     /// Count one drawn frame and report the rate.
-    fn drew(&mut self, now: Instant) -> u32 {
+    fn drew(&mut self, now: Stamp) -> u32 {
         self.frames += 1;
-        if now.saturating_duration_since(self.since) >= Duration::from_secs(1) {
+        if now.saturating_since(self.since) >= Duration::from_secs(1) {
             self.rate = self.frames;
             self.frames = 0;
             self.since = now;
@@ -758,20 +768,28 @@ fn ticks_due(accumulator: &mut Duration) -> (u32, u64) {
 /// `startup` is borrowed rather than consumed because the §13.5 Options panel
 /// edits the config in place and §16's warnings have to survive back to `main`,
 /// which prints them after terminal teardown.
-pub fn run(terminal: &mut Tui, startup: &mut Startup, mode: InputMode) -> Result<()> {
-    let mut session = Session::new(startup, mode);
-    let outcome = states(terminal, &mut session);
+pub fn run(
+    terminal: &mut Tui,
+    startup: &mut Startup,
+    mode: InputMode,
+    host: Host<'_>,
+) -> Result<()> {
+    // `FRONTEND.md` F1: the clock starts here, and it is the front-end's, so
+    // every `Stamp` below is measured from the same origin.
+    let clock = Clock::new();
+    let mut session = Session::new(startup, mode, host);
+    let outcome = states(terminal, &mut session, &clock);
     session.finish(startup);
     outcome
 }
 
 /// §7's transitions, as a loop over [`Next`].
-fn states(terminal: &mut Tui, session: &mut Session) -> Result<()> {
+fn states(terminal: &mut Tui, session: &mut Session<'_>, clock: &Clock) -> Result<()> {
     let mut next = Next::Attract;
     loop {
         next = match next {
-            Next::Attract => attract(terminal, session)?,
-            Next::Play => round(terminal, session)?,
+            Next::Attract => attract(terminal, session, clock)?,
+            Next::Play => round(terminal, session, clock)?,
             Next::Quit => return Ok(()),
         };
     }
@@ -779,12 +797,12 @@ fn states(terminal: &mut Tui, session: &mut Session) -> Result<()> {
 
 /// The attract screen's loop (§15.3): 10 fps, no accumulator, and a redraw only
 /// when something moved.
-fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
-    let mut state = Attract::new(Instant::now());
+fn attract(terminal: &mut Tui, session: &mut Session<'_>, clock: &Clock) -> Result<Next> {
+    let mut state = Attract::new(clock.now());
     // §13.4's drift is the terminal's own: it is positioned in the character
     // grid's cells, so it lives beside the drawing rather than in the state
     // machine, and its "did anything move" answer is folded in below.
-    let mut background = Background::new(Instant::now());
+    let mut background = Background::new(clock.now());
     let mut chrome = session.chrome(session.config.gameplay.hold_enabled);
     let mut dirty = true;
     // §8.4: the size is tracked from the resize events rather than asked for
@@ -792,7 +810,7 @@ fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
     // whole frame is invalid.
     let mut area = terminal.size()?;
     loop {
-        let now = Instant::now();
+        let now = clock.now();
         // Drain every event that is already waiting; reading one per frame
         // would leave fast typing lagging behind.
         while event::poll(Duration::ZERO)? {
@@ -870,15 +888,15 @@ fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
 }
 
 /// One game (§15.2), from the first piece to the attract screen or a restart.
-fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
+fn round(terminal: &mut Tui, session: &mut Session<'_>, clock: &Clock) -> Result<Next> {
     let show_debug = session.config.display.show_debug;
     let mut app = App::new(session);
     let clear_delay = TICK * session.config.resolve().0.line_clear_delay_ticks;
     let mut chrome = session.chrome(app.hold_enabled);
-    let mut fx = Cosmetics::new(clear_delay, Instant::now());
+    let mut fx = Cosmetics::new(clear_delay, clock.now());
     let mut previous: Option<Frame> = None;
     let mut accumulator = Duration::ZERO;
-    let mut last = Instant::now();
+    let mut last = clock.now();
     let mut fps = Fps::new(last);
     let mut settings = session.generation;
     // §8.4: tracked from the resize events, which are also what invalidates
@@ -889,8 +907,8 @@ fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
         // 1. Wall-clock time since the last iteration. §9.17: while the clock
         //    is stopped the time simply does not accumulate, so unpausing does
         //    not pay out the pause as catch-up ticks.
-        let now = Instant::now();
-        let dt = now.saturating_duration_since(last);
+        let now = clock.now();
+        let dt = now.saturating_since(last);
         last = now;
         if app.phase.running() {
             accumulator += dt;
@@ -899,7 +917,7 @@ fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
         }
         // The countdown is the one non-running phase that ends by itself.
         if let Phase::Resuming { since } = app.phase
-            && now.saturating_duration_since(since) >= COUNTDOWN
+            && now.saturating_since(since) >= COUNTDOWN
         {
             app.phase = Phase::Playing;
         }
@@ -1022,6 +1040,7 @@ fn chrome_for(display: &DisplaySettings, glyphs: Glyphs, hold_enabled: bool) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::storage::{Memory, Slot, Storage, Unwritable};
 
     #[test]
     fn a_steady_machine_runs_one_tick_per_frame() {
@@ -1055,14 +1074,19 @@ mod tests {
         assert_eq!(accumulator, Duration::ZERO, "the backlog is thrown away");
     }
 
-    /// A session with no files behind it: nothing here writes one unless the
-    /// test hands it a path.
-    fn session() -> Session {
+    /// §14's date stamp, fixed: the front-end supplies it (`FRONTEND.md` F4),
+    /// so a test supplies its own and the ordering rules stay testable.
+    fn date() -> String {
+        "2026-09-10".to_string()
+    }
+
+    /// A session over the store the test hands it. `Memory` is the usual one,
+    /// so nothing here reaches a file unless the test asked for one.
+    fn session(storage: &mut dyn Storage) -> Session<'_> {
         Session {
             config: ConfigFile::default(),
-            config_path: None,
+            host: Host::new(storage, || 42, date),
             scores: highscore::Table::default(),
-            scores_path: None,
             recent: None,
             warnings: Vec::new(),
             saved: false,
@@ -1074,8 +1098,8 @@ mod tests {
         }
     }
 
-    fn app() -> (App, Session) {
-        let session = session();
+    fn app(storage: &mut dyn Storage) -> (App, Session<'_>) {
+        let session = session(storage);
         (App::new(&session), session)
     }
 
@@ -1089,8 +1113,9 @@ mod tests {
         // legitimately run zero ticks. Input the shell has already resolved
         // must survive until a tick consumes it, or every tap that lands
         // between two ticks -- which is most of them -- is silently lost.
-        let (mut app, _session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, _session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.pending.shift = Some(Shift::Left);
         app.pending.cells = 1;
         let _ = app.pending.actions.push(Action::RotateCw);
@@ -1114,8 +1139,9 @@ mod tests {
         // so the player is never killed by a window resize". A soft drop that
         // was being held when the window shrank must not survive it either:
         // nothing expires a held key while the clock is stopped (§8.2).
-        let (mut app, _session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, _session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.pending.shift = Some(Shift::Left);
         app.pending.cells = 3;
         assert!(app.phase.running());
@@ -1140,8 +1166,9 @@ mod tests {
     fn a_frame_that_runs_no_ticks_reports_no_events() {
         // The other half of the same guard: `events` is what the §12.5
         // animations are fed, so a frame that did nothing must say nothing.
-        let (mut app, _session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, _session) = app(&mut storage);
+        let now = Stamp::ZERO;
         let _ = app.pending.actions.push(Action::HardDrop);
         app.advance(1, now);
         assert!(!app.events.is_empty(), "a hard drop is eventful");
@@ -1154,8 +1181,9 @@ mod tests {
     fn pause_stops_the_clock_and_resumes_through_a_countdown() {
         // §9.17: the game clock does not advance while paused, and unpausing
         // runs a 3-2-1 countdown during which it still does not.
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         assert!(app.phase.running());
 
         assert_eq!(app.key(&mut session, &press(Key::Esc), now), Flow::Continue);
@@ -1183,8 +1211,9 @@ mod tests {
 
     #[test]
     fn the_pause_menu_wraps_and_resume_is_the_first_item() {
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.pause(0);
         app.key(&mut session, &press(Key::Down), now);
         assert_eq!(app.phase, Phase::Paused { selected: 1 });
@@ -1217,8 +1246,9 @@ mod tests {
     fn a_pause_swallows_the_input_that_was_in_flight() {
         // §9.17 stops the timers; a rotation queued a moment before must not
         // be waiting to fire when the countdown ends.
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.key(&mut session, &press(Key::Up), now);
         assert_ne!(app.pending.actions, Actions::default());
         app.key(&mut session, &press(Key::Esc), now);
@@ -1229,8 +1259,9 @@ mod tests {
     fn the_game_over_box_cannot_be_dismissed_for_a_second() {
         // §9.16: input is ignored for 1 s, so the keypress that killed you
         // does not also dismiss the box.
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.phase = Phase::GameOver { since: now };
         assert_eq!(
             app.key(&mut session, &press(Key::Char('x')), now),
@@ -1258,7 +1289,7 @@ mod tests {
         // §12.4: the interesting number is how many frames were drawn, and
         // §15.2 step 5 skips a frame that would change nothing — so counting
         // is right and deriving it from the frame time is not.
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fps = Fps::new(start);
         assert_eq!(fps.drew(start), 0, "nothing to report in the first second");
         for _ in 0..40 {
@@ -1274,8 +1305,9 @@ mod tests {
     #[test]
     fn the_pause_menu_opens_the_options_panel() {
         // §12.6 as amended, and §6.1's "in-game Options screen".
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.pause(0);
         for _ in 0..2 {
             app.key(&mut session, &press(Key::Down), now);
@@ -1293,15 +1325,9 @@ mod tests {
     fn the_options_panel_edits_and_writes_back_on_the_way_out() {
         // §13.5: `←`/`→` change the selected value, `Esc` saves and returns.
         // §6.1: "written back to the config file immediately on leaving".
-        let dir = std::env::temp_dir().join("ftm-options-panel-test");
-        let _ = std::fs::remove_dir_all(&dir);
-        let path = dir.join(crate::shell::config::FILE_NAME);
-        let mut session = Session {
-            config_path: Some(path.clone()),
-            ..session()
-        };
-        let mut app = App::new(&session);
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.phase = Phase::Options { selected: 0 };
 
         app.key(&mut session, &press(Key::Right), now);
@@ -1312,7 +1338,11 @@ mod tests {
             session.config.gameplay.start_level, 15,
             "the second row, wrapping off the bottom",
         );
-        assert!(!path.exists(), "nothing is written while the panel is up");
+        assert_eq!(
+            session.host.storage.read(Slot::Config),
+            Ok(None),
+            "nothing is written while the panel is up",
+        );
 
         assert_eq!(app.key(&mut session, &press(Key::Esc), now), Flow::Continue);
         assert_eq!(
@@ -1329,25 +1359,22 @@ mod tests {
         );
 
         let mut warnings = Vec::new();
-        let written = crate::shell::config::load(Some(&path), &mut warnings).file;
+        let written = config::load(session.host.storage, &mut warnings).file;
         assert_eq!(written, session.config);
         assert!(warnings.is_empty(), "{warnings:?}");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_config_that_cannot_be_written_warns_rather_than_aborting() {
         // §16: recoverable problems degrade to a documented default and add a
-        // line to the warnings printed at exit.
-        let mut session = Session {
-            // A path under a file rather than a directory: `create_dir_all`
-            // cannot make it, whatever the platform.
-            config_path: Some(PathBuf::from("/dev/null/ftm/config.toml")),
-            ..session()
-        };
+        // line to the warnings printed at exit. A store that refuses every
+        // write is what a read-only config directory looks like from here, and
+        // §17.3's sign-off exercised that case on a real one.
+        let mut storage = Unwritable;
+        let mut session = session(&mut storage);
         let mut app = App::new(&session);
         app.phase = Phase::Options { selected: 0 };
-        app.key(&mut session, &press(Key::Esc), Instant::now());
+        app.key(&mut session, &press(Key::Esc), Stamp::ZERO);
         assert!(!session.saved);
         assert_eq!(session.warnings.len(), 1, "{:?}", session.warnings);
         assert_eq!(
@@ -1363,8 +1390,9 @@ mod tests {
     fn changing_a_value_makes_the_loop_redraw() {
         // §15.2 step 5 draws only when the frame changed, and compares the view
         // and the overlay — neither of which a panel value lives in.
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.phase = Phase::Options { selected: 0 };
         let before = session.generation;
         app.key(&mut session, &press(Key::Down), now);
@@ -1381,7 +1409,7 @@ mod tests {
     }
 
     /// Play one hard drop, so the run has a score worth recording (§9.14).
-    fn scored(app: &mut App, now: Instant) -> u64 {
+    fn scored(app: &mut App, now: Stamp) -> u64 {
         let _ = app.pending.actions.push(Action::HardDrop);
         app.advance(1, now);
         let score = app.view().score;
@@ -1393,9 +1421,10 @@ mod tests {
     fn a_qualifying_score_goes_to_name_entry() {
         // §7: `GameOver` -> `NameEntry` when the score qualifies for the table
         // and the run is unseeded.
-        let (mut app, mut session) = app();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
         session.seeded = false;
-        let now = Instant::now();
+        let now = Stamp::ZERO;
         scored(&mut app, now);
         app.phase = Phase::GameOver { since: now };
         assert_eq!(
@@ -1420,9 +1449,10 @@ mod tests {
     #[test]
     fn a_seeded_run_is_never_offered_the_table() {
         // §6.4, §14: "runs started with `--seed` are never recorded".
-        let (mut app, mut session) = app();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
         assert!(session.seeded);
-        let now = Instant::now();
+        let now = Stamp::ZERO;
         scored(&mut app, now);
         app.phase = Phase::GameOver { since: now };
         assert_eq!(
@@ -1440,9 +1470,10 @@ mod tests {
     fn a_score_that_does_not_qualify_goes_straight_back() {
         // §14: a score of 0 never qualifies, so a game abandoned before the
         // first lock skips name entry entirely.
-        let (mut app, mut session) = app();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
         session.seeded = false;
-        let now = Instant::now();
+        let now = Stamp::ZERO;
         assert_eq!(app.view().score, 0);
         app.phase = Phase::GameOver { since: now };
         assert_eq!(
@@ -1458,8 +1489,9 @@ mod tests {
     #[test]
     fn enter_records_the_score_and_esc_discards_it() {
         // §12.6: "`Enter` confirms ... `Esc` cancels and discards the score."
-        let now = Instant::now();
-        let (mut app, mut session) = app();
+        let now = Stamp::ZERO;
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
         session.seeded = false;
         let score = scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };
@@ -1492,8 +1524,9 @@ mod tests {
     #[test]
     fn an_empty_name_becomes_anon() {
         // §12.6.
-        let now = Instant::now();
-        let (mut app, mut session) = app();
+        let now = Stamp::ZERO;
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
         session.seeded = false;
         scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };
@@ -1511,8 +1544,9 @@ mod tests {
     fn the_restart_key_must_be_held_for_a_second() {
         // §10.1: "Restart (hold 1 s)". A tap does nothing, which is the whole
         // point: `r` is next to nothing dangerous, and the game is at stake.
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         assert_eq!(app.restart.progress(now), None, "the key is up");
 
         app.key(&mut session, &press(Key::Char('r')), now);
@@ -1532,12 +1566,11 @@ mod tests {
         // §8.2: there are no release events, so the hold ends when the key
         // falls quiet — and the window has to outlast the terminal's *first*
         // auto-repeat, which is far longer than the gap between later ones.
-        let mut session = Session {
-            mode: InputMode::Legacy,
-            ..session()
-        };
+        let mut storage = Memory::new();
+        let mut session = session(&mut storage);
+        session.mode = InputMode::Legacy;
         let mut app = App::new(&session);
-        let now = Instant::now();
+        let now = Stamp::ZERO;
         app.key(&mut session, &press(Key::Char('r')), now);
         assert!(
             RESTART_QUIET > crate::shell::input::HOLD_TIMEOUT,
@@ -1561,8 +1594,9 @@ mod tests {
     #[test]
     fn a_pause_cancels_a_restart_in_flight() {
         // §9.17 stops the timers, and the restart hold is one of them.
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.key(&mut session, &press(Key::Char('r')), now);
         app.key(&mut session, &press(Key::Esc), now);
         assert_eq!(app.restart.progress(now), None);
@@ -1574,8 +1608,9 @@ mod tests {
         // §12.6 lists Controls beside Options, and §13.5 makes them the same
         // two boxes; a player checking which key holds must not lose the run
         // to do it.
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         app.pause(0);
         for _ in 0..PauseChoice::Controls.index() {
             app.key(&mut session, &press(Key::Down), now);
@@ -1601,8 +1636,9 @@ mod tests {
     fn the_pause_menu_restarts_and_the_quit_key_goes_to_the_attract_screen() {
         // §7: `Playing` + quit -> `Attract` (abandoned, not scored); the pause
         // menu's Restart -> a fresh `Playing`.
-        let (mut app, mut session) = app();
-        let now = Instant::now();
+        let mut storage = Memory::new();
+        let (mut app, mut session) = app(&mut storage);
+        let now = Stamp::ZERO;
         assert_eq!(
             app.key(&mut session, &press(Key::Char('q')), now),
             Flow::Leave(Next::Attract),
@@ -1620,18 +1656,18 @@ mod tests {
     #[test]
     fn a_fresh_game_keeps_a_seeded_run_reproducible() {
         // §6.4: `--seed` is for reproducing a game, so every game of a seeded
-        // run is the same one; an unseeded run draws afresh each time.
-        let session = session();
+        // run is the same one; an unseeded one asks the front-end for bits
+        // afresh each time (`FRONTEND.md` F3).
+        let mut storage = Memory::new();
+        let mut session = session(&mut storage);
         assert!(session.seeded);
         assert_eq!(App::new(&session).view(), App::new(&session).view());
 
-        let unseeded = Session {
-            seeded: false,
-            ..session
-        };
+        session.seeded = false;
+        session.host.seed = crate::tui::host::seed;
         let mut seen = std::collections::HashSet::new();
         for _ in 0..8 {
-            seen.insert(App::new(&unseeded).view().next.clone());
+            seen.insert(App::new(&session).view().next.clone());
         }
         assert!(seen.len() > 1, "eight games, all the same queue");
     }
@@ -1640,13 +1676,10 @@ mod tests {
     fn a_high_score_table_that_cannot_be_written_warns_rather_than_aborting() {
         // §14, §16: "any failure to write yields a warning at exit and is
         // otherwise ignored".
-        let now = Instant::now();
-        let mut session = Session {
-            seeded: false,
-            // A path under a file rather than a directory (see the config test).
-            scores_path: Some(PathBuf::from("/dev/null/ftm/highscores.json")),
-            ..session()
-        };
+        let now = Stamp::ZERO;
+        let mut storage = Unwritable;
+        let mut session = session(&mut storage);
+        session.seeded = false;
         let mut app = App::new(&session);
         scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };

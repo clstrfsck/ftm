@@ -4,15 +4,16 @@
 //! on a clock the front-end supplies, so the core never knows one is in
 //! progress and dropping every event costs nothing but the decoration. This is
 //! the whole of the "events are a notification, never a mechanism" contract in
-//! one place: the module consumes `&[GameEvent]` and an `Instant`, and has no
+//! one place: the module consumes `&[GameEvent]` and a `Stamp`, and has no
 //! way to reach the core even if it wanted to.
 //!
 //! Nothing here draws. What a banner or a flash *looks* like is each
 //! front-end's; when one is up, and how far through it is, is shared.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::core::{ClearKind, GameEvent, OFF_SCREEN, PieceKind, ScoreReason};
+use crate::shell::time::Stamp;
 
 /// The hard-drop trail (§12.5).
 const TRAIL: Duration = Duration::from_millis(120);
@@ -49,7 +50,7 @@ struct Trail {
 #[derive(Clone, Debug)]
 struct Running<T> {
     what: T,
-    since: Instant,
+    since: Stamp,
 }
 
 /// The cosmetic state of the screen: every §12.5 animation and §12.4's status
@@ -62,7 +63,7 @@ pub struct Cosmetics {
     /// The line-clear flash lasts exactly the core's clear pause, so the flash
     /// covers the pause and stops when the rows collapse (§12.5, §12.8).
     clear_delay: Duration,
-    now: Instant,
+    now: Stamp,
     flash: Option<Running<Vec<u8>>>,
     trail: Option<Running<Trail>>,
     lock: Option<Running<Vec<(u8, u8)>>>,
@@ -76,7 +77,7 @@ pub struct Cosmetics {
 }
 
 impl Cosmetics {
-    pub fn new(clear_delay: Duration, now: Instant) -> Self {
+    pub fn new(clear_delay: Duration, now: Stamp) -> Self {
         Self {
             clear_delay,
             now,
@@ -95,7 +96,7 @@ impl Cosmetics {
     ///
     /// `events` may be empty, which is the common case; the clock still has to
     /// advance, because that is what ends an animation.
-    pub fn absorb(&mut self, events: &[GameEvent], now: Instant) {
+    pub fn absorb(&mut self, events: &[GameEvent], now: Stamp) {
         self.now = now;
         for event in events {
             self.start(event, now);
@@ -110,7 +111,7 @@ impl Cosmetics {
         // game-over overlay sits on top of it (§9.16).
     }
 
-    fn start(&mut self, event: &GameEvent, now: Instant) {
+    fn start(&mut self, event: &GameEvent, now: Stamp) {
         match event {
             GameEvent::HardDropped { rows } => self.dropped = Some(*rows),
             GameEvent::PieceLocked { cells, kind } => {
@@ -185,7 +186,7 @@ impl Cosmetics {
         if !flash.what.contains(&row) {
             return None;
         }
-        let elapsed = self.now.saturating_duration_since(flash.since);
+        let elapsed = self.now.saturating_since(flash.since);
         Some((elapsed.as_nanos() / FLASH_PERIOD.as_nanos()).is_multiple_of(2))
     }
 
@@ -207,7 +208,7 @@ impl Cosmetics {
         let Some(wipe) = self.wipe.as_ref() else {
             return 0;
         };
-        let elapsed = self.now.saturating_duration_since(wipe.since);
+        let elapsed = self.now.saturating_since(wipe.since);
         if elapsed >= WIPE {
             return height;
         }
@@ -220,12 +221,12 @@ impl Cosmetics {
     /// the rarer thing to have done.
     pub fn banner(&self) -> Option<Banner> {
         if let Some(perfect) = self.perfect.as_ref() {
-            let elapsed = self.now.saturating_duration_since(perfect.since);
+            let elapsed = self.now.saturating_since(perfect.since);
             let step = (elapsed.as_millis() / 120) as usize % PieceKind::ALL.len();
             return Some(Banner::PerfectClear(PieceKind::ALL[step]));
         }
         let level = self.level_up.as_ref()?;
-        let elapsed = self.now.saturating_duration_since(level.since);
+        let elapsed = self.now.saturating_since(level.since);
         let left = LEVEL_BANNER.saturating_sub(elapsed);
         let percent = (left.as_millis() * 100 / LEVEL_BANNER.as_millis()) as u8;
         Some(Banner::LevelUp(level.what, percent))
@@ -246,7 +247,7 @@ impl Cosmetics {
             || self
                 .wipe
                 .as_ref()
-                .is_some_and(|w| self.now.saturating_duration_since(w.since) < WIPE)
+                .is_some_and(|w| self.now.saturating_since(w.since) < WIPE)
     }
 
     /// The most recent clear's name, for the 1.5 s it is shown (§12.4).
@@ -256,10 +257,10 @@ impl Cosmetics {
 }
 
 /// Drop a finished animation.
-fn expire<T>(slot: &mut Option<Running<T>>, now: Instant, life: Duration) {
+fn expire<T>(slot: &mut Option<Running<T>>, now: Stamp, life: Duration) {
     if slot
         .as_ref()
-        .is_some_and(|running| now.saturating_duration_since(running.since) >= life)
+        .is_some_and(|running| now.saturating_since(running.since) >= life)
     {
         *slot = None;
     }
@@ -302,7 +303,7 @@ mod tests {
 
     const CLEAR_DELAY: Duration = Duration::from_millis(250);
 
-    fn fx(now: Instant) -> Cosmetics {
+    fn fx(now: Stamp) -> Cosmetics {
         Cosmetics::new(CLEAR_DELAY, now)
     }
 
@@ -310,7 +311,7 @@ mod tests {
     fn a_hard_drop_leaves_a_trail_above_where_it_landed() {
         // §12.5: "the columns the piece passed through are drawn dimmed behind
         // it". §12.8 splits the news across two events in the same tick.
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         fx.absorb(
             &[
@@ -346,7 +347,7 @@ mod tests {
 
     #[test]
     fn a_lock_that_was_not_dropped_leaves_no_trail() {
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         fx.absorb(
             &[GameEvent::PieceLocked {
@@ -365,7 +366,7 @@ mod tests {
     fn a_mino_above_the_field_is_not_drawn() {
         // §12.8: `PieceLocked` encodes an off-screen mino as (255, 255), and
         // nothing downstream may treat that as a coordinate.
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         fx.absorb(
             &[
@@ -386,7 +387,7 @@ mod tests {
     fn the_line_clear_flash_alternates_and_lasts_the_clear_pause() {
         // §12.5: 12 Hz, for `line_clear_delay_ms`, which is what makes it cover
         // the core's pause exactly (§12.8).
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         fx.absorb(
             &[GameEvent::LinesCleared {
@@ -411,7 +412,7 @@ mod tests {
 
     #[test]
     fn the_status_line_names_the_clear_for_a_second_and_a_half() {
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         fx.absorb(
             &[GameEvent::LinesCleared {
@@ -431,7 +432,7 @@ mod tests {
     fn a_spin_that_cleared_nothing_still_reaches_the_status_line() {
         // §12.8: it raises no `LinesCleared`, so `ScoreAwarded` is the only
         // notice of it there is.
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         fx.absorb(
             &[GameEvent::ScoreAwarded {
@@ -452,7 +453,7 @@ mod tests {
     fn a_scored_clear_does_not_overwrite_its_own_name() {
         // The clear's `ScoreAwarded` follows its `LinesCleared` in the same
         // tick; only the no-line spins may set the status from a score.
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         fx.absorb(
             &[
@@ -474,7 +475,7 @@ mod tests {
 
     #[test]
     fn the_perfect_clear_banner_outranks_the_level_up_it_arrives_with() {
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         fx.absorb(&[GameEvent::LevelUp(5)], start);
         assert_eq!(fx.banner(), Some(Banner::LevelUp(5, 100)));
@@ -491,7 +492,7 @@ mod tests {
 
     #[test]
     fn the_level_up_banner_fades() {
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         fx.absorb(&[GameEvent::LevelUp(7)], start);
         fx.absorb(&[], start + LEVEL_BANNER / 2);
@@ -502,7 +503,7 @@ mod tests {
     fn the_game_over_wipe_greys_the_stack_downwards_and_stays() {
         // §12.5: 500 ms, top row first. Unlike the others it does not expire —
         // §9.16 leaves the greyed matrix under the overlay.
-        let start = Instant::now();
+        let start = Stamp::ZERO;
         let mut fx = fx(start);
         assert_eq!(fx.wiped_rows(20), 0);
         fx.absorb(&[GameEvent::ToppedOut(TopOutCause::LockOut)], start);

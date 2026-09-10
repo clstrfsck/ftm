@@ -8,9 +8,16 @@
 //! the §12.5 animations it draws are timed in `shell::cosmetics`, from the
 //! event stream and a clock — so the core never knows one is in progress and
 //! dropping every event costs nothing but the decoration (§12.8).
+//!
+//! The clock is one of four things the shell has none of (§3.1): `host` is
+//! where all four come from here, `cli` is §6.4's grammar, and between them
+//! they are the only modules in the tree below `main` that name `std::fs`,
+//! `chrono`, `clap` or `Instant`.
 
 pub mod attract;
 pub mod cells;
+pub mod cli;
+pub mod host;
 pub mod keys;
 pub mod overlays;
 pub mod playfield;

@@ -17,12 +17,13 @@ fall on the outermost layer, with a reference to where each is stated. Where thi
 document and `FTM.md` disagree, `FTM.md` wins and one of them is amended in the
 same commit.
 
-> **Status.** The contract is written; the code that expresses it lands across
-> `EGUI.md` stages G1–G4. Until it has, the terminal front-end reaches straight
-> through the shell for its clock and its files, and `shell/` does not exist as a
-> directory. Nothing below is aspirational about the *rules* — every one of them
-> is already normative — but the signatures are named as the plan will build
-> them.
+> **Status.** F1–F5 are built and are the code's own shapes as of `EGUI.md`
+> stage G3: `shell::keys` (F5), `shell::time::Stamp` (F1), `shell::storage`
+> (F2) and `shell::host::Host`, which carries F2's store beside F3's seed and
+> F4's date. `tui::host` is the terminal front-end's answer to all four, in
+> about a hundred and fifty lines. F6 and F7 are still phrased as the plan will
+> build them: the loop inversion is stage G4, and until it lands the terminal
+> front-end owns §15.2's steps as the body of a `while` rather than as methods.
 
 ---
 
@@ -79,6 +80,21 @@ front-end started, as a `u64`. Microseconds rather than milliseconds because
 §12.5's line-clear flash alternates at 12 Hz and §10.3's ARR can be a single
 tick, and millisecond resolution is visibly coarse at both.
 
+```rust
+pub struct Stamp(u64);                            // microseconds since start-up
+impl Stamp {
+    pub const ZERO: Stamp;
+    pub const fn from_micros(micros: u64) -> Stamp;
+    pub fn from_elapsed(elapsed: Duration) -> Stamp;   // an Instant origin
+    pub fn from_secs_f64(seconds: f64) -> Stamp;       // get_time(), later
+    pub fn saturating_since(self, earlier: Stamp) -> Duration;
+    pub fn saturating_add(self, duration: Duration) -> Stamp;   // and Add/Sub/AddAssign
+}
+```
+
+Every operation saturates and none can panic: a front-end that breaks the two
+properties below degrades the game rather than crashing it (§16).
+
 Two properties are **normative**, because every timing decision above the core
 rests on them:
 
@@ -94,10 +110,11 @@ rests on them:
 A stamp is what makes the whole shell testable without a clock — construct them
 arithmetically and the property §17.1 gives the core extends one layer out.
 
-Natively this is an `Instant` captured at start-up; in a browser it is
-`performance.now()`; in a frame-based game framework it is `get_time()` in
-seconds, converted to microseconds **once, at the boundary, and never in the
-rules**.
+Natively this is an `Instant` captured at start-up (`tui::host::Clock`); in a
+browser it is `performance.now()`; in a frame-based game framework it is
+`get_time()` in seconds, converted to microseconds **once, at the boundary, and
+never in the rules** — which is what keeps §9.9's and §6.6's "no floating point"
+true one layer up as well.
 
 ### F2 — Storage: two slots of text
 
@@ -107,10 +124,18 @@ pub trait Storage {
     fn write(&mut self, slot: Slot, contents: &str) -> Result<(), StorageError>;
 }
 pub enum Slot { Config, HighScores }
+pub enum StorageError { Unavailable, Failed(String) }
 ```
 
 Two slots, both text: §6.2 is TOML and §14 is JSON, and neither is large. A
 `Slot` rather than a path, because a browser tab has no paths.
+
+`Ok(None)` is **nothing stored yet** — the ordinary first run, and never a
+warning. `Unavailable` is **nowhere to store it**, which §6.2 and §14 both call
+a documented degradation; the shell warns about it on the *read* and says
+nothing on a write that fails the same way a moment later. `Failed` carries the
+store's own words and names the location if it has one, because §16's line is
+read by a player who then goes and fixes it.
 
 The obligations are `FTM.md`'s, not the trait's:
 
@@ -120,7 +145,10 @@ The obligations are `FTM.md`'s, not the trait's:
 - **§14's durability**: a run that dies mid-write leaves the old table or the new
   one, never a truncated file. On a filesystem that is a temp file renamed over
   the target; `localStorage` needs nothing, because `setItem` is already atomic.
-  The trait promises durability, not a technique.
+  The trait promises durability, not a technique. §6.2 asks for no such thing of
+  the config, and giving it the same treatment is not free: a rename replaces a
+  read-only file where a plain write is refused by it, and a player who made
+  their config read-only meant it.
 - **§16's rule that a failure is a warning and never an abort.** A missing file, a
   malformed one, an unwritable directory: all four of §16's failure paths degrade
   to a documented default and add a line to the warnings. The game must never
@@ -131,7 +159,7 @@ The obligations are `FTM.md`'s, not the trait's:
 
 ### F3 — Entropy: a seed
 
-One `u64` per game, from `FnMut() -> u64`. That is the *whole* entropy budget of
+One `u64` per game, from `fn() -> u64`. That is the *whole* entropy budget of
 the program: `core/bag.rs` expands the seed with §9.6's own PCG32 and draws its
 range with Lemire's method, both written out, because `rand` has changed each of
 those once already and either change silently makes every recorded seed name a
@@ -144,9 +172,14 @@ entirely.
 
 ### F4 — Date: a string
 
-§14's entries carry a date stamp. The shell is handed one, `FnOnce() -> String`,
-in `YYYY-MM-DD`. A calendar is a platform facility like the other three;
-`chrono` is a front-end dependency and not a shared one.
+§14's entries carry a date stamp. The shell is handed one, `fn() -> String`, in
+`YYYY-MM-DD`. A calendar is a platform facility like the other three; `chrono`
+is a front-end dependency and not a shared one.
+
+F2, F3 and F4 travel together as one borrowed bundle, `shell::host::Host` — a
+struct of values, not a `trait Frontend` (see [Adding a
+front-end](#adding-a-front-end)). F1 is not in it, because every entry point
+above the core already takes the moment it is being called at.
 
 ### F5 — A key event stream
 

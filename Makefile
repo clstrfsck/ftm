@@ -8,9 +8,9 @@
 # half. The failure mode is silent -- the other front-end simply stops being
 # compiled -- so the flag is on every command that compiles anything.
 
-.PHONY: check fmt clippy test shell build run
+.PHONY: check fmt clippy test shell portable build run
 
-check: fmt clippy test shell build
+check: fmt clippy test shell portable build
 
 fmt:
 	cargo fmt --check
@@ -23,11 +23,21 @@ test:
 
 # The compiler holding the shell boundary the way §17.3's A10 made it hold the
 # core's: with neither front-end feature on, `core/` and `shell/` must compile
-# alone. It is worth more than any audit, for the same reason A10 was. EGUI.md
-# G3 tightens this to `--target wasm32-unknown-unknown`, which is the step that
-# takes the platform out as well as the toolkit.
+# alone. It is worth more than any audit, for the same reason A10 was.
 shell:
 	cargo check --no-default-features
+
+# The same check with the platform taken out too, and the stronger of the two
+# (EGUI.md G3, FRONTEND.md's "The three layers"). `wasm32-unknown-unknown` has
+# no clock, no filesystem and no OS entropy, so an `Instant::now()`, a
+# `std::fs` or a `rand::random` that crept into `shell/` goes red here in the
+# same commit -- and `getrandom` refuses to compile for the target at all,
+# which is what stops `rand`'s default features drifting back on.
+#
+# It needs the target installed: `rustup target add wasm32-unknown-unknown`.
+# A `cfg(target_arch)` in `shell/` would pass this and is a bug, not a fix.
+portable:
+	cargo check --no-default-features --target wasm32-unknown-unknown
 
 build:
 	cargo build --release --all-features
