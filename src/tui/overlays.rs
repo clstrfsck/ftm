@@ -1,7 +1,7 @@
 //! Pause, game-over and name-entry overlays (§12.6).
 //!
 //! Overlays are drawn centred over the playfield, on a cleared background with
-//! a double-line border. Like everything else in `ui` they read `GameView` and
+//! a double-line border. Like everything else in `tui` they read `GameView` and
 //! never `Game` (§12.7).
 
 use ratatui::Frame;
@@ -9,55 +9,13 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
-use crate::config::{ColorDepth, ConfigFile, LockDownRule, range};
 use crate::core::GameView;
-use crate::highscore::NAME_MAX;
-use crate::input::InputMode;
-use crate::ui::playfield::clock;
-use crate::ui::{Chrome, centred};
-
-/// The pause menu of §9.17, in the order it is drawn.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PauseChoice {
-    Resume,
-    Restart,
-    /// The §13.5 panel; §6.1 calls it "the in-game Options screen".
-    Options,
-    Controls,
-    QuitToMenu,
-}
-
-impl PauseChoice {
-    pub const ALL: [PauseChoice; 5] = [
-        PauseChoice::Resume,
-        PauseChoice::Restart,
-        PauseChoice::Options,
-        PauseChoice::Controls,
-        PauseChoice::QuitToMenu,
-    ];
-
-    /// Where this item sits in the menu.
-    ///
-    /// A sub-screen opened from the menu puts the cursor back on the item that
-    /// opened it, which is what makes looking at the controls and then at the
-    /// options two key presses rather than four.
-    pub fn index(self) -> usize {
-        Self::ALL
-            .iter()
-            .position(|choice| *choice == self)
-            .unwrap_or(0)
-    }
-
-    const fn label(self) -> &'static str {
-        match self {
-            PauseChoice::Resume => "Resume",
-            PauseChoice::Restart => "Restart",
-            PauseChoice::Options => "Options",
-            PauseChoice::Controls => "Controls",
-            PauseChoice::QuitToMenu => "Quit to menu",
-        }
-    }
-}
+use crate::shell::config::ConfigFile;
+use crate::shell::highscore::NAME_MAX;
+use crate::shell::input::InputMode;
+use crate::shell::menus::{PauseChoice, Setting};
+use crate::tui::playfield::clock;
+use crate::tui::{Chrome, centred};
 
 /// The pause overlay (§12.6). The playfield underneath it has already been
 /// blanked (§9.17); this is only the menu.
@@ -103,7 +61,7 @@ pub fn game_over(frame: &mut Frame, over: Rect, view: &GameView, chrome: &Chrome
     let lines = vec![
         Line::styled(centre("GAME OVER", OVER_WIDTH), chrome.theme.bold()),
         blank.clone(),
-        Line::raw(figure("SCORE", &crate::ui::thousands(view.score))),
+        Line::raw(figure("SCORE", &crate::tui::thousands(view.score))),
         Line::raw(figure("LEVEL", &view.level.to_string())),
         Line::raw(figure("LINES", &view.lines.to_string())),
         Line::raw(figure("TIME", &clock(view.ticks))),
@@ -113,58 +71,6 @@ pub fn game_over(frame: &mut Frame, over: Rect, view: &GameView, chrome: &Chrome
         Line::raw(centre("Press any key", OVER_WIDTH)),
     ];
     box_over(frame, over, OVER_WIDTH, lines);
-}
-
-/// The name-entry buffer (§12.6).
-///
-/// The twelve-character rule lives here, beside the field that draws it: the
-/// box is exactly wide enough for the longest name plus its cursor, so a cap
-/// enforced anywhere else would be a cap that could drift from the layout.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NameEntry {
-    name: String,
-}
-
-impl NameEntry {
-    /// Pre-filled from `$USER` (or `$USERNAME` on Windows), truncated (§12.6).
-    pub fn prefilled() -> Self {
-        let user = std::env::var("USER")
-            .or_else(|_| std::env::var("USERNAME"))
-            .unwrap_or_default();
-        Self {
-            name: crate::highscore::tidy_name(&user),
-        }
-        .cleared_if_anonymous()
-    }
-
-    /// `tidy_name` turns an absent `$USER` into `ANON`, which is the right
-    /// answer for a name that was *entered* and the wrong one for a field that
-    /// was never filled: the player should be typing into an empty box, not
-    /// deleting four characters first.
-    fn cleared_if_anonymous(mut self) -> Self {
-        if self.name == crate::highscore::ANONYMOUS {
-            self.name.clear();
-        }
-        self
-    }
-
-    /// Accept one printable ASCII character, up to the twelfth (§12.6).
-    pub fn push(&mut self, c: char) -> bool {
-        if self.name.chars().count() >= NAME_MAX || !(c.is_ascii_graphic() || c == ' ') {
-            return false;
-        }
-        self.name.push(c);
-        true
-    }
-
-    /// `Backspace` deletes (§12.6).
-    pub fn backspace(&mut self) -> bool {
-        self.name.pop().is_some()
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.name
-    }
 }
 
 /// Name entry (§12.6), shown only when the score qualifies for the top ten.
@@ -191,147 +97,6 @@ fn field(name: &str) -> String {
         format!("{name}_"),
         width = NAME_MAX + 1,
     )
-}
-
-/// One row of the §13.5 Options panel.
-///
-/// The list is "the settings most worth changing without a text editor", not
-/// all of §6.3: the rest stay in the file, where they can be commented.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Setting {
-    Preview,
-    StartLevel,
-    Ghost,
-    Hold,
-    Rotate180,
-    LockDown,
-    Colour,
-    Grid,
-}
-
-impl Setting {
-    /// §13.5, in the order it lists them.
-    pub const ALL: [Setting; 8] = [
-        Setting::Preview,
-        Setting::StartLevel,
-        Setting::Ghost,
-        Setting::Hold,
-        Setting::Rotate180,
-        Setting::LockDown,
-        Setting::Colour,
-        Setting::Grid,
-    ];
-
-    const fn label(self) -> &'static str {
-        match self {
-            Setting::Preview => "Preview",
-            Setting::StartLevel => "Start level",
-            Setting::Ghost => "Ghost piece",
-            Setting::Hold => "Hold",
-            Setting::Rotate180 => "180 rotation",
-            Setting::LockDown => "Lock down",
-            Setting::Colour => "Colour",
-            Setting::Grid => "Grid",
-        }
-    }
-
-    /// The setting's value as the panel shows it.
-    fn value(self, file: &ConfigFile) -> String {
-        let switch = |on: bool| if on { "on" } else { "off" }.to_string();
-        match self {
-            Setting::Preview => file.gameplay.preview_count.to_string(),
-            Setting::StartLevel => file.gameplay.start_level.to_string(),
-            Setting::Ghost => switch(file.gameplay.ghost_piece),
-            Setting::Hold => switch(file.gameplay.hold_enabled),
-            Setting::Rotate180 => switch(file.gameplay.allow_180_rotation),
-            Setting::LockDown => match file.gameplay.lock_down {
-                LockDownRule::Extended => "extended",
-                LockDownRule::Infinite => "infinite",
-                LockDownRule::Classic => "classic",
-            }
-            .to_string(),
-            Setting::Colour => match file.display.color_depth {
-                ColorDepth::Auto => "auto",
-                ColorDepth::Truecolor => "truecolor",
-                ColorDepth::Ansi256 => "256",
-                ColorDepth::Ansi16 => "16",
-                ColorDepth::Mono => "mono",
-            }
-            .to_string(),
-            Setting::Grid => switch(file.display.show_grid),
-        }
-    }
-
-    /// Move one step along the setting's values (§13.5), wrapping at each end.
-    ///
-    /// Wrapping rather than stopping, because every one of these lists is short
-    /// enough to walk round and a player holding `→` on a two-value switch
-    /// expects it to toggle.
-    pub fn step(self, file: &mut ConfigFile, forward: bool) {
-        let g = &mut file.gameplay;
-        match self {
-            Setting::Preview => {
-                g.preview_count = wrap(g.preview_count, forward, &range::PREVIEW_COUNT);
-            }
-            Setting::StartLevel => {
-                g.start_level = wrap(g.start_level, forward, &range::START_LEVEL);
-            }
-            Setting::Ghost => g.ghost_piece = !g.ghost_piece,
-            Setting::Hold => g.hold_enabled = !g.hold_enabled,
-            Setting::Rotate180 => g.allow_180_rotation = !g.allow_180_rotation,
-            Setting::LockDown => {
-                const RULES: [LockDownRule; 3] = [
-                    LockDownRule::Extended,
-                    LockDownRule::Infinite,
-                    LockDownRule::Classic,
-                ];
-                g.lock_down = cycle(&RULES, g.lock_down, forward);
-            }
-            Setting::Colour => {
-                const DEPTHS: [ColorDepth; 5] = [
-                    ColorDepth::Auto,
-                    ColorDepth::Truecolor,
-                    ColorDepth::Ansi256,
-                    ColorDepth::Ansi16,
-                    ColorDepth::Mono,
-                ];
-                file.display.color_depth = cycle(&DEPTHS, file.display.color_depth, forward);
-            }
-            Setting::Grid => file.display.show_grid = !file.display.show_grid,
-        }
-    }
-}
-
-/// The next value in an inclusive numeric range, wrapping.
-fn wrap<T>(value: T, forward: bool, range: &std::ops::RangeInclusive<T>) -> T
-where
-    T: Copy + PartialOrd + std::ops::Add<Output = T> + std::ops::Sub<Output = T> + From<u8>,
-{
-    let one = T::from(1u8);
-    if forward {
-        if value >= *range.end() {
-            *range.start()
-        } else {
-            value + one
-        }
-    } else if value <= *range.start() {
-        *range.end()
-    } else {
-        value - one
-    }
-}
-
-/// The next entry of a short list, wrapping. An unrecognised current value
-/// takes the first, which is the only sane answer and cannot arise.
-fn cycle<T: Copy + PartialEq>(values: &[T], current: T, forward: bool) -> T {
-    let at = values.iter().position(|v| *v == current).unwrap_or(0);
-    let count = values.len();
-    let next = if forward {
-        (at + 1) % count
-    } else {
-        (at + count - 1) % count
-    };
-    values[next]
 }
 
 /// The §13.5 Options panel, over the paused playfield (§12.6).
@@ -512,7 +277,7 @@ mod tests {
 
     fn chrome() -> Chrome {
         Chrome {
-            theme: crate::ui::theme::Theme::new(crate::ui::theme::Depth::Truecolor),
+            theme: crate::tui::theme::Theme::new(crate::tui::theme::Depth::Truecolor),
             show_grid: false,
             hold_enabled: true,
         }
@@ -552,7 +317,7 @@ mod tests {
 
     /// The view the §12.6 game-over mock-up depicts.
     fn over_view() -> GameView {
-        let mut view = crate::ui::playfield::tests::empty_view();
+        let mut view = crate::tui::playfield::tests::empty_view();
         view.score = 12_480;
         view.level = 4;
         view.lines = 37;
@@ -622,44 +387,6 @@ mod tests {
     }
 
     #[test]
-    fn the_field_takes_twelve_printable_ascii_characters() {
-        // §12.6: "up to 12 printable ASCII characters, Backspace deletes".
-        let mut entry = NameEntry {
-            name: String::new(),
-        };
-        for c in "msandiford".chars() {
-            assert!(entry.push(c));
-        }
-        assert!(!entry.push('\u{e9}'), "not ASCII");
-        assert!(!entry.push('\u{7}'), "not printable");
-        assert!(entry.push(' '), "but a space is both");
-        assert!(entry.push('X'));
-        assert_eq!(entry.as_str().chars().count(), NAME_MAX);
-        assert!(!entry.push('Y'), "and the thirteenth is refused");
-
-        assert!(entry.backspace());
-        assert_eq!(entry.as_str(), "msandiford ");
-        let mut empty = NameEntry {
-            name: String::new(),
-        };
-        assert!(!empty.backspace(), "an empty field has nothing to delete");
-    }
-
-    #[test]
-    fn an_absent_user_leaves_the_field_empty_rather_than_anon() {
-        // §12.6 pre-fills from `$USER`; `ANON` is what an *entered* empty name
-        // becomes (§14), not what an unfilled field should start as.
-        assert_eq!(
-            NameEntry {
-                name: crate::highscore::ANONYMOUS.to_string(),
-            }
-            .cleared_if_anonymous()
-            .as_str(),
-            "",
-        );
-    }
-
-    #[test]
     fn pieces_per_second_is_over_the_whole_run() {
         // §11, and the §12.6 mock-up's own numbers: 128 pieces in 2:14.
         assert_eq!(pps(0, 0), "0.0");
@@ -705,66 +432,7 @@ mod tests {
     fn the_panel_fits_inside_the_block() {
         // §12.6: an overlay is centred over the whole 44 x 23 block, so it must
         // not be wider than one.
-        assert!(OPTIONS_WIDTH + 2 <= crate::ui::playfield::SCREEN_WIDTH as usize);
-        assert!(Setting::ALL.len() + 4 + 2 <= crate::ui::playfield::SCREEN_HEIGHT as usize);
-    }
-
-    #[test]
-    fn every_setting_walks_round_its_own_values() {
-        // §13.5: `←`/`→` change the selected value, wrapping at each end.
-        let mut file = ConfigFile::default();
-        assert_eq!(file.gameplay.preview_count, 5);
-        Setting::Preview.step(&mut file, true);
-        assert_eq!(file.gameplay.preview_count, 6);
-        Setting::Preview.step(&mut file, true);
-        assert_eq!(
-            file.gameplay.preview_count,
-            *range::PREVIEW_COUNT.start(),
-            "off the top and round to the bottom",
-        );
-        Setting::Preview.step(&mut file, false);
-        assert_eq!(file.gameplay.preview_count, *range::PREVIEW_COUNT.end());
-
-        Setting::StartLevel.step(&mut file, false);
-        assert_eq!(file.gameplay.start_level, *range::START_LEVEL.end());
-
-        for (setting, before, after) in [
-            (Setting::Ghost, true, false),
-            (Setting::Hold, true, false),
-            (Setting::Rotate180, true, false),
-            (Setting::Grid, false, true),
-        ] {
-            let read = |file: &ConfigFile| setting.value(file) == "on";
-            assert_eq!(read(&file), before, "{setting:?}");
-            setting.step(&mut file, true);
-            assert_eq!(read(&file), after, "{setting:?}");
-            setting.step(&mut file, false);
-            assert_eq!(read(&file), before, "{setting:?} and back");
-        }
-
-        Setting::LockDown.step(&mut file, false);
-        assert_eq!(file.gameplay.lock_down, LockDownRule::Classic, "wraps back");
-        Setting::LockDown.step(&mut file, true);
-        assert_eq!(file.gameplay.lock_down, LockDownRule::Extended);
-
-        Setting::Colour.step(&mut file, false);
-        assert_eq!(file.display.color_depth, ColorDepth::Mono);
-        Setting::Colour.step(&mut file, true);
-        assert_eq!(file.display.color_depth, ColorDepth::Auto);
-    }
-
-    #[test]
-    fn a_stepped_value_never_leaves_its_range() {
-        // §6.3's ranges are enforced everywhere, and the panel is the one place
-        // a value is changed without going through the loader.
-        let mut file = ConfigFile::default();
-        for forward in [true, false] {
-            for _ in 0..40 {
-                Setting::Preview.step(&mut file, forward);
-                Setting::StartLevel.step(&mut file, forward);
-                assert!(range::PREVIEW_COUNT.contains(&file.gameplay.preview_count));
-                assert!(range::START_LEVEL.contains(&file.gameplay.start_level));
-            }
-        }
+        assert!(OPTIONS_WIDTH + 2 <= crate::tui::playfield::SCREEN_WIDTH as usize);
+        assert!(Setting::ALL.len() + 4 + 2 <= crate::tui::playfield::SCREEN_HEIGHT as usize);
     }
 }

@@ -5,14 +5,16 @@ name is the joke; `ftm` is the binary, the crate, and the config and data
 directories. The specification is `FTM.md`, and since G0 it has three companion
 documents — see **The four documents** below.
 
-It is a terminal game today and a single binary today. Both are being widened:
-`EGUI.md` plans a second and third front-end (a native egui window, and the
-same code as wasm in a browser) and anticipates a fourth (Macroquad). None of
-that is built yet. G0 changed no code; G1 has moved the key vocabulary out of
-crossterm's hands and nothing else.
+It is a terminal game today. It is no longer a single binary: `EGUI.md` plans a
+second and third front-end (a native egui window, and the same code as wasm in
+a browser) and anticipates a fourth (Macroquad), and as of G2 the tree is
+`core/` + `shell/` + `tui/` with `src/bin/ftm.rs` and a stub `src/bin/ftm-gui.rs`
+behind `--features gui`. None of the window is built yet. G0 changed no code;
+G1 moved the key vocabulary out of crossterm's hands; G2 was a move, a rename
+and a feature gate, with no logic changed.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0 and G1 complete. Start at G2.** All
+stages G0-G2 complete. Start at G3.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -29,13 +31,16 @@ progress into `Paused` (§8.4).
 
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
 and `Game::view()` still the only way to see the result — with `Game::debug()`
-beside it for the strip. The shell is `main.rs` (terminal), `app.rs` (§7's
-state machine and both loops of §15), `config.rs` (§6), `highscore.rs` (§14),
-`input.rs` (§10) and `ui/` (§12, §13), plus the two modules G1 opened:
-`shell/keys.rs` (F5's neutral `Key`/`KeyEvent` and §10.1's name grammar) and
-`tui/keys.rs` (the crossterm adapter). G2 moves the rest of the shell in
-beside them. T1-T17 all pass, plus I1-I4, and the batch-invariance canary is
-in CI.
+beside it for the strip. Above it, `shell/` is what no front-end owns —
+`config.rs` (§6), `input.rs` (§10), `highscore.rs` (§14), `keys.rs` (F5's
+neutral `Key`/`KeyEvent` and §10.1's name grammar), `menus.rs` (the §12.6 and
+§13 menu models), `attract.rs` (§13's state machine), `cosmetics.rs` (§12.5's
+timers) and `palette.rs` (§9.2 levelled) — and `tui/` is the terminal front-end:
+`keys.rs` (the crossterm adapter), `term.rs` (§8.1-§8.3), `run.rs` (§7's state
+machine and both loops of §15, which is still where `Session` and `App` live
+until G4 prises them out), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
+`overlays.rs` and `attract.rs` (§12, §13). T1-T17 all pass, plus I1-I4, and the
+batch-invariance canary is in CI.
 
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
@@ -51,7 +56,7 @@ Each of these was checked on its own, most of them on a pty through
 | | Criterion | How it was checked |
 |---|---|---|
 | A1 | Build clean | `cargo build --release` and `cargo clippy -- -D warnings`, both silent. `#![allow(dead_code)]` is gone. |
-| A2 | §17.1 and §17.2 pass | `cargo test`: 307 unit, 5 + 7 integration. |
+| A2 | §17.1 and §17.2 pass | `cargo test --all-features`: 314 unit, 5 + 7 integration. |
 | A3 | Attract on launch, PLAY starts a game | `tools/drive.py --size 24x60 enter`. |
 | A4 | §10.1 controls, working DAS | A 50 ms kitty tap moves exactly one cell either way; a 0.6 s hold slides to the wall and stops. T13 pins the arithmetic. |
 | A5 | `preview_count` 1-6, both sources | Next-box height measured for all six from `--preview` and from the file: 5, 8, 11, 14, 17, 20 rows, matching §12.4's `2 + 1 + 2n + (n-1)`. |
@@ -171,7 +176,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **Disabled keys** (`hold_enabled`, `allow_180_rotation` off) are dropped at the
   input boundary, so they cannot reset a lock-delay timer as a side effect
   (§10.1).
-- **Animations see events and a clock, and nothing else.** `ui::Cosmetics` takes
+- **Animations see events and a clock, and nothing else.** `shell::cosmetics::Cosmetics` takes
   `&[GameEvent]` and an `Instant`; it has no path to `Game`, which is what makes
   §12.5 provably free of side effects (§12.8). Keep it that way — if an
   animation seems to need to ask the core something, the answer belongs in
@@ -198,7 +203,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   a value of the wrong type is rejected by itself and the default used. Only a
   document that is not TOML at all falls back wholesale, and that is the one
   case I3 pins at exactly one warning.
-- **`ui::theme::Glyphs` are leaked, once, at start-up** so `Theme` stays `Copy`
+- **`tui::theme::Glyphs` are leaked, once, at start-up** so `Theme` stays `Copy`
   (§12.2). `Glyphs::configured` is a start-up call, not a per-frame one.
 - **`Session::generation` is one of the frame's five components.** §15.2 step 5
   draws only when the frame changed, and `app::Frame` compares the `GameView`,
@@ -223,8 +228,8 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   and the reasoning are in the amended A10.
 - **§12.1's minimum is 60 x 24 and it is the spec's, not the layout's.** The
   playing screen's block is 44 x 23 and the attract screen's 36 x 20, so both
-  fit with room to spare; `ui::fits` is the one place that decides, and both
-  `ui::draw` and `attract::draw` check it themselves so no caller can reach a
+  fit with room to spare; `tui::fits` is the one place that decides, and both
+  `tui::draw` and `tui::attract::draw` check it themselves so no caller can reach a
   layout that assumes room it has not got. `show_debug`'s strip makes the block
   44 x 28 and deliberately does *not* move the minimum: a short terminal is
   drawn without it.
@@ -241,10 +246,13 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   `Theme::piece`. The three do not land on one number: purple reaches orange's
   165, red and blue stop at 102 and 84, because blending toward white buys
   brightness with saturation and those two turn into salmon and lavender long
-  before purple stops being purple. The lift is **presentation and stops at
-  `theme.rs`** — `Colour::rgb` is still §9.2, which is what a §19 client is
-  handed — and it is the *base* the §12.3 dimming scale runs from, so a piece
-  and its ghost are one hue.
+  before purple stops being purple. The lift is **shared presentation and lives
+  in `shell/palette.rs`**, because the luma problem is a property of §9.2's
+  colours and not of terminals (G2 amended §12.3 to say so); what stays in
+  `tui/theme.rs` is how a colour lands on *this* display — the 256-colour
+  entry, the 16-colour name, `DIM`. `Colour::rgb` is still §9.2, which is what
+  a §19 client is handed, and the levelled value is the *base* the §12.3
+  dimming scale runs from, so a piece and its ghost are one hue.
 
 - **Keys reach the shell neutral, and only the adapter knows otherwise**
   (`FRONTEND.md` F5). `shell::keys::{Key, Mods, KeyKind, KeyEvent}` is the
@@ -289,7 +297,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   `UPDATE_SNAPSHOT=1 cargo test --test scripted_game`. Stage 7 has to, when the
   score stops being zero. Read the diff before committing it: a snapshot that
   moves for no reason is exactly the bug the test exists to catch.
-- **§12.4's mock-up is a test.** `ui::playfield::tests::the_screen_matches_the_
+- **§12.4's mock-up is a test.** `tui::playfield::tests::the_screen_matches_the_
   spec_mock_up` renders the exact state the mock-up depicts through a
   `TestBackend` and compares it character for character. It is not in §17.1 —
   that list is core-only by design — but it is the acceptance criterion for
@@ -327,7 +335,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   did not have are the ones drawn *over* a game: `Options`, `Controls` and
   `Resuming`.
 - **The restart key is the only held `Action`.** §10.2's `Held` is the three
-  movement keys and nothing else, so `Confirm` in `app.rs` tracks the
+  movement keys and nothing else, so `Confirm` in `tui/run.rs` tracks the
   restart hold, off the action path entirely (`Bindings::action_of` is what
   lets the shell pick it out before `InputState` sees it). In legacy mode it
   survives silence for `RESTART_QUIET` — 700 ms, chosen to outlast the OS's
@@ -340,7 +348,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 
 - **A10 is the compiler's now, not an audit's.** Performing a one-off audit
   proves nothing about the commit after it, so every module in `core` became
-  `pub(crate)`. Doing it found one real leak — `input.rs` reaching for
+  `pub(crate)`. Doing it found one real leak — `shell/input.rs` reaching for
   `core::matrix::WIDTH` where it wanted `VIEW_WIDTH`, the same ten in the
   vocabulary the shell is entitled to — and one imprecision in A10's own
   wording, which §17.3 is amended for: `PieceKind`, `Colour` and `Rotation` are
@@ -359,6 +367,33 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   narrow screen, and 1 x 1 — which I4 requires and a dragged window passes
   through — comes back blank instead of showing a `T`.
 
+## What G2 settled
+
+- **The shell boundary is the compiler's, exactly as A10 made the core's.**
+  `cargo check --no-default-features` builds `core/` + `shell/` with neither
+  front-end feature on, and it is a `make check` step. **Everything else in the
+  Makefile grew `--all-features`**, and this is the single easiest thing to
+  forget: a bare `cargo test` builds only the `tui` half, and the failure mode
+  is silent — the other front-end simply stops being compiled.
+- **`clap`, `directories` and `chrono` are still shared dependencies.** Only
+  `ratatui` and `crossterm` went behind `tui`. G3 is the stage that takes the
+  filesystem, the command line and the clock out of the shell, and they join
+  the front-end features there; until then the `--no-default-features` check
+  proves the *toolkit* is out, not the platform.
+- **`Session` and `App` are in `tui/run.rs`, and that is deliberate.** They are
+  shell objects and `EGUI.md`'s target layout names them as `shell/session.rs`
+  and `shell/round.rs`, but they cannot move while they own crossterm's event
+  queue and ratatui's `Size`. G4 inverts the loop; G2 only moved files.
+- **`Attract` lost its `Background`.** §13.4's drift is positioned in matrix
+  cells of a *character grid*, so it stays in `tui/attract.rs`; a window will
+  want its own. `Attract::step(now)` reports whether the *state* changed and
+  the front-end folds its drift's answer in beside it. Both halves are stepped
+  unconditionally — short-circuiting `step` would stop the panel's six-second
+  cycle rather than the redraw.
+- **The menu models are the specification's words.** `label` and `value` moved
+  to `shell/menus.rs` with their types and became `pub`, because a second
+  front-end that invented its own labels would be a second §13.5.
+
 ## Open decisions
 
 - **The legacy key path's feel (§8.2).** Measured over two seconds of holding
@@ -371,17 +406,19 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   rather than 90 for exactly the reason above: §10.1's restart has to survive
   the OS's *first* auto-repeat, and a soft drop does not. If §8.2 is ever
   amended to describe the legacy path's feel, that number belongs in the same
-  paragraph rather than in `app.rs` on its own.
+  paragraph rather than in `tui/run.rs` on its own.
 
 ## Commands
 
 ```
-make check           # everything CI runs: fmt, clippy, test, release build
+make check           # everything CI runs: fmt, clippy, test, shell, release build
 cargo check          # fast feedback
-cargo test           # unit + integration
-cargo clippy -- -D warnings
+cargo test --all-features      # unit + integration
+cargo check --no-default-features   # core + shell alone: the G2 boundary
+cargo clippy --all-features --all-targets -- -D warnings
 cargo fmt --check
-cargo run --release  # play it
+cargo run --release  # play it (`default-run` picks `ftm` of the two bins)
+cargo run --release --features gui --bin ftm-gui   # the G5 stub, for now
 cargo run -- --print-config    # effective config
 cargo run -- --seed 42         # deterministic run, not recorded to high scores
 tools/drive.py c c             # drive the release binary on a pty
@@ -395,8 +432,10 @@ its score checked without touching the real files. A `--seed` run is never
 recorded (§14) and so needs no such care.
 
 `tools/drive.py` is the only way to check the terminal layer without a human at
-a terminal: §17.1 is "core, no terminal" by design, so nothing in `cargo test`
-reaches `main.rs`, `app.rs` or `ui/`. It drives the **release** binary on a pty,
+a terminal: §17.1 is "core, no terminal" by design, and what `cargo test` does
+reach of `tui/` it reaches through a `TestBackend` — nothing in it opens a real
+terminal, or touches `src/bin/ftm.rs`, `tui/term.rs` or `tui/run.rs`'s loops.
+It drives the **release** binary on a pty,
 sends a scripted burst of keys and replays the capture into a character grid,
 printing one frame per keystroke. Two things to know: pass binary arguments through
 `--arg`, glued on with `=` both times (`--arg=--seed=42`, `--arg=--config=...`)

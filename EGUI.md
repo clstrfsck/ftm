@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [PLAN.md](PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** G0 and G1 complete; G2 next.
+**Status:** G0–G2 complete; G3 next.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -513,10 +513,14 @@ A move, a rename and a feature gate. No logic changes.
    honest.
 3. Out of `ui/overlays.rs` and `ui/attract.rs` into `shell/menus.rs`: `Overlay`,
    `PauseChoice`, `Setting`, `NameEntry`, `MenuChoice`, `Sub`. These are menu
-   *models*; their `draw` functions stay behind in `tui/`.
+   *models*; their `draw` functions stay behind in `tui/`. The `label` and
+   `value` methods go with the models and become `pub`: the words §12.6 and
+   §13.5 print are the specification's, and a second front-end that invented
+   its own would be a second specification.
 4. `ui/attract.rs`'s `Attract` splits. The state machine — `selected`, `sub`,
    `last_key`, `face`, `face_since`, `idle_shift`, `key`, `menu_key`,
-   `options_key`, `Outcome` — goes to `shell/attract.rs`. **`Background` stays in
+   `options_key`, `Outcome` — goes to `shell/attract.rs`, and the three fields
+   the drawing reads gain accessors rather than becoming `pub`. **`Background` stays in
    `tui/`**: §13.4's drift is positioned in matrix cells of a character grid, and
    each GUI front-end wants its own. `Attract::step` loses the `cells` argument
    and returns whether the *state* changed; the drift's "did it move" answer is
@@ -530,9 +534,15 @@ A move, a rename and a feature gate. No logic changes.
    because the luma problem is a property of §9.2's colours and not of terminals
    — blue at luma 17 is as hard to read on a monitor as it is in a terminal.
    `Colour::rgb` is still §9.2 exactly, and is still what a §19 client is handed.
-6. The rest of `ui/` → `src/tui/`, gated on `feature = "tui"`. `main.rs` splits:
-   §8.1–§8.3's setup, teardown and panic hook to `tui/term.rs`, the loop to
-   `tui/run.rs`, and the argument-parsing entry point to `src/bin/ftm.rs`.
+6. The rest of `ui/` → `src/tui/`, gated on `feature = "tui"`. §8.1–§8.3's
+   setup, teardown and panic hook go to `tui/term.rs` and the argument-parsing
+   entry point to `src/bin/ftm.rs`; the whole of `app.rs` — `Session` and `App`
+   as well as the two loops — becomes `tui/run.rs`. `Session` and the round are
+   shell objects and they are named as such in the [target
+   layout](#target-layout), but prising them out is
+   [G4](#stage-g4--inverting-the-loop)'s work, not a move: they cannot leave
+   `tui/` until they have stopped owning crossterm's event queue and ratatui's
+   `Size`. Until then `cargo check --no-default-features` is what says so.
 7. `Cargo.toml` gains the features and the `[[bin]]` sections. `ftm-gui.rs` is a
    stub that prints "not built yet" — it exists so the target and its feature
    gate are wired before there is anything to put in it.

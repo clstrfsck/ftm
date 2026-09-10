@@ -333,8 +333,11 @@ calling it, not by satisfying an interface designed before the third one existed
 `FRONTEND.md` is that shared understanding, written down instead of typed.
 
 > `src/shell/`, `src/tui/`, `src/gui/` and `src/bin/` are `EGUI.md`'s work,
-> stages G1–G6. Until they land the tree is `PLAN.md` Stage 12's: `main.rs`,
-> `app.rs`, `config.rs`, `input.rs`, `highscore.rs` and `ui/` beside `core/`.
+> stages G1–G6. `src/ui/`, `src/main.rs` and the four modules beside them are
+> gone as of G2: what is left to arrive is `shell/time.rs` and `shell/storage.rs`
+> (G3), the split of the loop into `shell/session.rs`, `shell/round.rs` and
+> `tui/host.rs` (G4) — until then the whole of it lives in `tui/run.rs` — and
+> `src/gui/` (G5–G6).
 
 ---
 
@@ -696,10 +699,11 @@ Seven pieces, with the guideline colours:
 The ghost piece uses the piece's colour at reduced intensity (§12.3).
 
 This table is what the **core** names a piece by, and it is the guideline's. It
-is not quite what reaches the terminal: purple, red and blue are too dark to
-draw against a dark background, so §12.3 levels them on the way out. That is a
-presentation decision and it stops at the renderer — a §19 client is handed the
-colour above and may draw it however it likes.
+is not quite what reaches a screen: purple, red and blue are too dark to draw
+against a dark background, so §12.3 levels them on the way out. That is a
+presentation decision and it stops at the shell (`shell/palette.rs`, shared by
+every front-end because the problem is in the colours and not in the display) —
+a §19 client is handed the colour above and may draw it however it likes.
 
 ### 9.3 Orientations and cell patterns
 

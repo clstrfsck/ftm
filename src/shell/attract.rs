@@ -1,0 +1,315 @@
+//! The attract screen's state machine (§13.1, §13.3, §13.5, §13.6).
+//!
+//! What is selected, which sub-screen is open, how far the panel's six-second
+//! cycle has come and how long the keyboard has been quiet — and nothing about
+//! how any of it is drawn. §13.4's drifting background is deliberately *not*
+//! here: it is positioned in the units of whatever is drawing it, so each
+//! front-end keeps its own and folds its "did anything move" answer in beside
+//! [`Attract::step`]'s.
+
+use std::time::{Duration, Instant};
+
+use crate::shell::config::ConfigFile;
+use crate::shell::keys::{Key, KeyEvent, KeyKind};
+use crate::shell::menus::{MenuChoice, Setting, Sub};
+
+/// The panel cycles every six seconds (§13.3).
+const FACE: Duration = Duration::from_secs(6);
+/// §13.6: the wordmark's colours start cycling after a minute of no keys...
+const IDLE: Duration = Duration::from_secs(60);
+/// ...one step per second.
+const IDLE_STEP: Duration = Duration::from_secs(1);
+
+/// What the attract screen asks the caller to do next (§7).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Nothing to do; the screen may or may not have changed.
+    Stay,
+    /// **PLAY**: start a fresh game.
+    Play,
+    /// **QUIT**, or the quit key.
+    Quit,
+    /// The Options panel was left: §13.5 asks for the config to be saved and
+    /// the presentation half applied at once.
+    OptionsClosed,
+}
+
+/// The attract screen's whole state (§13).
+pub struct Attract {
+    now: Instant,
+    selected: usize,
+    sub: Option<Sub>,
+    /// §13.6: when a key was last pressed.
+    last_key: Instant,
+    /// §13.3: when the panel's face last changed. Held at `now` — so the
+    /// elapsed time stays zero — while the cycle is paused.
+    face_since: Instant,
+    /// Counts faces shown, not the face on show: the third face's reminder is
+    /// `face / FACES` so the tips rotate without a second counter.
+    face: usize,
+}
+
+impl Attract {
+    pub fn new(now: Instant) -> Self {
+        Self {
+            now,
+            selected: 0,
+            sub: None,
+            last_key: now,
+            face_since: now,
+            face: 0,
+        }
+    }
+
+    /// Which menu item the cursor is on (§13.3).
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
+    /// The sub-screen over the menu, if one is open (§13.5).
+    pub fn sub(&self) -> Option<Sub> {
+        self.sub
+    }
+
+    /// How many faces the six-second panel cycle has shown (§13.3).
+    ///
+    /// A count, not the face on show: the reminders are the third face's, and
+    /// `face / 3` is what rotates them without a second counter.
+    pub fn face(&self) -> usize {
+        self.face
+    }
+
+    /// Open a sub-screen directly, so a front-end's rendering tests can draw
+    /// one without walking the menu to it.
+    #[cfg(test)]
+    pub(crate) fn open(&mut self, sub: Sub) {
+        self.sub = Some(sub);
+    }
+
+    /// Advance the clock, reporting whether the *state* changed.
+    ///
+    /// §15.3 redraws only when something moved, and this is one of its two
+    /// halves: the panel's cycle and §13.6's idle colours. §13.4's drift is
+    /// the other, and it belongs to whichever front-end is drawing it, so its
+    /// answer is folded in by the caller.
+    pub fn step(&mut self, now: Instant) -> bool {
+        let was = (self.face, self.idle_shift());
+        self.now = now;
+        // §13.3: the cycle pauses while a menu item other than PLAY is
+        // selected. Holding the mark at `now` keeps the elapsed time at zero,
+        // so the face that is up stays up rather than jumping when it resumes.
+        if self.selected == 0 && self.sub.is_none() {
+            while now.saturating_duration_since(self.face_since) >= FACE {
+                self.face_since += FACE;
+                self.face += 1;
+            }
+        } else {
+            self.face_since = now;
+        }
+        was != (self.face, self.idle_shift())
+    }
+
+    /// Fold in one key (§10.1: `↑`/`↓`, `Enter`/`Space`, `Esc`, always).
+    ///
+    /// `config` is borrowed because the Options sub-screen edits it in place
+    /// (§13.5); nothing else here touches it.
+    pub fn key(&mut self, event: &KeyEvent, config: &mut ConfigFile, now: Instant) -> Outcome {
+        if event.kind == KeyKind::Release {
+            return Outcome::Stay;
+        }
+        // §13.6: any key stops the idle colour cycle.
+        self.last_key = now;
+        match self.sub {
+            Some(Sub::Options { selected }) => self.options_key(event, config, selected),
+            Some(_) => {
+                if matches!(event.key, Key::Esc | Key::Enter | Key::Char(' ')) {
+                    self.sub = None;
+                }
+                Outcome::Stay
+            }
+            None => self.menu_key(event),
+        }
+    }
+
+    fn menu_key(&mut self, event: &KeyEvent) -> Outcome {
+        let items = MenuChoice::ALL.len();
+        match event.key {
+            Key::Up => self.selected = (self.selected + items - 1) % items,
+            Key::Down => self.selected = (self.selected + 1) % items,
+            Key::Enter | Key::Char(' ') => match MenuChoice::ALL[self.selected] {
+                MenuChoice::Play => return Outcome::Play,
+                MenuChoice::HighScores => self.sub = Some(Sub::HighScores),
+                MenuChoice::Controls => self.sub = Some(Sub::Controls),
+                MenuChoice::Options => self.sub = Some(Sub::Options { selected: 0 }),
+                MenuChoice::Quit => return Outcome::Quit,
+            },
+            // §16: Ctrl-C is delivered as a key event and means quit from the
+            // attract screen. §10.1's `q` is the ordinary way.
+            Key::Char('c') if event.mods.ctrl => return Outcome::Quit,
+            Key::Char('q') | Key::Char('Q') | Key::Esc => return Outcome::Quit,
+            _ => {}
+        }
+        Outcome::Stay
+    }
+
+    /// §13.5, the same panel the pause menu opens: `↑`/`↓` choose, `←`/`→`
+    /// change, `Esc` saves and returns.
+    fn options_key(
+        &mut self,
+        event: &KeyEvent,
+        config: &mut ConfigFile,
+        selected: usize,
+    ) -> Outcome {
+        let items = Setting::ALL.len();
+        match event.key {
+            Key::Up => {
+                self.sub = Some(Sub::Options {
+                    selected: (selected + items - 1) % items,
+                })
+            }
+            Key::Down => {
+                self.sub = Some(Sub::Options {
+                    selected: (selected + 1) % items,
+                })
+            }
+            Key::Left | Key::Right => {
+                Setting::ALL[selected].step(config, event.key == Key::Right);
+            }
+            Key::Esc | Key::Enter => {
+                self.sub = None;
+                return Outcome::OptionsClosed;
+            }
+            _ => {}
+        }
+        Outcome::Stay
+    }
+
+    /// §13.6: how many steps the wordmark's colours have rotated.
+    pub fn idle_shift(&self) -> usize {
+        let idle = self.now.saturating_duration_since(self.last_key);
+        let Some(cycling) = idle.checked_sub(IDLE) else {
+            return 0;
+        };
+        (cycling.as_nanos() / IDLE_STEP.as_nanos()) as usize
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_idle_cycle_starts_after_a_minute_and_steps_once_a_second() {
+        // §13.6.
+        let start = Instant::now();
+        let mut state = Attract::new(start);
+        state.step(start + IDLE - Duration::from_millis(1));
+        assert_eq!(state.idle_shift(), 0, "not yet");
+        state.step(start + IDLE);
+        assert_eq!(state.idle_shift(), 0, "the first step is a second later");
+        state.step(start + IDLE + IDLE_STEP);
+        assert_eq!(state.idle_shift(), 1);
+        state.step(start + IDLE + IDLE_STEP * 7);
+        assert_eq!(state.idle_shift(), 7, "and it does not stop");
+    }
+
+    #[test]
+    fn any_key_stops_the_idle_cycle() {
+        let start = Instant::now();
+        let mut state = Attract::new(start);
+        let later = start + IDLE + IDLE_STEP * 3;
+        state.step(later);
+        assert_eq!(state.idle_shift(), 3);
+        state.key(&press(Key::Char('x')), &mut ConfigFile::default(), later);
+        assert_eq!(state.idle_shift(), 0);
+    }
+
+    fn press(key: Key) -> KeyEvent {
+        KeyEvent::press(key)
+    }
+
+    #[test]
+    fn the_menu_wraps_and_play_is_the_first_item() {
+        let now = Instant::now();
+        let mut state = Attract::new(now);
+        let mut config = ConfigFile::default();
+        assert_eq!(MenuChoice::ALL[0], MenuChoice::Play);
+        assert_eq!(
+            state.key(&press(Key::Enter), &mut config, now),
+            Outcome::Play
+        );
+
+        state.key(&press(Key::Up), &mut config, now);
+        assert_eq!(
+            state.selected,
+            MenuChoice::ALL.len() - 1,
+            "up wraps to QUIT"
+        );
+        assert_eq!(
+            state.key(&press(Key::Enter), &mut config, now),
+            Outcome::Quit
+        );
+        state.key(&press(Key::Down), &mut config, now);
+        assert_eq!(state.selected, 0, "and down wraps back to PLAY");
+    }
+
+    #[test]
+    fn every_sub_screen_opens_and_esc_returns() {
+        // §13.5.
+        let now = Instant::now();
+        let mut config = ConfigFile::default();
+        for (steps, sub) in [
+            (1, Sub::HighScores),
+            (2, Sub::Controls),
+            (3, Sub::Options { selected: 0 }),
+        ] {
+            let mut state = Attract::new(now);
+            for _ in 0..steps {
+                state.key(&press(Key::Down), &mut config, now);
+            }
+            state.key(&press(Key::Enter), &mut config, now);
+            assert_eq!(state.sub, Some(sub));
+            state.key(&press(Key::Esc), &mut config, now);
+            assert_eq!(state.sub, None, "{sub:?}");
+        }
+    }
+
+    #[test]
+    fn leaving_the_options_panel_asks_for_a_save() {
+        // §13.5: "`Esc` saves the config file (§6.2) and returns". The panel
+        // itself only edits; saving is the caller's, as it is from the pause
+        // menu.
+        let now = Instant::now();
+        let mut state = Attract::new(now);
+        let mut config = ConfigFile::default();
+        state.sub = Some(Sub::Options { selected: 0 });
+        state.key(&press(Key::Right), &mut config, now);
+        assert_eq!(config.gameplay.preview_count, 6);
+        assert_eq!(
+            state.key(&press(Key::Esc), &mut config, now),
+            Outcome::OptionsClosed,
+        );
+    }
+
+    #[test]
+    fn the_panel_cycles_every_six_seconds_and_pauses_off_play() {
+        // §13.3: "cycles every 6 seconds between three faces... The cycle
+        // pauses while a menu item other than PLAY is selected."
+        let start = Instant::now();
+        let mut state = Attract::new(start);
+        assert_eq!(state.face, 0);
+        assert!(state.step(start + FACE), "the face changed");
+        assert_eq!(state.face, 1);
+        state.step(start + FACE * 3);
+        assert_eq!(state.face, 3, "and round to the first face again");
+
+        state.selected = 1;
+        state.step(start + FACE * 9);
+        assert_eq!(state.face, 3, "held while HIGH SCORES is selected");
+        state.selected = 0;
+        state.step(start + FACE * 9 + FACE - Duration::from_millis(1));
+        assert_eq!(state.face, 3, "and it resumes from where it paused");
+        state.step(start + FACE * 10);
+        assert_eq!(state.face, 4);
+    }
+}

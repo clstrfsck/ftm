@@ -40,7 +40,7 @@ pub fn seconds_per_row(level: u32) -> f64 {
 /// Computed from `seconds_per_row` at full precision, not from the
 /// five-decimal values printed in the §9.9 speed table.
 pub fn fall_period(level: u32) -> u32 {
-    let ticks_per_row = seconds_per_row(level) * crate::config::TICK_HZ as f64;
+    let ticks_per_row = seconds_per_row(level) * crate::shell::config::TICK_HZ as f64;
     let period = (ticks_per_row * f64::from(ONE_ROW)).round();
     // Saturating rather than `as`, which would be undefined for a value past
     // u32::MAX. Level 1 is the slowest and is well inside the range.

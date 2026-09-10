@@ -56,7 +56,7 @@ impl Entry {
             score: view.score,
             level: view.level,
             lines: view.lines,
-            duration_secs: view.ticks / crate::config::TICK_HZ,
+            duration_secs: view.ticks / crate::shell::config::TICK_HZ,
             date,
         }
     }

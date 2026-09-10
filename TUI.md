@@ -240,6 +240,19 @@ A lifted colour has no such entry, so it takes the cube cell nearest the value
 drawn. At 16 colours and in monochrome the palette cannot express a luminance
 and §9.2 stands as written.
 
+**The lift is shared presentation, not a terminal technique**, and it lives in
+`shell/palette.rs` rather than in `tui/theme.rs` — where it began, and where
+this section used to say it stopped. The luma problem is a property of §9.2's
+colours and not of any display: blue at luma 17 is as hard to read on a monitor
+as it is in a terminal, so every front-end draws a piece from the **Drawn**
+column above. What is the *terminal's* is the two columns beside it — the
+256-colour entry, the 16-colour name and the `DIM` fallback — and those stay
+here. The brightness percentages of §12.3 and §12.4 (full, the two preview
+slots, the ghost) are shared for the same reason; how a percentage lands, an
+RGB scale or a nearer palette entry or an alpha, is not.
+
+`Colour::rgb` is still §9.2 exactly, and is still what a §19 client is handed.
+
 #### Dimming
 
 Dimming for ghosts and inactive UI uses: an RGB scale of 0.45 in truecolor, a

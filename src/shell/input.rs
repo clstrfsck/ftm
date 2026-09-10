@@ -16,8 +16,8 @@
 
 use std::time::Duration;
 
-use crate::config::{KeyBindings, RulesConfig, TICK};
 use crate::core::{Action, Shift, VIEW_WIDTH};
+use crate::shell::config::{KeyBindings, RulesConfig, TICK};
 use crate::shell::keys::{Key, KeyEvent, KeyKind, parse_key};
 
 /// How long a key is considered held after its last event in legacy mode
@@ -382,7 +382,7 @@ const fn shift_of(key: HeldKey) -> Option<Shift> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{GameplaySettings, KeyBindings, TimingSettings};
+    use crate::shell::config::{GameplaySettings, KeyBindings, TimingSettings};
     use crate::shell::keys::Mods;
 
     /// The default rules, so `das_ticks = 10` and `arr_ticks = 2` (§6.6).

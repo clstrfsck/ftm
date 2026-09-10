@@ -16,17 +16,9 @@ use std::io::IsTerminal;
 
 use ratatui::style::{Color, Modifier, Style};
 
-use crate::config::{CELL_COLUMNS, ColorDepth, DisplaySettings, display_columns};
 use crate::core::{Colour, PieceKind};
-
-/// Full brightness: the §9.2 colour as written.
-pub const FULL: u8 = 100;
-/// Preview slot 1 (§12.4).
-pub const SLOT_NEAR: u8 = 75;
-/// Preview slots 2 and beyond (§12.4).
-pub const SLOT_FAR: u8 = 55;
-/// The ghost piece and inactive UI (§12.3).
-pub const GHOST: u8 = 45;
+use crate::shell::config::{CELL_COLUMNS, ColorDepth, DisplaySettings, display_columns};
+use crate::shell::palette::{FULL, levelled};
 
 /// The colour depth actually in force — `auto` already resolved (§12.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +33,7 @@ pub enum Depth {
 /// [`CELL_COLUMNS`] display columns wide.
 ///
 /// `&'static str` rather than `String` so that [`Theme`] stays `Copy`, which
-/// every caller in `ui` relies on. The strings come from the config file, so
+/// every caller in `tui` relies on. The strings come from the config file, so
 /// [`Glyphs::configured`] leaks them — three allocations that live as long as
 /// the process, made once at start-up. The alternative is a lifetime parameter
 /// on `Theme` threaded through every screen, to save three strings.
@@ -67,7 +59,7 @@ impl Glyphs {
     /// anything that is not two columns wide with the default and warned about
     /// it. The check here is the belt to that braces: a glyph that reached this
     /// far without being validated would make the playfield ragged, and there
-    /// is no way to notice that from inside `ui`.
+    /// is no way to notice that from inside `tui`.
     pub fn configured(display: &DisplaySettings) -> Self {
         let intern = |text: &str, default: &'static str| -> &'static str {
             if text == default || display_columns(text) != Some(CELL_COLUMNS) {
@@ -282,42 +274,6 @@ fn scale((r, g, b): (u8, u8, u8), percent: u8) -> (u8, u8, u8) {
     (dim(r), dim(g), dim(b))
 }
 
-/// §12.3's levelled palette: §9.2's colour, lifted if it is too dark to draw.
-///
-/// Rec.709 luma of §9.2's seven runs from blue's 17 to yellow's 223, so three
-/// of them — purple, red and blue — are far dimmer than the rest. On a dark
-/// terminal that makes a `J` piece hard to pick out at all, and it makes the
-/// wordmark of §13.2, whose letters sit side by side, read as two different
-/// weights. Those three are lifted; the other four are §9.2 exactly.
-///
-/// A hue is lifted by blending it toward white, which is the only way up: a
-/// saturated blue or purple *cannot* be as bright as cyan on any display, so
-/// the brightness is bought with saturation. How much of that is worth
-/// spending differs by hue, so the three do **not** land on one number:
-///
-/// * Purple already carries two primaries, so it reaches orange's 165 — the
-///   dimmest of the four that were already bright — and is still purple.
-/// * Red and blue carry one primary each and gray out much faster: at 165 they
-///   read as salmon and lavender rather than as red and blue. They are lifted
-///   45% of that far instead, to 102 and 84, keeping about three-quarters of
-///   their saturation. A saturated hue also *looks* brighter than its luma
-///   says (Helmholtz–Kohlrausch), and most so for blue, which closes much of
-///   the gap the number still shows.
-///
-/// This is presentation and lives here: §9.2 stays the guideline table the
-/// core names a piece by, and a §19 client is free to draw it its own way.
-/// Hardcoded rather than computed, both because the blend is the one place a
-/// float would otherwise appear and because these are a designer's numbers
-/// now — see §12.3, which records the derivation.
-const fn levelled(colour: Colour) -> (u8, u8, u8) {
-    match colour {
-        Colour::Purple => (0xD5, 0x8F, 0xF8),
-        Colour::Red => (0xF4, 0x40, 0x40),
-        Colour::Blue => (0x48, 0x48, 0xF4),
-        other => other.rgb(),
-    }
-}
-
 /// The §9.2 256-colour entry.
 const fn ansi256(colour: Colour) -> u8 {
     match colour {
@@ -360,6 +316,7 @@ fn cube(r: u8, g: u8, b: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::palette::{GHOST, SLOT_FAR, SLOT_NEAR};
 
     /// One row of the §9.2 colour table, and what §12.3 draws it as.
     struct Entry {
@@ -475,56 +432,6 @@ mod tests {
             // §9.2 is still what the core names the piece, whatever §12.3 goes
             // on to draw: the lift is presentation and stops at this module.
             assert_eq!(kind.colour().rgb(), rgb, "{kind:?} in §9.2");
-        }
-    }
-
-    /// Rec.709 luma, the measure §12.3's palette is levelled by.
-    fn luma((r, g, b): (u8, u8, u8)) -> u32 {
-        (2126 * u32::from(r) + 7152 * u32::from(g) + 722 * u32::from(b)) / 10000
-    }
-
-    /// HSV saturation as a percentage: how much hue a lift has left behind.
-    fn saturation((r, g, b): (u8, u8, u8)) -> u32 {
-        let (top, bottom) = (r.max(g).max(b), r.min(g).min(b));
-        if top == 0 {
-            return 0;
-        }
-        100 * u32::from(top - bottom) / u32::from(top)
-    }
-
-    #[test]
-    fn the_palette_lifts_the_three_dark_hues() {
-        // §12.3: §9.2's own spread runs from blue's 17 to yellow's 223, which
-        // is what neither the field nor §13.2's wordmark can use as it stands.
-        assert_eq!(luma(Colour::Blue.rgb()), 17);
-        assert_eq!(luma(Colour::Yellow.rgb()), 222);
-        // Purple goes all the way to orange's 165, the dimmest of the four
-        // that were already bright, and is still purple at the end of it.
-        let floor = luma(Colour::Orange.rgb());
-        assert_eq!(floor, 165);
-        assert_eq!(luma(levelled(Colour::Purple)), floor);
-        // Red and blue gray out far faster, so they stop short of it on
-        // purpose and keep about three-quarters of their saturation.
-        for colour in [Colour::Red, Colour::Blue] {
-            let lifted = levelled(colour);
-            assert!(
-                luma(lifted) > luma(colour.rgb()) * 3 / 2,
-                "{colour:?} is barely lifted at all",
-            );
-            assert!(
-                luma(lifted) < floor,
-                "{colour:?} at {} is back to a pastel",
-                luma(lifted),
-            );
-            assert!(
-                saturation(lifted) >= 70,
-                "{colour:?} keeps only {}% of its hue",
-                saturation(lifted),
-            );
-        }
-        // And the other four are §9.2 as written.
-        for colour in [Colour::Cyan, Colour::Green, Colour::Orange, Colour::Yellow] {
-            assert_eq!(levelled(colour), colour.rgb(), "{colour:?} is §9.2's");
         }
     }
 
@@ -652,7 +559,7 @@ mod tests {
 
     #[test]
     fn a_glyph_the_loader_would_have_rejected_falls_back() {
-        // Belt to the loader's braces (§6.2, §12.2): `ui` assumes two columns
+        // Belt to the loader's braces (§6.2, §12.2): `tui` assumes two columns
         // everywhere and has no way to notice a ragged field from inside.
         let glyphs = Glyphs::configured(&DisplaySettings {
             cell_filled: "###".to_string(),

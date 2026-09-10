@@ -6,7 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::RulesConfig;
 use crate::core::bag::Bag;
 use crate::core::events::{ClearKind, GameEvent, TopOutCause};
 use crate::core::geometry::{Point, Rotation};
@@ -18,6 +17,7 @@ use crate::core::scoring::Scoring;
 use crate::core::srs;
 use crate::core::tspin;
 use crate::core::view::to_visible;
+use crate::shell::config::RulesConfig;
 
 /// An edge-triggered input, acted on once per press (§10.2).
 ///
@@ -769,9 +769,9 @@ impl Game {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::config::{GameplaySettings, TimingSettings};
     use crate::core::events::ScoreReason;
     use crate::core::matrix::{HEIGHT, WIDTH, tests::from_bottom_rows};
+    use crate::shell::config::{GameplaySettings, TimingSettings};
 
     /// A game with the default rules under a fixed seed.
     pub fn new_game(seed: u64) -> Game {

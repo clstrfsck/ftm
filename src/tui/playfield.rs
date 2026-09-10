@@ -16,9 +16,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use crate::core::{GameView, PieceKind, Rotation, VIEW_HEIGHT, VIEW_WIDTH};
-use crate::ui::cells::{CELL_WIDTH, Paint, span};
-use crate::ui::theme;
-use crate::ui::{Banner, Chrome, Cosmetics, Debug, Hud, centred};
+use crate::shell::cosmetics::{Banner, Cosmetics};
+use crate::shell::palette;
+use crate::tui::cells::{CELL_WIDTH, Paint, span};
+use crate::tui::{Chrome, Debug, Hud, centred};
 
 /// The whole screen, in characters (§12.4).
 pub const SCREEN_WIDTH: u16 = 44;
@@ -240,9 +241,9 @@ fn panel(frame: &mut Frame, area: Rect, lines: Vec<Line<'static>>) {
 /// The hold box (§12.4), dimmed while hold is locked out for this piece (§9.7).
 fn hold(view: &GameView, chrome: &Chrome) -> Vec<Line<'static>> {
     let percent = if view.hold_locked {
-        theme::GHOST
+        palette::GHOST
     } else {
-        theme::FULL
+        palette::FULL
     };
     let style = if view.hold_locked {
         chrome.theme.faint()
@@ -262,9 +263,9 @@ fn next(view: &GameView, chrome: &Chrome) -> Vec<Line<'static>> {
             lines.push(blank());
         }
         let percent = match index {
-            0 => theme::FULL,
-            1 => theme::SLOT_NEAR,
-            _ => theme::SLOT_FAR,
+            0 => palette::FULL,
+            1 => palette::SLOT_NEAR,
+            _ => palette::SLOT_FAR,
         };
         lines.extend(slot(chrome, Some(*kind), percent));
     }
@@ -480,7 +481,7 @@ fn overlay_banner(frame: &mut Frame, field: Rect, chrome: &Chrome, banner: Banne
             "PERFECT CLEAR".to_string(),
             chrome
                 .theme
-                .piece(hue, theme::FULL)
+                .piece(hue, palette::FULL)
                 .patch(chrome.theme.bold()),
         ),
     };
@@ -499,17 +500,18 @@ pub mod tests {
     /// overlay and not part of the playfield, so the default will do for every
     /// test in here.
     fn hud(debug: Option<&Debug>) -> Hud<'_> {
-        static CONFIG: std::sync::OnceLock<crate::config::ConfigFile> = std::sync::OnceLock::new();
+        static CONFIG: std::sync::OnceLock<crate::shell::config::ConfigFile> =
+            std::sync::OnceLock::new();
         Hud {
-            overlay: &crate::ui::Overlay::None,
-            config: CONFIG.get_or_init(crate::config::ConfigFile::default),
+            overlay: &crate::shell::menus::Overlay::None,
+            config: CONFIG.get_or_init(crate::shell::config::ConfigFile::default),
             debug,
-            mode: crate::input::InputMode::Enhanced,
+            mode: crate::shell::input::InputMode::Enhanced,
             restart: None,
         }
     }
     use crate::core::{PieceView, PlayState};
-    use crate::ui::theme::{Depth, Theme};
+    use crate::tui::theme::{Depth, Theme};
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::style::Color;
@@ -855,7 +857,7 @@ pub mod tests {
             fps: 60,
             dropped: 3,
             das_charge: 100,
-            mode: crate::input::InputMode::Enhanced,
+            mode: crate::shell::input::InputMode::Enhanced,
             core: crate::core::DebugView {
                 milli_g: 16,
                 fall_period: 3_932_160,
@@ -930,11 +932,11 @@ pub mod tests {
         let chrome = Chrome {
             theme: Theme::with_glyphs(
                 Depth::Truecolor,
-                crate::ui::theme::Glyphs::configured(&crate::config::DisplaySettings {
+                crate::tui::theme::Glyphs::configured(&crate::shell::config::DisplaySettings {
                     cell_filled: "[]".to_string(),
                     cell_empty: "--".to_string(),
                     cell_ghost: "<>".to_string(),
-                    ..crate::config::DisplaySettings::default()
+                    ..crate::shell::config::DisplaySettings::default()
                 }),
             ),
             ..chrome()

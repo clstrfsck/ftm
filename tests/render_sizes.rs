@@ -12,19 +12,24 @@
 //! (§12.3). Nothing is asserted about how they look; §17.2 asks only that they
 //! render.
 
+#![cfg(feature = "tui")]
+
 use std::time::{Duration, Instant};
 
-use ftm::shell::keys::{Key, KeyEvent};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
-use ftm::config::ConfigFile;
 use ftm::core::{Action, Actions, Game, GameEvent, GameView, TickInput};
-use ftm::highscore::{Entry, Table};
-use ftm::input::InputMode;
-use ftm::ui::attract::{self, Attract};
-use ftm::ui::theme::{Depth, Glyphs, Theme};
-use ftm::ui::{Chrome, Cosmetics, Debug, Hud, Overlay};
+use ftm::shell::attract::Attract;
+use ftm::shell::config::ConfigFile;
+use ftm::shell::cosmetics::Cosmetics;
+use ftm::shell::highscore::{Entry, Table};
+use ftm::shell::input::InputMode;
+use ftm::shell::keys::{Key, KeyEvent};
+use ftm::shell::menus::Overlay;
+use ftm::tui::attract::{self, Background};
+use ftm::tui::theme::{Depth, Glyphs, Theme};
+use ftm::tui::{Chrome, Debug, Hud};
 
 /// The four sizes of §17.2, exactly.
 const SIZES: [(u16, u16); 4] = [(60, 24), (80, 24), (200, 60), (1, 1)];
@@ -117,7 +122,7 @@ fn the_playing_screen_renders_at_every_size() {
                     restart: Some(45),
                 };
                 at(size, |frame| {
-                    ftm::ui::draw(frame, &view, &chrome, &fx, &hud);
+                    ftm::tui::draw(frame, &view, &chrome, &fx, &hud);
                 });
             }
         }
@@ -143,7 +148,7 @@ fn every_colour_depth_renders_at_every_size() {
                     restart: None,
                 };
                 at(size, |frame| {
-                    ftm::ui::draw(frame, &view, &chrome, &fx, &hud);
+                    ftm::tui::draw(frame, &view, &chrome, &fx, &hud);
                 });
             }
         }
@@ -180,7 +185,10 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
         }
         // A step with the background running, so the drifting pieces of §13.4
         // are on screen for the sizes that have room for them.
-        state.step(now + Duration::from_secs(3), (100, 60), true);
+        let later = now + Duration::from_secs(3);
+        state.step(later);
+        let mut background = Background::new(now);
+        background.step(later, (100, 60));
         for size in SIZES {
             for depth in [Depth::Truecolor, Depth::Mono] {
                 let chrome = chrome(depth, false, true);
@@ -191,7 +199,7 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
                     recent: Some(0),
                     mode: InputMode::Enhanced,
                 };
-                at(size, |frame| attract::draw(frame, &state, &cx));
+                at(size, |frame| attract::draw(frame, &state, &background, &cx));
             }
         }
     }
@@ -204,7 +212,7 @@ fn the_terminal_too_small_screen_renders_at_every_size() {
     // minimum — where nothing would normally reach it — is covered too.
     for size in SIZES {
         at(size, |frame| {
-            ftm::ui::too_small(frame, Theme::new(Depth::Truecolor));
+            ftm::tui::too_small(frame, Theme::new(Depth::Truecolor));
         });
     }
 }
@@ -228,7 +236,7 @@ fn the_minimum_terminal_gets_the_real_screen_and_one_short_of_it_does_not() {
             restart: None,
         };
         terminal
-            .draw(|frame| ftm::ui::draw(frame, &view, &chrome, &fx, &hud))
+            .draw(|frame| ftm::tui::draw(frame, &view, &chrome, &fx, &hud))
             .expect("a frame");
         let buffer = terminal.backend().buffer().clone();
         (0..height)
@@ -240,14 +248,14 @@ fn the_minimum_terminal_gets_the_real_screen_and_one_short_of_it_does_not() {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let full = shown(ftm::ui::MIN_WIDTH, ftm::ui::MIN_HEIGHT);
+    let full = shown(ftm::tui::MIN_WIDTH, ftm::tui::MIN_HEIGHT);
     assert!(
         full.contains("SCORE"),
         "the stats box is on screen:\n{full}"
     );
     assert!(!full.contains("Terminal too small"));
 
-    let cramped = shown(ftm::ui::MIN_WIDTH - 1, ftm::ui::MIN_HEIGHT);
+    let cramped = shown(ftm::tui::MIN_WIDTH - 1, ftm::tui::MIN_HEIGHT);
     assert!(
         cramped.contains("Need 60x24, have 59x24"),
         "one column short is replaced:\n{cramped}",

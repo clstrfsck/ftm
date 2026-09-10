@@ -17,9 +17,10 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       # One step, so that CI and a developer at a terminal run the same thing
-      # by construction: `make check` is fmt, clippy, test and the release
-      # build, in that order, stopping at the first failure. Adding a step to
-      # the suite means editing the Makefile, and CI picks it up for free.
+      # by construction: `make check` is fmt, clippy, test, the no-front-end
+      # shell check and the release build, in that order, stopping at the first
+      # failure. Adding a step to the suite means editing the Makefile, and CI
+      # picks it up for free.
       #
       # `cargo test` is where `tests/scripted_game.rs` runs the
       # batch-invariance test of FTM.md §19.4. It has run here since Stage
@@ -38,4 +39,4 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.88.0
-      - run: cargo check --all-targets
+      - run: cargo check --all-features --all-targets

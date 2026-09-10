@@ -1,5 +1,4 @@
-//! Top-level application state machine (§7) and the fixed-timestep event loop
-//! (§15.2).
+//! The terminal's loop: §7's state machine and §15's two fixed-timestep loops.
 //!
 //! Two loops, because §15 specifies two: [`round`] runs a game at 60 Hz with an
 //! accumulator (§15.2), and [`attract`] runs the front screen at 10 fps with
@@ -11,6 +10,12 @@
 //! does (§3.1), the DAS/ARR machine above is handed a `Duration` rather than
 //! reading one (§10.3), and the §12.5 animations get the same `Instant` the
 //! frame was drawn at.
+//!
+//! [`Session`] and [`App`] are shell objects living in a front-end's module,
+//! and that is temporary: they own crossterm's event queue and ratatui's
+//! `Size`, so they cannot move to `shell/` until `EGUI.md` stage G4 turns the
+//! seven numbered steps of §15.2 inside out into methods any front-end can
+//! pump. G2 moved files; G4 moves the boundary.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -19,16 +24,18 @@ use anyhow::Result;
 use crossterm::event::{self, Event};
 use ratatui::layout::Size;
 
-use crate::config::{self, ConfigFile, DisplaySettings, MAX_CATCH_UP_TICKS, Startup, TICK};
 use crate::core::{Action, Actions, Game, GameEvent, GameView, Shift, TickInput};
-use crate::highscore::{self, Entry};
-use crate::input::{Bindings, InputMode, InputState};
+use crate::shell::attract::{Attract, Outcome};
+use crate::shell::config::{self, ConfigFile, DisplaySettings, MAX_CATCH_UP_TICKS, Startup, TICK};
+use crate::shell::cosmetics::Cosmetics;
+use crate::shell::highscore::{self, Entry};
+use crate::shell::input::{Bindings, InputMode, InputState};
 use crate::shell::keys::{Key, KeyEvent, KeyKind};
+use crate::shell::menus::{NameEntry, Overlay, PauseChoice, Setting};
+use crate::tui::attract::{self, Background};
 use crate::tui::keys::neutral;
-use crate::ui::attract::{self, Attract};
-use crate::ui::overlays::{NameEntry, PauseChoice, Setting};
-use crate::ui::theme::{Glyphs, Theme};
-use crate::ui::{self, Chrome, Cosmetics, Debug, Hud, Overlay, Tui};
+use crate::tui::theme::{Glyphs, Theme};
+use crate::tui::{self, Chrome, Debug, Hud, Tui};
 
 /// §9.17: one second per number, three numbers.
 const COUNTDOWN: Duration = Duration::from_secs(3);
@@ -774,6 +781,10 @@ fn states(terminal: &mut Tui, session: &mut Session) -> Result<()> {
 /// when something moved.
 fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
     let mut state = Attract::new(Instant::now());
+    // §13.4's drift is the terminal's own: it is positioned in the character
+    // grid's cells, so it lives beside the drawing rather than in the state
+    // machine, and its "did anything move" answer is folded in below.
+    let mut background = Background::new(Instant::now());
     let mut chrome = session.chrome(session.config.gameplay.hold_enabled);
     let mut dirty = true;
     // §8.4: the size is tracked from the resize events rather than asked for
@@ -794,12 +805,12 @@ fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
                     };
                     dirty = true;
                     match state.key(&key, &mut session.config, now) {
-                        attract::Outcome::Stay => {}
-                        attract::Outcome::Play => return Ok(Next::Play),
-                        attract::Outcome::Quit => return Ok(Next::Quit),
+                        Outcome::Stay => {}
+                        Outcome::Play => return Ok(Next::Play),
+                        Outcome::Quit => return Ok(Next::Quit),
                         // §13.5: presentation takes effect the moment the panel
                         // is left, and the config is written there and then.
-                        attract::Outcome::OptionsClosed => {
+                        Outcome::OptionsClosed => {
                             session.save_config();
                             chrome = session.chrome(session.config.gameplay.hold_enabled);
                         }
@@ -817,10 +828,10 @@ fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
         // §12.1: below the minimum the attract screen is replaced by the
         // message, and the drifting background is not stepped — there is
         // nowhere to draw it, and it would only make the frame look dirty.
-        if !ui::fits(area) {
+        if !tui::fits(area) {
             if dirty {
                 dirty = terminal
-                    .draw(|frame| ui::too_small(frame, chrome.theme))
+                    .draw(|frame| tui::too_small(frame, chrome.theme))
                     .is_err();
             }
             event::poll(ATTRACT_FRAME)?;
@@ -830,9 +841,14 @@ fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
         let cells = (area.width / 2, area.height);
         // §13.4 is disabled in `mono` and when `show_debug` is on; asking the
         // theme rather than the config is what makes `NO_COLOR` count too.
-        let animate = chrome.theme.depth() != crate::ui::theme::Depth::Mono
+        let animate = chrome.theme.depth() != crate::tui::theme::Depth::Mono
             && !session.config.display.show_debug;
-        if state.step(now, cells, animate) || dirty {
+        // Both halves are stepped, whatever the other answers: `step` is what
+        // advances the panel's cycle, and short-circuiting it would stop the
+        // clock rather than the redraw.
+        let stepped = state.step(now);
+        let drifted = animate && background.step(now, cells);
+        if stepped || drifted || dirty {
             let context = attract::Context {
                 chrome: &chrome,
                 config: &session.config,
@@ -843,7 +859,7 @@ fn attract(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
             // §16: a frame lost to a write failure is simply lost; leaving
             // `dirty` set is what makes the next frame try again.
             dirty = terminal
-                .draw(|frame| attract::draw(frame, &state, &context))
+                .draw(|frame| attract::draw(frame, &state, &background, &context))
                 .is_err();
         }
 
@@ -915,7 +931,7 @@ fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
         // game in progress into `Paused` *before* the screen goes, so the
         // player is never killed by a window resize — and so that no ticks run
         // behind a screen they cannot see.
-        let room = ui::fits(area);
+        let room = tui::fits(area);
         if !room {
             app.cramp();
         }
@@ -981,7 +997,7 @@ fn round(terminal: &mut Tui, session: &mut Session) -> Result<Next> {
             // §16: a frame lost to a write failure is simply lost. Leaving
             // `previous` behind is what makes the next frame try again.
             if terminal
-                .draw(|f| ui::draw(f, &frame.view, &chrome, &fx, &hud))
+                .draw(|f| tui::draw(f, &frame.view, &chrome, &fx, &hud))
                 .is_ok()
             {
                 previous = Some(frame);
@@ -1279,7 +1295,7 @@ mod tests {
         // §6.1: "written back to the config file immediately on leaving".
         let dir = std::env::temp_dir().join("ftm-options-panel-test");
         let _ = std::fs::remove_dir_all(&dir);
-        let path = dir.join(crate::config::FILE_NAME);
+        let path = dir.join(crate::shell::config::FILE_NAME);
         let mut session = Session {
             config_path: Some(path.clone()),
             ..session()
@@ -1313,7 +1329,7 @@ mod tests {
         );
 
         let mut warnings = Vec::new();
-        let written = crate::config::load(Some(&path), &mut warnings).file;
+        let written = crate::shell::config::load(Some(&path), &mut warnings).file;
         assert_eq!(written, session.config);
         assert!(warnings.is_empty(), "{warnings:?}");
         let _ = std::fs::remove_dir_all(&dir);
@@ -1448,7 +1464,7 @@ mod tests {
         let score = scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };
         // Clear whatever `$USER` pre-filled, then type a name of our own.
-        for _ in 0..crate::highscore::NAME_MAX {
+        for _ in 0..crate::shell::highscore::NAME_MAX {
             app.key(&mut session, &press(Key::Backspace), now);
         }
         for c in "MS".chars() {
@@ -1481,11 +1497,14 @@ mod tests {
         session.seeded = false;
         scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };
-        for _ in 0..crate::highscore::NAME_MAX {
+        for _ in 0..crate::shell::highscore::NAME_MAX {
             app.key(&mut session, &press(Key::Backspace), now);
         }
         app.key(&mut session, &press(Key::Enter), now);
-        assert_eq!(session.scores.entries[0].name, crate::highscore::ANONYMOUS);
+        assert_eq!(
+            session.scores.entries[0].name,
+            crate::shell::highscore::ANONYMOUS
+        );
     }
 
     #[test]
@@ -1521,7 +1540,7 @@ mod tests {
         let now = Instant::now();
         app.key(&mut session, &press(Key::Char('r')), now);
         assert!(
-            RESTART_QUIET > crate::input::HOLD_TIMEOUT,
+            RESTART_QUIET > crate::shell::input::HOLD_TIMEOUT,
             "a soft drop's 90 ms would drop the hold before the first repeat",
         );
         assert!(!app.restart_due(now + RESTART_QUIET - Duration::from_millis(1)));

@@ -15,7 +15,7 @@
 //! The variants change only the reset rule: `infinite` never caps the resets,
 //! `classic` never grants one.
 
-use crate::config::LockDownRule;
+use crate::shell::config::LockDownRule;
 
 /// The reset budget of extended placement (§9.11).
 pub const MAX_RESETS: u32 = 15;

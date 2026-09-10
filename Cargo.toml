@@ -3,15 +3,43 @@ name = "ftm"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "A guideline-conformant falling-block game for the terminal"
+description = "A guideline-conformant falling-block game"
 license = "MIT"
 publish = false
+# Two binaries as of EGUI.md G2, so `cargo run` needs telling which one it
+# means. The terminal front-end is the one you play.
+default-run = "ftm"
+
+# `default` is the terminal front-end, so `cargo build` and `cargo run` are
+# what they always were. `--no-default-features` builds `core` and `shell`
+# alone, which is the compiler holding the shell boundary the way §17.3's A10
+# holds the core's (EGUI.md G2). `gui` is wired here before there is anything
+# behind it, so the target and its feature gate exist from the stage that
+# created them; EGUI.md G5 fills it in.
+#
+# Consequence to plan for: a bare `cargo test` builds only the `tui` half, so
+# every Makefile command passes `--all-features`.
+[features]
+default = ["tui"]
+tui = ["dep:ratatui", "dep:crossterm"]
+gui = []
+
+[[bin]]
+name = "ftm"
+required-features = ["tui"]
+
+[[bin]]
+name = "ftm-gui"
+required-features = ["gui"]
 
 # Versions are pinned to the minor versions in FTM.md §3. No other runtime
-# dependencies may be added without amending that table.
+# dependencies may be added without amending that table. `clap`, `directories`
+# and `chrono` are still shared: EGUI.md G3 is what takes the filesystem, the
+# command line and the clock out of the shell, and they join the front-end
+# features there.
 [dependencies]
-ratatui = "0.30"
-crossterm = "0.29"
+ratatui = { version = "0.30", optional = true }
+crossterm = { version = "0.29", optional = true }
 rand = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.1"

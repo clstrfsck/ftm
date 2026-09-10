@@ -11,8 +11,8 @@
 
 use std::collections::BTreeMap;
 
-use ftm::config::RulesConfig;
 use ftm::core::{Action, Game, GameEvent, GameView, PlayState, Shift, TickInput};
+use ftm::shell::config::RulesConfig;
 
 /// The checked-in snapshot of the scripted game (§17.2).
 const SNAPSHOT: &str = include_str!("snapshots/scripted_game.txt");

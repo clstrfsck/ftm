@@ -1,7 +1,7 @@
 //! Cell glyph rendering primitives (§12.2).
 //!
 //! One matrix cell is **two terminal columns**, so that a cell is roughly
-//! square in a typical font. Every width in `ui` is given in cells; the
+//! square in a typical font. Every width in `tui` is given in cells; the
 //! character width is twice it.
 //!
 //! A [`Paint`] is what one composited cell shows *after* the ghost, the falling
@@ -11,7 +11,8 @@
 use ratatui::text::Span;
 
 use crate::core::PieceKind;
-use crate::ui::theme::{self, Theme};
+use crate::shell::palette;
+use crate::tui::theme::Theme;
 
 /// The character width of one matrix cell (§12.2).
 pub const CELL_WIDTH: u16 = 2;
@@ -21,7 +22,7 @@ pub const CELL_WIDTH: u16 = 2;
 pub enum Paint {
     /// Nothing — drawn as the grid dot when `show_grid` is on.
     Empty,
-    /// A mino, at a brightness from `ui::theme`: full for the board and the
+    /// A mino, at a brightness from `shell::palette`: full for the board and the
     /// falling piece, dimmer for the later preview slots (§12.4).
     Filled(PieceKind, u8),
     /// The landing position (§9.8), in the piece's colour, dimmed.
@@ -35,7 +36,7 @@ pub enum Paint {
 impl Paint {
     /// A mino at full brightness.
     pub const fn filled(kind: PieceKind) -> Self {
-        Paint::Filled(kind, theme::FULL)
+        Paint::Filled(kind, palette::FULL)
     }
 
     /// The glyph is chosen by what the cell *is*, and the style by how bright
@@ -59,7 +60,7 @@ pub fn span(theme: Theme, paint: Paint, grid: bool) -> Span<'static> {
         Paint::Empty if grid => theme.faint(),
         Paint::Empty => theme.plain(),
         Paint::Filled(kind, percent) => theme.piece(kind, percent),
-        Paint::Ghost(kind) => theme.piece(kind, theme::GHOST),
+        Paint::Ghost(kind) => theme.piece(kind, palette::GHOST),
         Paint::Flash => theme.flash(),
         Paint::Greyed => theme.greyed(),
     };
@@ -69,7 +70,7 @@ pub fn span(theme: Theme, paint: Paint, grid: bool) -> Span<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::theme::Depth;
+    use crate::tui::theme::Depth;
 
     #[test]
     fn every_paint_is_two_columns_wide() {

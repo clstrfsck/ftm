@@ -32,7 +32,7 @@ pub enum PieceKind {
 ///
 /// The core names the colour and gives its truecolor value; the mapping onto a
 /// terminal's colour depth — 256, 16, or the mono glyph — is presentation, and
-/// lives in `ui::theme` (§12.3).
+/// lives in `shell::palette` and each front-end's own theme (§12.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Colour {
     Cyan,

@@ -1784,7 +1784,7 @@ x = 1
     #[test]
     fn every_preview_count_is_honoured_from_the_file_and_from_the_flag() {
         // A5. The layout's half of it is
-        // `ui::playfield::tests::the_next_box_is_sized_to_the_preview_count`;
+        // `tui::playfield::tests::the_next_box_is_sized_to_the_preview_count`;
         // this is the config's, over all six values and both sources.
         let dir = std::env::temp_dir().join("ftm-preview-count-test");
         let _ = fs::remove_dir_all(&dir);
