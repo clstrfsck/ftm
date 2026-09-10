@@ -1,9 +1,19 @@
 # Falling Tetromino Manager — Software Specification
 
 **Version:** 1.0
-**Date:** 2026-09-05
+**Date:** 2026-09-05 (split into four documents 2026-09-10)
 **Target language:** Rust (edition 2024, MSRV 1.88)
-**Name:** Falling Tetromino Manager (a terminal tetromino game; binary name `ftm`)
+**Name:** Falling Tetromino Manager (a tetromino game; binary name `ftm`)
+
+**Companion documents:** [FRONTEND.md](FRONTEND.md) (the contract every
+front-end is written against), [TUI.md](TUI.md) (the terminal front-end),
+[GUI.md](GUI.md) (the egui front-end, native and web).
+
+> **The section numbers in this document are stable.** Several sections have
+> moved to `TUI.md`, and they **kept their numbers there** — a `§12.4` in a doc
+> comment still resolves, to `TUI.md` rather than to here. Each vacated number
+> keeps a stub below saying where it went. `GUI.md` uses a fresh `§G` namespace
+> so it can never collide, and a future `MACROQUAD.md` would use `§M`.
 
 ---
 
@@ -13,29 +23,33 @@
 |---|---|---|---|
 | 1 | [Purpose and scope](#1-purpose-and-scope) | 11 | [Game mode](#11-game-mode) |
 | 2 | [Terminology](#2-terminology) | 12 | [Rendering](#12-rendering) |
-| 3 | [Technology and dependencies](#3-technology-and-dependencies) | 13 | [Attract screen](#13-attract-screen) |
+| 3 | [Technology and dependencies](#3-technology-and-dependencies) | 13 | [Attract screen](#13-attract-screen) — `TUI.md` |
 | 4 | [Project layout](#4-project-layout) | 14 | [High scores](#14-high-scores) |
 | 5 | [Coordinate conventions](#5-coordinate-conventions) | 15 | [Game loop and timing](#15-game-loop-and-timing) |
 | 6 | [Configuration](#6-configuration) | 16 | [Error handling](#16-error-handling) |
 | 7 | [Application states](#7-application-states) | 17 | [Testing and acceptance](#17-testing-and-acceptance) |
-| 8 | [Terminal handling](#8-terminal-handling) | 18 | [Deferred and open items](#18-deferred-and-open-items) |
+| 8 | [Terminal handling](#8-terminal-handling) — `TUI.md` | 18 | [Deferred and open items](#18-deferred-and-open-items) |
 | 9 | [Game rules](#9-game-rules) | 19 | [Network readiness](#19-network-readiness) |
 | 10 | [Controls](#10-controls) | | |
 
 The parts most likely to be read while coding are §5 (coordinates — read it
-before §9.5), §9 (all the rules and tables), §12 (layout, and the `GameView` /
-`GameEvent` contracts) and §15 (the fixed-timestep loop). §19 is not
-implementation work; it is the list of things v1.0 must not do, so that a
-client/server split stays possible later.
+before §9.5), §9 (all the rules and tables), §12.7 and §12.8 (the `GameView` /
+`GameEvent` contracts) and §15 (the fixed-timestep loop). A front-end's layout
+is in that front-end's document. §19 is not implementation work; it is the list
+of things v1.0 must not do, so that a client/server split stays possible later.
 
 ---
 
 ## 1. Purpose and scope
 
 This document specifies a complete, playable, single-player falling-block puzzle
-game that runs in a text terminal. It is intended to be sufficient, on its own, to
-implement the game without reference to any other source: all rotation tables,
-scoring tables, timing constants and screen layouts are reproduced here in full.
+game that is **playable through interchangeable front-ends**. It is intended to
+be sufficient, on its own, to implement the game's rules without reference to any
+other source: all rotation tables, scoring tables and timing constants are
+reproduced here in full. What a screen looks like is a front-end's question, and
+there are three documents for it: `FRONTEND.md` states the contract any front-end
+is written against, `TUI.md` specifies the terminal front-end, and `GUI.md` the
+egui front-end in both its native and its web build.
 
 External references are given for provenance only, not as required reading:
 
@@ -53,10 +67,11 @@ Where this specification and those pages disagree, **this specification wins**.
 - Two top-level screens: an **attract screen** shown when no game is in progress,
   and the **playfield** for an active game.
 - A configurable next-piece preview count.
-- Smooth, flicker-free rendering in any ANSI-capable terminal of at least
-  60 columns × 24 rows.
-- Deterministic, testable core: the game rules must be exercisable without a
-  terminal attached.
+- Smooth, flicker-free rendering, whatever the front-end is drawing on. Each
+  front-end states its own minimum viewport: `TUI.md` §12.1 has the terminal's
+  60 columns × 24 rows, `GUI.md` §G3 the window's.
+- Deterministic, testable core: the game rules must be exercisable with no
+  front-end attached at all.
 
 ### 1.2 Non-goals (for version 1.0)
 
@@ -66,7 +81,19 @@ Where this specification and those pages disagree, **this specification wins**.
 - Sound.
 - Game modes other than Marathon (Sprint / Ultra / Zen are noted as future work
   in §18).
-- Mouse input.
+- **Mouse input, in every front-end.** The game is keyboard-driven and §10.1's
+  bindings are the whole input surface: there is no click-to-select in a menu, no
+  drag, no pointer path through any screen. This is a rule about the game and not
+  about terminals, and it is stated here deliberately, because a window — and
+  especially a browser tab — makes a second, pointer-shaped input path through
+  the menus look like a small addition. It is not one; it is a second way to
+  reach every state, and every state would have to answer for it.
+
+  Touch is the case that is not settled by reflex, because a web build is a link
+  someone opens on a phone and with no touch input it is a game that visibly does
+  not work there. It is an open decision in `EGUI.md`, to be settled before the
+  web build is called done; whichever way it goes it is an amendment to this
+  section rather than a quiet addition to a front-end.
 
 ### 1.3 Naming and trademark
 
@@ -122,37 +149,74 @@ well-known public rules.
 
 ## 3. Technology and dependencies
 
-The implementation is a single Rust binary crate, **edition 2024**. The MSRV is
-**1.88**, which is `ratatui`'s; edition 2024 itself needs only 1.85, so the floor
-is set by a dependency rather than by the language and moves when one of them
-moves. The toolchain is pinned no further than that.
+The implementation is a single Rust crate, **edition 2024**, with one binary per
+front-end behind a cargo feature. The MSRV is **1.88**, which is `ratatui`'s;
+edition 2024 itself needs only 1.85, so the floor is set by a dependency rather
+than by the language and moves when one of them moves. The toolchain is pinned no
+further than that.
+
+The dependencies are in four classes. The rule "no other runtime dependencies" is
+per-class: a front-end may not add to the shared row, and no front-end's crates
+are visible to another.
+
+**Shared** — the core, and the shell above it. Everything here must build for
+`wasm32-unknown-unknown`.
+
+| Crate | Version | Purpose |
+|---|---|---|
+| `rand` | 0.10 | `SmallRng` — `Xoshiro256PlusPlus` — as the bag's bit source. Its seeding and its range draw are §9.6's, not `rand`'s. |
+| `serde` + `serde_derive` | 1 | Config and high-score (de)serialisation. |
+| `toml` | 1 | Config file format. |
+| `serde_json` | 1 | High-score file format. |
+| `thiserror` | 2 | Typed errors in the config loader. |
+
+**Terminal front-end** (`tui`):
 
 | Crate | Version | Purpose |
 |---|---|---|
 | `ratatui` | 0.30 | Widget layout and double-buffered terminal drawing. |
 | `crossterm` | 0.29 | Terminal backend: raw mode, alternate screen, key events, keyboard-enhancement flags. |
-| `rand` | 0.10 | `SmallRng` — `Xoshiro256PlusPlus` — as the bag's bit source. Its seeding and its range draw are §9.6's, not `rand`'s. |
-| `serde` + `serde_derive` | 1 | Config and high-score (de)serialisation. |
-| `toml` | 1 | Config file format. |
-| `serde_json` | 1 | High-score file format. |
-| `clap` | 4 (derive) | Command-line argument parsing. |
-| `directories` | 6 | Platform config/data directories. |
+| `clap` | 4 (derive) | Command-line argument parsing (§6.4). |
+| `directories` | 6 | Platform config/data directories (§6.2, §14). |
 | `anyhow` | 1 | Error propagation in `main` and I/O paths. |
-| `thiserror` | 2 | Typed errors in the config loader. |
-| `chrono` | 0.4 | Date stamps on high-score entries. |
+| `chrono` | 0.4 | Date stamps on high-score entries (§14). |
 
-No other runtime dependencies. `unsafe` is forbidden
-(`#![forbid(unsafe_code)]` at crate root).
+**egui front-end** (`gui`): `eframe` and `egui`, plus `clap`, `directories`,
+`anyhow` and `chrono` in its native build, which shares the terminal
+front-end's answers to §6.2, §6.4 and §14. Versions are pinned in `GUI.md` §G1
+and in `Cargo.toml` together, because `egui` moves its API across minor versions
+more freely than the others do.
+
+**egui front-end on wasm**: `wasm-bindgen`, `web-sys`, `js-sys`, `web-time` and
+`console_error_panic_hook`, replacing the four native crates above — a browser
+tab has no argv, no filesystem, no `Instant` and no `chrono` clock. `GUI.md` §G8
+is normative for what each becomes.
+
+`eframe` brings a windowing and rendering stack — `winit`, `glow`, and their
+platform dependencies — that is not enumerable crate by crate. **The rule above
+is about *direct* dependencies**, and always was; it is stated explicitly here
+because this is the first front-end for which the distinction matters.
+
+`unsafe` is forbidden (`#![forbid(unsafe_code)]` at crate root).
+
+> The feature split above is `EGUI.md`'s work, landing across stages G2, G3, G5
+> and G6. Until it has, the crates are simply all shared; the classification
+> here is what they are being sorted into and what a review checks against.
 
 ### 3.1 Layering rule
 
-The crate is split into a **core** (pure rules, no I/O) and a **shell** (terminal,
-config, persistence). Three properties of the core are hard requirements, not
-preferences: the acceptance tests in §17 depend on them, and so does the
-client/server split described in §19.
+The crate is **three layers**, not two: a **core** (pure rules), a **shell**
+(everything above the rules that is not a screen — config, input mapping, the
+state machine above a game, high scores, animation timers) and a **front-end**
+(the terminal, a window, a browser tab). `FRONTEND.md` is the contract at the
+outer boundary; §12.7 and §12.8 are the contract at the inner one.
+
+Three properties of the core are hard requirements, not preferences: the
+acceptance tests in §17 depend on them, and so does the client/server split
+described in §19.
 
 1. **No I/O and no clock.** The core must compile and be fully unit-testable with
-   no terminal present. It never reads the clock; time enters only as an explicit
+   no front-end present. It never reads the clock; time enters only as an explicit
    argument.
 2. **Advanced in fixed ticks.** The core advances one **tick** at a time
    (`Game::tick`, §15.1), never by a variable `Duration`. A tick is 1/60 s.
@@ -161,10 +225,27 @@ client/server split described in §19.
    iteration order, no floating-point accumulation that depends on frame pacing,
    no ambient randomness.
 
-The shell owns everything else: the clock, terminal I/O, key decoding, DAS/ARR
-timing, animation timing, config files and persistence. The core exposes its
-state to the shell only through a **view model** (§12.7) and an **event stream**
-(§12.8) — the renderer must not read core internals directly.
+**Property 1 extends one layer out.** The shell gains no clock, no filesystem, no
+entropy and no calendar of its own. All four are **capabilities the front-end
+supplies**: the shell is handed a monotonic timestamp, a storage implementation, a
+seed and a date, and never calls `Instant::now`, `fs::read`, `rand::random` or a
+calendar itself. It is the front-end — which is the only layer that knows whether
+it is a terminal, a window or a browser tab — that decides where those four come
+from.
+
+This is not tidiness. It is the property that makes a browser build the *same*
+build rather than a port, and it is checkable by the compiler rather than by
+review: `shell/` and `core/` together must compile for
+`wasm32-unknown-unknown` with no `cfg` and no shim. `FRONTEND.md` states the four
+capabilities and the obligations that come with them; `EGUI.md` stage G3 is where
+they land and where that CI step is added.
+
+The front-end owns everything else: the screen, key decoding into §10.1's neutral
+key events, the loop that pumps the shell, and the four capabilities. The core
+exposes its state to everything above it only through a **view model** (§12.7)
+and an **event stream** (§12.8) — no front-end may read core internals directly,
+and no front-end may name a `core` module. §17.3's A10 is the compiler holding
+that boundary; `GUI.md` §G9's B12 is the same check at the outer one.
 
 ---
 
@@ -172,18 +253,23 @@ state to the shell only through a **view model** (§12.7) and an **event stream*
 
 ```
 ftm/
-├── Cargo.toml
-├── FTM.md                # this document
+├── Cargo.toml            # features: tui (default), gui; one [[bin]] each
+├── Trunk.toml            # the web build
+├── index.html            # the web build's shell page
+├── FTM.md                # this document: the front-end-agnostic specification
+├── FRONTEND.md           # the contract every front-end is written against
+├── TUI.md                # the terminal front-end (§8, §12.1–§12.6, §13)
+├── GUI.md                # the egui front-end, native and web (§G)
+├── PLAN.md               # the twelve stages that built v1.0
+├── EGUI.md               # the front-end plan, stages G0–G13
 ├── README.md
-├── tests/                    # integration tests (§17.2), driven through lib.rs
+├── tests/                # integration tests (§17.2), driven through lib.rs
 └── src/
-    ├── lib.rs                # the crate proper; main.rs is a thin wrapper
-    ├── main.rs               # entry point, terminal setup/teardown, panic hook
-    ├── app.rs                # top-level state machine (§7), event loop (§15)
-    ├── config.rs             # Config struct, TOML load/save, CLI merge (§6)
-    ├── input.rs              # key decoding, action mapping, DAS/ARR (§10)
-    ├── highscore.rs          # high-score table load/save (§14)
-    ├── core/
+    ├── lib.rs
+    ├── bin/
+    │   ├── ftm.rs            # terminal entry point; required-features = ["tui"]
+    │   └── ftm-gui.rs        # window entry point;   required-features = ["gui"]
+    ├── core/                 # pure rules. Every module pub(crate) (§17.3 A10).
     │   ├── mod.rs            # re-exports; `Game` façade
     │   ├── geometry.rs       # Point, Rotation, direction helpers
     │   ├── piece.rs          # Tetromino, cell patterns, spawn data (§9.2–9.4)
@@ -197,19 +283,58 @@ ftm/
     │   ├── view.rs           # GameView: the serialisable render model (§12.7)
     │   ├── events.rs         # GameEvent: what happened this tick (§12.8)
     │   └── game.rs           # Game state, `Game::tick` (§15.1)
-    └── ui/
-        ├── mod.rs            # screen dispatch, terminal-too-small screen
-        ├── theme.rs          # colour palette, colour-depth fallback (§12.3)
-        ├── cells.rs          # cell glyph rendering primitives (§12.2)
-        ├── playfield.rs      # in-game screen (§12.4)
-        ├── attract.rs        # attract screen (§13)
-        └── overlays.rs       # pause, game-over, name-entry overlays
+    ├── shell/                # front-end-agnostic AND platform-free (§3.1).
+    │   ├── mod.rs            #   builds for wasm32-unknown-unknown, no cfg.
+    │   ├── time.rs           # the monotonic timestamp the front-end supplies
+    │   ├── storage.rs        # the Storage trait: §6.2's and §14's bytes
+    │   ├── keys.rs           # the neutral Key / KeyEvent (§10.1)
+    │   ├── config.rs         # §6, parsing and serialising only — no fs
+    │   ├── input.rs          # §10.2, §10.3 — DAS/ARR, bindings
+    │   ├── highscore.rs      # §14, over Storage
+    │   ├── session.rs        # config, scores, warnings, seed policy
+    │   ├── round.rs          # the pumpable 60 Hz round (§15.2)
+    │   ├── attract.rs        # the attract state machine (§13.1, §13.6)
+    │   ├── menus.rs          # the menu models (§12.6, §13.3, §13.5)
+    │   ├── cosmetics.rs      # §12.5 animation timers, from events + a stamp
+    │   └── palette.rs        # §9.2 and its levelled lift, as plain RGB
+    ├── tui/                  # #[cfg(feature = "tui")]. TUI.md is normative.
+    │   ├── mod.rs            # screen dispatch, terminal-too-small screen
+    │   ├── keys.rs           # crossterm -> shell::keys adapter
+    │   ├── host.rs           # the four capabilities of §3.1, natively
+    │   ├── term.rs           # §8.1–§8.3: raw mode, alt screen, panic hook
+    │   ├── run.rs            # the poll loop; pumps the shell
+    │   ├── theme.rs          # colour depth, Glyphs (§12.3)
+    │   ├── cells.rs          # cell glyph rendering primitives (§12.2)
+    │   ├── playfield.rs      # in-game screen (§12.4)
+    │   ├── overlays.rs       # pause, game-over, name-entry overlays (§12.6)
+    │   └── attract.rs        # attract screen drawing and drift (§13)
+    └── gui/                  # #[cfg(feature = "gui")]. GUI.md is normative.
+        ├── mod.rs
+        ├── app.rs            # impl eframe::App; pumps the same shell objects
+        ├── keys.rs           # egui -> shell::keys adapter
+        ├── host_native.rs    # the four capabilities on a desktop
+        ├── host_web.rs       # the four capabilities in a browser
+        ├── layout.rs         # §G3: the integer-cell metric
+        ├── paint.rs          # mino tiles, ghost, grid, boxes
+        ├── playfield.rs      # §G4
+        ├── overlays.rs       # §G5
+        └── attract.rs        # §G7
 ```
 
-The crate is a **library plus a thin binary**. `main.rs` holds only the entry
-point; everything else lives behind `lib.rs`. This is what lets the integration
-tests of §17.2 — the scripted game and the batch-invariance canary of §19.4 —
-drive the core from `tests/`, which a binary-only crate cannot do.
+The crate is a **library plus thin binaries**. Each `src/bin/` file holds only an
+entry point; everything else lives behind `lib.rs`. This is what lets the
+integration tests of §17.2 — the scripted game and the batch-invariance canary of
+§19.4 — drive the core from `tests/`, which a binary-only crate cannot do, and it
+is what lets `tests/pump.rs` drive the whole shell with no front-end at all.
+
+A fourth front-end is a fifth directory, a feature and a `[[bin]]`. It is
+deliberately **not** a `trait Frontend`: the front-ends share the shell by
+calling it, not by satisfying an interface designed before the third one existed.
+`FRONTEND.md` is that shared understanding, written down instead of typed.
+
+> `src/shell/`, `src/tui/`, `src/gui/` and `src/bin/` are `EGUI.md`'s work,
+> stages G1–G6. Until they land the tree is `PLAN.md` Stage 12's: `main.rs`,
+> `app.rs`, `config.rs`, `input.rs`, `highscore.rs` and `ui/` beside `core/`.
 
 ---
 
@@ -250,18 +375,27 @@ file immediately on leaving that screen.
 
 ### 6.2 Config file
 
-- Path: `{config_dir}/ftm/config.toml`, where `{config_dir}` is
+- Format: TOML. One document, shared by every front-end on the machine.
+- **Where the bytes live is the front-end's question**, not the shell's (§3.1).
+  The native front-ends — `ftm` and `ftm-gui` — use
+  `{config_dir}/ftm/config.toml`, where `{config_dir}` is
   `directories::ProjectDirs::from("", "", "ftm").config_dir()`
   (`~/Library/Application Support/ftm/` on macOS,
-  `~/.config/ftm/` on Linux, `%APPDATA%\ftm\` on Windows).
-- Format: TOML.
+  `~/.config/ftm/` on Linux, `%APPDATA%\ftm\` on Windows). They therefore share
+  one file, and a setting written by either is read by the other. The web build
+  has no filesystem and uses `localStorage`; `GUI.md` §G8 names the key.
 - If the file is absent, defaults are used and a fully-commented file with the
   default values is written on first clean exit.
 - If the file is present but malformed, the game **must not** crash: it logs a
-  one-line warning to stderr after terminal teardown, uses defaults for the
-  unreadable keys, and leaves the file untouched.
+  one-line warning by whatever means the front-end has (§16), uses defaults for
+  the unreadable keys, and leaves the file untouched.
 - Unknown keys are ignored (forwards compatibility), but reported in the same
   warning, as are values clamped or rejected by the ranges in §6.3.
+- **A front-end preserves what it does not understand.** Saving the file must not
+  drop a table or a key another front-end wrote: `TUI.md` §6.3's four glyph and
+  colour keys survive a GUI run untouched, and `GUI.md` §G8's `[gui]` table
+  survives a terminal run. This is the same rule as "unknown keys are ignored",
+  said for the case where the loss would be silent and permanent.
 
 ### 6.3 Schema and defaults
 
@@ -316,18 +450,14 @@ entry_delay_ms      = 0     # ARE, §9.12. Range: 0..=2000. 0 means the next
                             #         piece enters on the same tick.
 
 [display]
-# "auto" | "truecolor" | "256" | "16" | "mono"   (see §12.3)
-color_depth   = "auto"
-# Characters used to paint one occupied cell. Each must be exactly 2 display
-# columns wide; one that is not is rejected with a warning and the default used
-# (§12.2).
-cell_filled   = "██"
-cell_empty    = "  "
-cell_ghost    = "▒▒"
 # Draw a faint dotted grid in the empty playfield.
 show_grid     = false
 # Show frame rate, tick rate and internal timers.
 show_debug    = false
+# `color_depth`, `cell_filled`, `cell_empty` and `cell_ghost` also live in this
+# table. They describe a character grid, so they are the terminal front-end's
+# and are specified in TUI.md §6.3; other front-ends ignore them and leave them
+# in the file untouched (§6.2).
 
 [keys]
 # See §10. Each action maps to a list of key names; any listed key triggers it.
@@ -384,7 +514,7 @@ of the setting, not of where it was written:
 | Class | Sections | Owner |
 |---|---|---|
 | **Rules** | `[gameplay]`, `[timing]` | The party running the core. |
-| **Presentation** | `[display]`, `[keys]` | Always the player at the terminal. |
+| **Presentation** | `[display]`, `[keys]`, `[gui]` | Always the player at the front-end. |
 
 Rules settings change what happens; presentation settings change only what it
 looks like and which key produces which action. In v1.0 both classes come from
@@ -504,6 +634,13 @@ Transitions:
 The pause menu's **Restart** does not need §10.1's one-second hold: choosing an
 item from a menu is already the deliberate act the hold is there to require.
 
+**The state machine is pumped, not looped.** §15.2's steps are methods on the
+state above, called by whichever front-end is running: the terminal's poll loop,
+`eframe`'s `update`, a test harness with no screen at all. A front-end decides
+*when* to advance and *when* to draw; it never decides how far the game moves,
+which is §15.1's tick and nothing else. `FRONTEND.md` states the obligations
+that come with holding that loop.
+
 The game clock does not advance in `Paused`, `Options`, `Controls`, `Resuming`,
 `GameOver` or `NameEntry`.
 
@@ -511,75 +648,21 @@ The game clock does not advance in `Paused`, `Options`, `Controls`, `Resuming`,
 
 ## 8. Terminal handling
 
-### 8.1 Startup
+**Moved to [`TUI.md`](TUI.md) §8**, which keeps the same numbers: §8.1 startup,
+§8.2 key-release detection, §8.3 shutdown, §8.4 resize. Raw mode, the alternate
+screen and the keyboard-enhancement flags are a terminal's business and no other
+front-end has them.
 
-On start, in this order:
+Two things in it are **not** terminal-specific and have counterparts everywhere:
 
-1. Parse CLI arguments; load and merge config (§6).
-2. Install a panic hook that restores the terminal (§8.3) **before** printing the
-   panic message, so a crash never leaves the user with a broken shell.
-3. Enable raw mode.
-4. Enter the alternate screen (`EnterAlternateScreen`).
-5. Hide the cursor.
-6. Enable bracketed paste **off**, mouse capture **off**.
-7. Attempt to push keyboard enhancement flags (§8.2).
-8. Create the `ratatui` terminal with the `CrosstermBackend` over `stdout`.
-
-### 8.2 Key-release detection
-
-Standard terminals report only key presses; a held key produces a stream of
-auto-repeat presses at the operating system's repeat rate and produces no event
-at all when released. This is inadequate for a game that needs to know whether
-left is *currently* held.
-
-The implementation must therefore support two input modes:
-
-**Enhanced mode (preferred).** Push
-`KeyboardEnhancementFlags::REPORT_EVENT_TYPES | DISAMBIGUATE_ESCAPE_CODES` via
-crossterm's `PushKeyboardEnhancementFlags`, and verify support by querying
-`crossterm::terminal::supports_keyboard_enhancement()`. When supported, the
-terminal delivers `KeyEventKind::Press`, `::Repeat` and `::Release`, and the game
-tracks true held-key state. DAS and ARR (§10.3) are then driven entirely by the
-game clock, and terminal auto-repeat events are **ignored** (`KeyEventKind::Repeat`
-is discarded).
-
-**Legacy mode (fallback).** When enhancement is unsupported, there are no release
-events. A key is treated as held from its first press until `hold_timeout`
-milliseconds have elapsed with no further event for that key, where
-`hold_timeout = 90 ms`. This is longer than any common terminal auto-repeat
-interval (typically 30–50 ms) and shorter than a deliberate re-press. In legacy
-mode:
-
-- DAS and ARR are still driven by the game clock, not by the terminal's repeat
-  rate; incoming repeat events only refresh the "still held" timestamp.
-- Soft drop is applied while the down key is considered held, and stops
-  `hold_timeout` after the last event. The resulting up-to-90 ms of overshoot is
-  accepted.
-- The status bar shows a small `legacy-keys` indicator when `show_debug` is on.
-
-The active mode must be reported by `--print-config` and on the Controls panel of
-the attract screen, because it materially changes feel.
-
-### 8.3 Shutdown
-
-Teardown runs on normal exit, on error, and from the panic hook, and is
-idempotent:
-
-1. Pop keyboard enhancement flags (if pushed).
-2. Show the cursor.
-3. Leave the alternate screen.
-4. Disable raw mode.
-5. Flush stdout.
-
-Any warning accumulated during the run (bad config keys, unwritable high-score
-file) is printed to stderr **after** teardown.
-
-### 8.4 Resize
-
-`Event::Resize` invalidates the whole frame and triggers a full redraw. If the
-terminal is smaller than the minimum size (§12.1), the game switches to the
-"terminal too small" screen; if a game was in progress it is forced into
-`Paused` first, so the player is never killed by a window resize.
+- §8.2's distinction between a key that is *held* and a key that *repeats* is
+  §10.2's and §10.3's, and every front-end must answer it. A front-end that
+  reports releases is in §8.2's enhanced case; one that does not must synthesise
+  held state the way §8.2's legacy path does. See `FRONTEND.md`.
+- §8.4's **rule** — a viewport too small to host the screen forces a game in
+  progress into `Paused` before the screen is replaced, so a resize never kills a
+  player — is shared and has one implementation. What counts as too small is the
+  front-end's: `TUI.md` §12.1 for the terminal, `GUI.md` §G3 for a window.
 
 ---
 
@@ -1235,278 +1318,31 @@ Version 1.0 implements a single mode, **Marathon**:
 
 ## 12. Rendering
 
-### 12.1 Terminal size
+§12 is in two halves, and the split between them is the point of this document's
+split. §12.1–§12.6 describe *a screen* — a size, a glyph, a colour depth, a
+44 × 23 block of characters — and they are the terminal's. §12.7 and §12.8
+describe *what any screen is drawn from*, and they stay here.
 
-- **Minimum supported size: 60 columns × 24 rows.**
-- Below the minimum, all screens are replaced by a centred message:
+### 12.1–12.6 — the terminal's screen
 
-  ```
-  Terminal too small
-  Need 60x24, have 48x20
-  Resize to continue
-  ```
+**Moved to [`TUI.md`](TUI.md)**, keeping the same numbers: §12.1 terminal size,
+§12.2 cell rendering, §12.3 colour depth, §12.4 the playfield screen layout,
+§12.5 animations, §12.6 overlays. The egui front-end's counterparts are `GUI.md`
+§G3–§G7, in a fresh namespace, because they are a different screen and not a
+translation of this one.
 
-  and, if a game was in progress, it is forced into `Paused` (§8.4).
-- Above the minimum, the whole UI is centred as a fixed-size block; extra space
-  becomes margin. The UI does **not** stretch, because the playfield's aspect
-  ratio must stay correct.
+Three of the six carry a rule that is not really about characters, and each is
+restated where it belongs rather than duplicated:
 
-### 12.2 Cell rendering
-
-- One matrix cell is drawn as **two terminal columns**, so that a cell is roughly
-  square in typical fonts. All widths in this section are given in cells; the
-  character width is twice that.
-- An occupied cell is `cell_filled` (default `██`) in the piece's foreground
-  colour, on the default background.
-- An empty cell is `cell_empty` (default two spaces), or `··` dimmed when
-  `show_grid = true`.
-- A ghost cell is `cell_ghost` (default `▒▒`) in the piece's colour, dimmed.
-- All three glyph strings must be exactly two display columns wide; a config that
-  violates this is rejected with a warning and the default is used.
-
-### 12.3 Colour depth
-
-`color_depth = "auto"` selects, in order:
-
-1. `mono` if `$NO_COLOR` is set (any value) or stdout is not a TTY. This test
-   comes first because it *overrides* the others: a terminal that advertises
-   truecolor and sets `$NO_COLOR` wants no colour.
-2. `truecolor` if `$COLORTERM` is `truecolor` or `24bit`.
-3. `256` if `$TERM` contains `256color`.
-4. `16` otherwise.
-
-In `mono`, cells are drawn as the piece's mono glyph (§9.2) — `I`, `O`, `T`, `S`,
-`Z`, `J`, `L` — doubled (`II`), the ghost as `..`, and all emphasis uses bold and
-reverse video only. The game must be fully playable in `mono`.
-
-#### The levelled palette
-
-§9.2's seven colours are equally saturated but not equally bright: their Rec.709
-luma runs from blue's 17 to yellow's 223. A `J` piece at 17 is hard to pick out
-of a dark terminal at all, and §13.2's wordmark, whose letters sit side by side,
-reads as two different weights. So everything drawn in a piece colour — the
-field, the ghost, the previews, the hold box, §13.4's drifting background and
-§13.2's wordmark — draws from this palette instead:
-
-| Colour | §9.2 | luma | Drawn | luma | 256-colour |
-|---|---|---|---|---|---|
-| Cyan | `#00F0F0` | 189 | `#00F0F0` | 189 | 51 |
-| Green | `#00F000` | 172 | `#00F000` | 172 | 46 |
-| Orange | `#F0A000` | 165 | `#F0A000` | 165 | 208 |
-| Yellow | `#F0F000` | 223 | `#F0F000` | 223 | 226 |
-| Purple | `#A000F0` | 51 | `#D58FF8` | 165 | 177 |
-| Red | `#F00000` | 51 | `#F44040` | 102 | 203 |
-| Blue | `#0000F0` | 17 | `#4848F4` | 84 | 63 |
-
-A hue is lifted by blending it toward white, which is the only direction
-available: a saturated blue or purple cannot be made as bright as cyan on any
-display, so the brightness is bought with saturation. How much of that is worth
-spending differs by hue, so the three do **not** land on one number. Purple
-already carries two primaries and reaches 165 — orange's, the dimmest of the
-four that were already bright — while still reading as purple. Red and blue
-carry one primary each and gray out far faster: at 165 they are salmon and
-lavender rather than red and blue, so they are lifted 45% of that far instead,
-keeping about three-quarters of their saturation. A saturated hue also *looks*
-brighter than its luma says (Helmholtz–Kohlrausch), most so for blue, which
-closes much of the gap the numbers still show.
-
-The four colours §12.3 leaves alone keep §9.2's own 256-colour entry, which is
-authoritative — its orange is a deliberate choice, not the nearest cube cell.
-A lifted colour has no such entry, so it takes the cube cell nearest the value
-drawn. At 16 colours and in monochrome the palette cannot express a luminance
-and §9.2 stands as written.
-
-#### Dimming
-
-Dimming for ghosts and inactive UI uses: an RGB scale of 0.45 in truecolor, a
-darker palette entry in 256-colour, and the `DIM` attribute in 16-colour. The
-scale runs from the **levelled** colour, not from §9.2's, so a piece and its
-ghost are the same hue.
-
-### 12.4 Playfield screen layout
-
-The screen is a fixed block **44 characters wide by 23 rows tall**, centred in
-the terminal. All widths below are given in characters; remember that one matrix
-cell is two characters wide (§12.2).
-
-```
- hold/stats      playfield        next
-┌──────────┐ ┌──────────────┐ ┌──────────┐
-│  10 ch   │ │    22 ch     │ │  10 ch   │    10 + 1 + 22 + 1 + 10 = 44 ch
-└──────────┘ └──────────────┘ └──────────┘
-```
-
-Concrete mock-up at `preview_count = 5`, drawn to exact size (44 × 23):
-
-```
-▗▄▄▄▄▄▄▄▄▖ ▐                    ▌ ▗▄▄▄▄▄▄▄▄▖
-▐ HOLD   ▌ ▐                    ▌ ▐ NEXT   ▌
-▐  ██    ▌ ▐                    ▌ ▐  ████  ▌
-▐██████  ▌ ▐                    ▌ ▐  ████  ▌
-▝▀▀▀▀▀▀▀▀▘ ▐        ██          ▌ ▐        ▌
-           ▐      ██████        ▌ ▐██      ▌
-▗▄▄▄▄▄▄▄▄▖ ▐                    ▌ ▐██████  ▌
-▐ SCORE  ▌ ▐                    ▌ ▐        ▌
-▐  12480 ▌ ▐                    ▌ ▐    ██  ▌
-▐        ▌ ▐                    ▌ ▐██████  ▌
-▐ LEVEL  ▌ ▐                    ▌ ▐        ▌
-▐      4 ▌ ▐                    ▌ ▐        ▌
-▐        ▌ ▐                    ▌ ▐████████▌
-▐ LINES  ▌ ▐                    ▌ ▐        ▌
-▐     37 ▌ ▐                    ▌ ▐  ██    ▌
-▐        ▌ ▐                    ▌ ▐██████  ▌
-▐ TIME   ▌ ▐                    ▌ ▝▀▀▀▀▀▀▀▀▘
-▐  02:14 ▌ ▐        ▒▒          ▌           
-▝▀▀▀▀▀▀▀▀▘ ▐      ▒▒▒▒▒▒        ▌           
-           ▐      ██████████    ▌           
-           ▐██████████████████  ▌           
-           ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▘           
-               B2B  COMBO x3                
-```
-
-Rules for the layout:
-
-- **Box borders**: every box on this screen — playfield, hold, stats, next and
-  the debug strip — is drawn one character thick in **quadrant half blocks**,
-  inked on the half of the border cell that faces the interior: `▗▄▖` above,
-  `▐` and `▌` down the sides, `▝▀▘` below. On all four sides except the
-  playfield's top, which is open (below). Not the line-drawing set: a `│` is
-  inked down the *middle* of its cell, so the wall it draws stands half a cell
-  away from what it encloses, and with a matrix cell two characters wide (§12.2)
-  that half cell reads as a gap. Inking the facing half instead puts the
-  boundary of the playfield exactly on the boundary of a cell. The overlay boxes
-  of §12.6 keep their double line, which is what distinguishes them from the
-  screen behind.
-- **Playfield box**: 20 characters (10 cells) of interior, 20 rows tall, and
-  **open at the top**: the walls and the floor are drawn, the lid is not. The
-  row the top border would have occupied is left open above the field — the
-  mouth the piece comes in through — and the twenty drawn rows stay at the
-  bottom of the box, so the floor, the status line and every row between them
-  sit exactly where a closed box put them. Only matrix rows `20..=39` are
-  drawn. A piece straddling row 20 is clipped: minos above row 20 are simply
-  not drawn, which is why nothing is ever drawn in the mouth itself.
-- **Hold box**: interior 4 cells × 2 cells, enough for any piece in `North`
-  orientation. The piece is centred horizontally in the box. Drawn dimmed when
-  hold is locked out for the current piece. Omitted entirely when
-  `hold_enabled = false`, and the left column then contains only the stats box.
-- **Next box**: interior 4 cells (8 characters) wide; one slot per previewed
-  piece, each slot 2 cell-rows tall, with one blank row between adjacent slots.
-  Its height is `2 (border) + 1 (label) + 2 × count + (count − 1)` rows: 17 rows
-  at `preview_count = 5` and 20 at 6, so it always fits inside the 22-row
-  playfield box and never needs to scroll at the minimum terminal size.
-  Slot 0 (the next piece to spawn) is at the top and is drawn at full
-  brightness; later slots are drawn progressively dimmer, in three steps
-  (100 %, 75 %, and 55 % for slot 2 and beyond) where the colour depth allows.
-- Should a future layout leave too little room for every slot, as many as fit are
-  drawn and the last visible row of the box shows `+N` right-aligned.
-- **Stats box**: score, level, lines, time (`MM:SS`, capped at `99:59`). The
-  score is drawn as bare digits here, and here alone: the interior is 8
-  characters with one of them spent on the margin, which holds the seven digits
-  a game can plausibly reach — but only six once a comma costs a column every
-  thousand, and a box grown to fit would take the whole 44-character block with
-  it. Wherever a score is instead read at rest — §12.6's game-over box, §13.3's
-  panel and §13.5's table — its digits are **grouped in threes** with `,`.
-- **Debug strip**: with `show_debug = true` a bordered strip 44 characters wide
-  and 5 rows tall is drawn **directly beneath the block**, making the whole
-  thing 44 × 28. It shows the frame rate, ticks elapsed, any dropped ticks
-  (§15.2), gravity in G, `fall_period`, lock-delay ticks remaining, DAS charge,
-  current bag contents, and the input mode (`enhanced` or `legacy`).
-
-  Beneath rather than inside the left column, because the column's interior is
-  8 characters wide and the block has at most 3 spare rows under the stats box:
-  those nine figures do not fit there at any height. The strip is a developer's
-  read-out and not a supported layout, so it does not change the minimum
-  terminal size of §12.1 — a terminal with fewer than 28 rows is simply drawn
-  without it, and the game is unaffected.
-- **Status line** (bottom, centred): shows `B2B` when the back-to-back chain is
-  active, `COMBO xN` when the combo counter is ≥ 1, and the most recent clear's
-  name (`QUAD`, `T-SPIN DOUBLE`, `PERFECT CLEAR`, …) for 1.5 s after it occurs.
-
-### 12.5 Animations
-
-All animations are purely cosmetic and must not affect the rules or timing of the
-core. Each is **started by a `GameEvent`** (§12.8) and then runs on the shell's
-own wall clock, independently of the tick rate. The core never knows an animation
-is in progress.
-
-| Animation | Duration | Description |
-|---|---|---|
-| Line clear flash | `line_clear_delay_ms` | Cleared rows alternate white / piece-colour at 12 Hz, then collapse. |
-| Hard-drop trail | 120 ms | The columns the piece passed through are drawn dimmed behind it. |
-| Lock flash | 80 ms | The locked piece is drawn white for one frame set. |
-| Level-up banner | 1.2 s | `LEVEL 5` centred over the playfield, fading. |
-| Perfect clear banner | 1.5 s | `PERFECT CLEAR` centred, in the seven piece colours cycling. |
-| Game-over wipe | 500 ms | The stack greys from the top row downwards. |
-
-If the frame rate cannot be sustained, animations are skipped rather than slowed.
-
-### 12.6 Overlays
-
-Overlays are drawn centred over the playfield with a cleared (space-filled)
-background and a double-line border.
-
-A menu of plain items inside one — the pause menu below — is centred as a
-**block**: the marker and the widest label together, with the labels
-left-aligned within it, so the items do not shuffle sideways as the cursor moves
-and the block is not pushed against one wall by the marker's indent. The attract
-screen's menu (§13.3) is laid out the same way. The Options panel of §13.5 is
-not: it is a two-column list of setting and value, and fills the box's width.
-
-**Pause**
-
-```
-╔══════════════════╗
-║      PAUSED      ║
-║                  ║
-║  ▸ Resume        ║
-║    Restart       ║
-║    Options       ║
-║    Controls      ║
-║    Quit to menu  ║
-╚══════════════════╝
-```
-
-**Options** opens the §13.5 Options panel over the paused playfield. §6.1 calls
-it "the in-game Options screen", and this is the in-game way in; the attract
-screen's OPTIONS item (§13.5) reaches the same panel. **Controls** likewise
-opens the §10.1 binding table over the same blanked playfield, and is the same
-box the attract screen's CONTROLS item shows. Both return to the pause menu,
-with the cursor back on the item that opened them; neither abandons the run.
-
-**Game over**
-
-```
-╔══════════════════════╗
-║      GAME OVER       ║
-║                      ║
-║  SCORE      12,480   ║
-║  LEVEL           4   ║
-║  LINES          37   ║
-║  TIME        02:14   ║
-║  PIECES        128   ║
-║  PPS           0.9   ║
-║                      ║
-║    Press any key     ║
-╚══════════════════════╝
-```
-
-**Name entry** (only when the score qualifies for the top ten):
-
-```
-╔══════════════════════╗
-║    NEW HIGH SCORE    ║
-║          #3          ║
-║                      ║
-║   Name: msandifo_    ║
-║                      ║
-║   Enter to confirm   ║
-╚══════════════════════╝
-```
-
-Name entry accepts up to 12 printable ASCII characters, `Backspace` deletes,
-`Enter` confirms (an empty name becomes `ANON`), `Esc` cancels and discards the
-score. The field is pre-filled with `$USER` (or `$USERNAME` on Windows),
-truncated to 12 characters.
+- **§12.5's rule that animations are cosmetic** — started by a `GameEvent`, run
+  on the front-end's own clock, invisible to the core — is §12.8's and is stated
+  there. The table of six animations and their durations is the terminal's.
+- **§12.3's levelled palette** solves a problem in §9.2's colours, not a problem
+  with terminals: blue at luma 17 is as hard to read on a monitor as it is in a
+  terminal. The lift is shared presentation; the colour *depths* — `truecolor`,
+  `256`, `16`, `mono`, and `$NO_COLOR` — are the terminal's alone.
+- **§12.1's minimum size** is a specific number for a specific screen, but the
+  obligation to have one, and §8.4's forced pause below it, is every front-end's.
 
 ### 12.7 The view model
 
@@ -1639,6 +1475,12 @@ Rules:
 - Events are a **notification**, never a mechanism: the core's own behaviour must
   be identical whether or not anyone consumes them. Dropping every event must
   change nothing about the game.
+- **Every animation is started by an event and then runs on the front-end's own
+  clock**, at whatever rate it draws, independently of the tick rate. The core
+  never knows an animation is in progress and never waits for one. This is why
+  §12.5's table of durations can be a front-end's to choose and its rule cannot:
+  an animation that the rules could see would be a rule. If the frame rate
+  cannot be sustained, animations are skipped rather than slowed.
 - Everything cosmetic in §12.5 and §12.4's status line is driven from events:
   `LinesCleared` starts the flash and sets the status text, `LevelUp` raises the
   banner, `PerfectClear` raises its banner, `PieceLocked` triggers the lock
@@ -1648,141 +1490,41 @@ Rules:
 
 ## 13. Attract screen
 
-> This section is deliberately provisional: it is the one part of the
-> specification expected to be refined (§18), and the only one whose looks
-> §17.3 never judged. It has been built and looked at, and what is written here
-> is what the code draws — §13.3's mock-up is a test — but the rest of the
-> specification does not depend on its details, and changes here should not
-> disturb §9.
+**Moved to [`TUI.md`](TUI.md) §13**, keeping the same numbers: §13.1 purpose and
+behaviour, §13.2 the wordmark, §13.3 the layout, §13.4 the background animation,
+§13.5 the sub-screens, §13.6 idle behaviour. The egui front-end's is `GUI.md`
+§G7.
 
-### 13.1 Purpose and behaviour
+What is shared is not the screen but the *state* behind it: which menu item is
+selected, which sub-screen is open, how long the program has been idle, and what
+each menu item does — §7's transitions out of `Attract`. That state machine is
+the shell's and has one implementation; §13.2's block letters, §13.3's 36 × 20
+layout and §13.4's drifting minos are drawn in cells of a character grid and are
+the terminal's.
 
-The attract screen is what the program shows whenever no game is in progress. It
-must: identify the game, show how to start it, teach the controls without being
-asked, and be pleasant to leave running.
+Two rules in it bind every front-end:
 
-### 13.2 Wordmark
+- **§1.3's trademark rules extend to the wordmark, the window title, the page
+  title and any icon or favicon.** The wordmark is original block lettering; no
+  official logo is reproduced or approximated anywhere.
+- **§13.5's rule that the Options panel applies presentation at once and rules
+  never** — a game keeps the rules it started under — is a rule about
+  configuration (§6.5), not about a panel, and it holds in every front-end.
 
-Drawn from block characters (not game cells, so the whole screen still fits in
-60 columns), 30 characters wide and 5 rows tall, with each character of the
-letterforms doubled horizontally so that three letters still carry the screen:
-
-```
-████████  ████████  ██      ██
-██          ████    ████  ████
-██████      ████    ██  ██  ██
-██          ████    ██      ██
-██          ████    ██      ██
-```
-
-The three letters take the `I`, `S` and `T` tetromino colours — cyan, green and
-purple — left to right, from §12.3's levelled palette, which is what every other
-piece colour on the screen is drawn from too. Levelling them is what stops the
-purple `M` reading as a lighter weight of the same letterform than the cyan `F`;
-§12.3 has the table and the derivation. §13.6's idle cycle walks all seven, so
-the four the static wordmark never shows are levelled by the same rule.
-
-This is an original block-letter wordmark. **The official Tetris logo must not be
-used, reproduced, or approximated**, and no official colours-as-branding, styling
-or artwork may be copied (§1.3).
-
-### 13.3 Layout
-
-```
-               ████████  ████████  ██      ██
-               ██          ████    ████  ████
-               ██████      ████    ██  ██  ██
-               ██          ████    ██      ██
-               ██          ████    ██      ██
-
-                 FALLING TETROMINO MANAGER
-
-                     ▸ PLAY
-                       HIGH SCORES
-                       CONTROLS
-                       OPTIONS
-                       QUIT
-
-            ┌──────────────────────────────────┐
-            │    ←→ move          ↑ rotate     │
-            │     ↓ soft drop SPACE drop       │
-            │     Z rotate ccw    A rotate 180 │
-            │     C hold                       │
-            └──────────────────────────────────┘
-              v1.0   ↑↓ select   ENTER start
-```
-
-The screen is a fixed block **36 characters wide by 21 rows tall**, centred in
-the terminal like every other screen (§12.1). The mock-up above shows it centred
-in 60 columns. The width is the controls panel's, not the wordmark's: the
-wordmark is 30 characters and is centred within the block.
-
-The 21 rows are wordmark (5), blank, subtitle, blank, menu (5), blank, panel
-(6), footer — the footer sits directly under the panel, with no gap.
-
-- The controls panel lists only the bindings that are actually available: the
-  `C hold` entry is omitted when `hold_enabled = false`, and the 180° entry is
-  shown only when `allow_180_rotation = true`. The remaining entries reflow to
-  fill the panel, two to a row.
-- The panel is **four rows** tall inside its border. Two of the seven control
-  entries are optional, so three rows of two cannot hold them all with every
-  setting turned on; four rows is also what the high-score face wants, which is
-  a heading and the top three.
-- The menu is navigated with `↑`/`↓` (wrapping) and activated with `Enter` or
-  `Space`. The selected item is marked `▸` and drawn in the `I`-piece cyan.
-- The panel beneath the menu **cycles every 6 seconds** between three faces:
-  1. the quick control summary shown above;
-  2. the top three high scores, under a `HIGH SCORES` heading;
-  3. a one-line rules reminder (`Clear 4 rows at once for a QUAD` and similar,
-     rotating through a short list).
-  The cycle pauses while a menu item other than **PLAY** is selected.
-
-### 13.4 Background animation
-
-Behind the wordmark and menu, a slow ambient animation runs at 10 fps:
-
-- Tetromino outlines (drawn with `░░` cells in each piece's colour, heavily
-  dimmed) drift down the screen from the top, one new piece every ~1.2 s at a
-  random column, falling one row every ~0.6 s, each in a random orientation.
-- Pieces are removed when they leave the bottom of the screen; at most 12 exist
-  at once.
-- The animation never draws over the wordmark, menu, panel or footer: those
-  regions are painted after it, opaquely.
-- The animation is disabled in `mono` colour mode and when `show_debug` is on.
-
-### 13.5 Sub-screens
-
-- **HIGH SCORES** — the full top-ten table (rank, name, score, level, lines,
-  date), with the most recently added entry highlighted. `Esc` returns.
-- **CONTROLS** — the full binding table from §10.1, plus the active input mode
-  (§8.2). `Esc` returns.
-- **OPTIONS** — an editable list of the settings most worth changing without a
-  text editor: preview count (1–6), starting level (1–15), ghost piece on/off,
-  **hold on/off**, **180° rotation on/off**, lock-down rule, colour depth, grid
-  on/off. `←`/`→` change the selected value, wrapping at each end, and `Esc`
-  saves the config file (§6.2) and returns.
-
-  The same panel is reached from the pause menu (§12.6), which is what §6.1
-  means by "the in-game Options screen". Presentation settings — colour depth
-  and the grid — take effect the moment the panel is left. Rules settings do
-  not: a game already in progress keeps the rules it started under, so
-  toggling hold, 180° rotation, the preview count, the starting level or the
-  lock-down rule takes effect for the next game. This is what §6.5's split is
-  for, and it is also the only answer that keeps a run deterministic (§15.4).
-
-### 13.6 Idle behaviour
-
-After 60 seconds with no key press on the attract screen, the wordmark's
-per-letter colours begin a slow cycle (one step per second) to show the program
-is alive. Any key stops it. (A self-playing demo is deliberately **not** in scope
-for v1.0; see §18.)
+§13 as a whole remains deliberately provisional (§18): it is the one part of the
+specification expected to be refined, and the only one whose looks §17.3 never
+judged.
 
 ---
 
 ## 14. High scores
 
-- Path: `{data_dir}/ftm/highscores.json`, where `{data_dir}` is
-  `ProjectDirs::data_dir()`.
+- **Where the bytes live is the front-end's question** (§3.1), exactly as it is
+  for §6.2. The native front-ends use `{data_dir}/ftm/highscores.json`, where
+  `{data_dir}` is `ProjectDirs::data_dir()`, and therefore share one table; the
+  web build uses `localStorage`, and `GUI.md` §G8 names the key. Everything else
+  in this section — the capacity, the ordering, the tie-break, the qualifying
+  rule and the JSON — is the shell's and has one implementation.
 - Format:
 
 ```json
@@ -1799,8 +1541,11 @@ for v1.0; see §18.)
   broken by earlier date first (so an existing entry keeps the better rank).
 - A score qualifies if it is greater than the tenth entry's score, or the table
   has fewer than 10 entries. A score of 0 never qualifies.
-- The file is written atomically: write to `highscores.json.tmp` in the same
-  directory, then rename over the target.
+- The write must be **durable against a crash mid-write**: a run that dies while
+  saving must leave either the old table or the new one, never a truncated file.
+  How is the front-end's. On a filesystem it is a temp file in the same directory
+  renamed over the target; `localStorage` has no rename and needs none, because a
+  single `setItem` is already atomic.
 - Any failure to read (missing, malformed, unreadable) yields an empty table and a
   warning at exit; the game must never fail to start because of it. Any failure
   to write yields a warning at exit and is otherwise ignored.
@@ -1872,34 +1617,52 @@ Rendering is decoupled and may run at any rate. It is driven by the latest
 
 ### 15.2 The loop
 
+The steps below are what advances a game, in this order. They were once the body
+of a `while` loop in the shell; they are now methods the **front-end** calls
+(§7), because a windowing system calls an application rather than being called by
+one. Which layer holds the loop is the front-end's business. What the steps are,
+and that they run in this order, is not.
+
 ```rust
 let mut accumulator = Duration::ZERO;
-let mut last = Instant::now();
+let mut last = now();          // the front-end's monotonic stamp (§3.1)
 ```
 
 Each iteration:
 
-1. `let now = Instant::now(); accumulator += now - last; last = now;`
-2. Drain **all** currently available terminal events with
-   `event::poll(Duration::ZERO)` + `event::read()`, converting each into actions
+1. `let now = now(); accumulator += now - last; last = now;` — `now` is the stamp
+   the front-end supplied, never a clock the shell read.
+2. Drain **all** currently available input events, converting each into actions
    and held-state changes (§10.2). Draining rather than reading one event per
-   frame is required, or fast typing lags behind.
-3. Resolve DAS/ARR (§10.3) against the wall clock into this tick's `TickInput`.
+   frame is required, or fast typing lags behind. The front-end drains its own
+   queue and hands the events over one at a time; it must not withhold an event
+   until the next frame.
+3. Resolve DAS/ARR (§10.3) against the same stamp into this tick's `TickInput`.
    DAS lives in the shell, so its resolution is not limited to the tick rate.
 4. While `accumulator >= TICK`, call `Game::tick` and subtract `TICK`, up to
    `MAX_CATCH_UP_TICKS` iterations; then, if the accumulator is still ≥ `TICK`,
    **discard the arrears** and record a dropped-ticks count for the debug
-   display. Discarding rather than catching up is what stops a suspended laptop
-   or a scrolled terminal from resuming into an instant death. Edge-triggered
-   actions are consumed by the first tick of the batch only; held state applies
-   to every tick in it.
+   display. Discarding rather than catching up is what stops a suspended laptop,
+   a scrolled terminal or a backgrounded browser tab from resuming into an
+   instant death. Edge-triggered actions are consumed by the first tick of the
+   batch only; held state applies to every tick in it.
 5. Feed the accumulated `GameEvent`s to the animation and status-line state
-   (§12.5, §12.8), then build the `GameView` and draw if it differs from the
-   previous frame or an animation is running. `ratatui` diffs against the
-   previous buffer, so an unchanged frame costs nothing.
-6. Sleep for the remainder of the tick: `event::poll(time_to_next_tick)` is used
-   instead of `thread::sleep`, so an incoming key wakes the loop early. This
-   keeps input latency at roughly one tick while keeping idle CPU near zero.
+   (§12.5, §12.8), then build the `GameView` and draw.
+
+   **Whether to skip a draw is the front-end's optimisation, not a rule.** A
+   retained-mode front-end that diffs against a previous buffer — `ratatui` does
+   — saves real work by drawing only when the frame changed or an animation is
+   running, and `TUI.md` §12.4 describes what "changed" has to include for that
+   to be safe. An immediate-mode front-end rebuilds the frame on every repaint
+   and needs no such comparison; it must not grow one.
+6. Wait until the front-end's next deadline before returning to step 1. The
+   shell says how long it may usefully wait — the remainder of the tick, or
+   §15.3's 10 fps on the attract screen — and that number is **advice**: a
+   front-end may be woken sooner by a key, by the compositor or by a tab
+   regaining focus, and one that renders at vsync may ignore it entirely. Step 4
+   is correct at any cadence, because the accumulator is over real elapsed time
+   and not over frames. The terminal front-end takes the advice literally, so an
+   incoming key wakes it early and idle CPU stays near zero.
 
 ### 15.3 Attract screen loop
 
@@ -1922,23 +1685,30 @@ a modern machine.
 
 ## 16. Error handling
 
-- `main` returns `anyhow::Result<()>`; any error propagated to it is printed
-  after terminal teardown (§8.3) with a non-zero exit code.
+- Any error that reaches the entry point is reported and exits non-zero. On a
+  native front-end that means printing it — for the terminal, after teardown
+  (§8.3) — and returning a non-zero status; in a browser tab there is no exit
+  status and the report goes to the console.
 - Recoverable problems (bad config values, unreadable or unwritable high scores,
   unsupported keyboard enhancement) never abort: they degrade to a documented
-  default and add a line to a `Vec<String>` of warnings printed at exit.
-- Writes to stdout during play are ignored on failure; the frame is simply lost.
-- The panic hook restores the terminal before the default panic handler runs, so
-  a bug produces a readable backtrace rather than a wrecked terminal.
-- `SIGINT` (Ctrl-C) is not trapped: crossterm in raw mode delivers it as a key
-  event, which is mapped to "quit to menu" from `Playing` and "quit" from
-  `Attract`.
+  default and add a line to a `Vec<String>` of warnings surfaced at exit. The
+  warnings are the shell's; **how they reach a human is the front-end's** —
+  stderr for the native builds, the browser console for the web build.
+- A failed frame is ignored; the frame is simply lost.
+- A panic must not leave the machine worse than it found it. The terminal
+  front-end's panic hook restores the terminal before the default handler runs
+  (§8.3), so a bug produces a readable backtrace rather than a wrecked terminal;
+  a windowed front-end has nothing to restore, and the web build installs a hook
+  that puts the panic in the console.
+- `SIGINT` (Ctrl-C) is not trapped where it arrives as a key: crossterm in raw
+  mode delivers it as a key event, which is mapped to "quit to menu" from
+  `Playing` and "quit" from `Attract`.
 
 ---
 
 ## 17. Testing and acceptance
 
-### 17.1 Required unit tests (core, no terminal)
+### 17.1 Required unit tests (core, no front-end)
 
 1. **Piece geometry** — every piece has exactly 4 minos in all 4 orientations;
    four clockwise rotations restore the original pattern; the spawn coordinates in
@@ -2002,45 +1772,43 @@ a modern machine.
   same snapshot — this is the desync canary for §19.
 - Config round-trip: defaults → TOML → parse → identical struct.
 - A malformed config file loads with defaults and produces exactly one warning.
-- Rendering does not panic at 60 × 24, 80 × 24, 200 × 60, or 1 × 1.
+- Rendering does not panic at any viewport size, including one below the
+  front-end's minimum and one absurdly small. The terminal's list is 60 × 24,
+  80 × 24, 200 × 60 and 1 × 1 (I4, `TUI.md` §12.1); the egui front-end's
+  counterpart is `GUI.md` §G9.
 
 ### 17.3 Acceptance criteria
 
-The implementation is complete when:
+Acceptance is per front-end, because most of it is about a screen and a keyboard.
+§17.1 and §17.2 above are shared and are the precondition for both lists.
 
-1. `cargo build --release` produces a binary with no warnings, and
-   `cargo clippy -- -D warnings` is clean.
-2. All tests in §17.1 and §17.2 pass.
-3. The attract screen appears on launch, and **PLAY** starts a game.
-4. All controls in §10.1 behave as specified, with working DAS.
-5. `preview_count` is honoured for every value 1–6, from both the config file and
-   `--preview`, and the layout adapts.
-6. A full game can be played to a top out, the score is recorded, and it appears
-   on the attract screen's high-score panel.
-7. Quitting at any point restores the terminal exactly as it was found —
-   verified by `stty -a` before and after.
-8. The game is playable with `--color mono` and with `NO_COLOR=1`.
-9. Hold and 180° rotation can each be turned off and on from the config file, the
-   command line and the Options screen; when off, the key does nothing and the
-   binding disappears from the hold box, the controls overlay and the attract
-   screen's controls panel.
-10. The renderer compiles against `GameView` alone. This is enforced by the
-    compiler rather than audited: every module inside `core` is `pub(crate)`,
-    so the core's whole public surface is its façade, and nothing under `ui/`
-    can name `Game` or a rules module even by accident.
+- **A1–A10 — the terminal front-end.** Moved to [`TUI.md`](TUI.md) §17.3, keeping
+  the number. Signed off at `PLAN.md` Stage 12.
+- **B1–B12 — the egui front-end**, native and web. `GUI.md` §G9, checked one by
+  one the way A1–A10 were.
 
-    The façade is `Game` itself (`new`, `tick`, `view`, `debug`), the input
-    types `Action`, `Actions`, `Shift` and `TickInput` — which only `app` and
-    `input` use — and the view and event types with the vocabulary they are
-    written in: `GameView`, `PieceView`, `DebugView`, `VIEW_WIDTH`,
-    `VIEW_HEIGHT`, `PlayState`, `GameEvent`, `ClearKind`, `ScoreReason`,
-    `TopOutCause`, `OFF_SCREEN`, `PieceKind`, `Colour` and `Rotation`.
+Two of A1–A10 are worth naming here, because they are checks on *this* document
+rather than on a terminal, and every front-end has to pass its own version:
 
-    The last three are in the list because a client handed a `GameView` has to
-    *draw* it: the view's cells and its hold and next slots are `PieceKind`s,
-    and turning one into minos on a screen needs §9.3's cell patterns and the
-    `Rotation` they are indexed by, and §9.2's `Colour`. None of them is a
-    rule. This is the check that §19 stays reachable.
+- **A10 — the core's public surface is its façade**, held by the compiler and not
+  by an audit: every module inside `core` is `pub(crate)`, so nothing above it
+  can name `Game` or a rules module even by accident. The façade is `Game` itself
+  (`new`, `tick`, `view`, `debug`), the input types `Action`, `Actions`, `Shift`
+  and `TickInput`, and the view and event types with the vocabulary they are
+  written in: `GameView`, `PieceView`, `DebugView`, `VIEW_WIDTH`, `VIEW_HEIGHT`,
+  `PlayState`, `GameEvent`, `ClearKind`, `ScoreReason`, `TopOutCause`,
+  `OFF_SCREEN`, `PieceKind`, `Colour` and `Rotation`.
+
+  The last three are in the list because a client handed a `GameView` has to
+  *draw* it: the view's cells and its hold and next slots are `PieceKind`s, and
+  turning one into minos on a screen needs §9.3's cell patterns and the
+  `Rotation` they are indexed by, and §9.2's `Colour`. None of them is a rule.
+  This is the check that §19 stays reachable. Adding a `pub use` to `core/mod.rs`
+  is a decision about §19's wire vocabulary, not a plumbing convenience.
+
+- **A1 — the build is clean**, `cargo clippy -- -D warnings` silent. With the
+  feature split of §3 this must be run with every front-end enabled, or a
+  front-end silently stops being compiled at all.
 
 ---
 

@@ -43,10 +43,17 @@ Linux); a fully-commented copy is written there the first time the game exits
 cleanly, and the in-game Options panel — pause, then **Options** — edits the
 settings most worth changing without a text editor.
 
-The specification is [FTM.md](FTM.md) and it is ground truth: if the code
-and the spec disagree, the spec is wrong until it is amended.
-[PLAN.md](PLAN.md) sequences the implementation into twelve stages.
-All twelve stages are now complete.
+The specification is [FTM.md](FTM.md) and it is ground truth: if the code and
+the spec disagree, the spec is wrong until it is amended. It has three
+companion documents, and section numbers are stable across all four — a
+section that moved kept its number: [FRONTEND.md](FRONTEND.md) is the contract
+any front-end is written against, [TUI.md](TUI.md) specifies this terminal
+front-end (§8, §12.1–§12.6, §13), and [GUI.md](GUI.md) is reserved for an egui
+front-end in a window and in a browser.
+
+[PLAN.md](PLAN.md) sequences the implementation into twelve stages; all twelve
+are complete. [EGUI.md](EGUI.md) is the live plan, and adds the second and
+third front-ends.
 
 Requires Rust 1.88 or later (edition 2024 needs only 1.85; `ratatui` sets the floor). `make check` runs everything CI runs:
 `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` and a release

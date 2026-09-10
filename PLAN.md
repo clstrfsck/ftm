@@ -11,6 +11,11 @@ Section references (§) are to `FTM.md`. Test numbers (T1–T17) are the unit
 test groups in §17.1; integration tests are I1–I4 from §17.2; acceptance criteria
 are A1–A10 from §17.3.
 
+> Written before `EGUI.md` stage G0 split the specification in four. Section
+> numbers did not move, so every reference below still resolves — §8,
+> §12.1–§12.6, §13 and §17.3's A1–A10 now resolve to `TUI.md` rather than to
+> `FTM.md`. This plan is history and is not amended further.
+
 ---
 
 ## Contents

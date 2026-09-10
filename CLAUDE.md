@@ -2,14 +2,17 @@
 
 A guideline-conformant falling-block game in Rust. No server, no unsafe. The
 name is the joke; `ftm` is the binary, the crate, and the config and data
-directories. The specification is `FTM.md`.
+directories. The specification is `FTM.md`, and since G0 it has three companion
+documents — see **The four documents** below.
 
 It is a terminal game today and a single binary today. Both are being widened:
 `EGUI.md` plans a second and third front-end (a native egui window, and the
-same code as wasm in a browser) and anticipates a fourth (Macroquad). Nothing
-of that is built yet — the tree is exactly as Stage 12 left it.
+same code as wasm in a browser) and anticipates a fourth (Macroquad). None of
+that is built yet — the tree is exactly as Stage 12 left it, and G0 changed no
+code.
 
-**Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted.** All
+**Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
+stage G0 complete (documentation only). Start at G1.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -75,22 +78,39 @@ readable backtrace and exited 101.
    names the spec sections it depends on and the tests that close it. Read that
    stage, plus "The decisions this plan rests on" and "The central idea", which
    are what the rest of it follows from.
-2. **`FTM.md`** — the specification. Self-sufficient by design: every kick
-   table, timing constant and screen layout is in it. Read the sections the
-   current stage names, not the whole thing.
+2. **The specification**, in whichever of the four documents below owns the
+   sections the current stage names. Read those sections, not the whole thing.
 3. **`PLAN.md`** — the twelve stages that built v1.0. History, not instructions.
    Worth reading when you want to know why something is the shape it is.
 
-`FTM.md` is ground truth. **If the code and the spec disagree, the spec is
-wrong until it is amended** — fix the spec in the same commit and say so in the
-message. Never let the code silently diverge.
+The specification is ground truth. **If the code and the spec disagree, the
+spec is wrong until it is amended** — fix it in the same commit and say so in
+the message. Never let the code silently diverge.
 
-**After G0 there are four documents, and section numbers do not move.** The
-sections that leave `FTM.md` keep their numbers in the file they move to, so
+## The four documents, and the number-stability rule
+
+G0 split the specification in four. **Section numbers did not move.** The
+sections that left `FTM.md` kept their numbers in the file they moved to, so
 every `§12.4` in the source still resolves — to `TUI.md` rather than to
-`FTM.md`. `FRONTEND.md` is the contract a new front-end is written against;
-`GUI.md` owns a fresh `§G` namespace. Until G0 lands, `FTM.md` is still whole
-and every reference means what it always did.
+`FTM.md` — and `FTM.md` keeps a stub at each vacated number saying where it
+went. **Do not renumber anything.** A renumber would silently invalidate
+several hundred doc comments, and each one would still *read* fine.
+
+| Document | Owns | Is |
+|---|---|---|
+| **`FTM.md`** | §1-§7, §9-§11, §12.7, §12.8, §14-§19 | The front-end-agnostic specification: rules, config, states, controls, the view model and the event stream, high scores, timing, errors, testing, §19. |
+| **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
+| **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
+| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. A reserved namespace today; G5-G13 fill it stage by stage. |
+
+An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
+owns. `§Gn` means `GUI.md`; a future `MACROQUAD.md` would take `§M`.
+
+Two rules that keep the split honest: **§12.7 and §12.8 stayed in `FTM.md`**,
+because they are what a front-end is written *against* rather than a rendering
+technique — a stub in the moved-out half is a sign something was filed wrong.
+And **`FRONTEND.md` owns no section numbers**: every rule in it is normative
+somewhere in `FTM.md`, and it collects rather than legislates.
 
 ## Invariants that are easy to break
 
