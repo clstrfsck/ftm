@@ -1,8 +1,13 @@
 # Falling Tetromino Manager (ftm)
 
-A guideline-conformant falling-block game for the terminal, in Rust. Single
-binary, no server, no unsafe. The name is the joke; `ftm` is the binary, the
-crate, and the config and data directories. The specification is `FTM.md`.
+A guideline-conformant falling-block game in Rust. No server, no unsafe. The
+name is the joke; `ftm` is the binary, the crate, and the config and data
+directories. The specification is `FTM.md`.
+
+It is a terminal game today and a single binary today. Both are being widened:
+`EGUI.md` plans a second and third front-end (a native egui window, and the
+same code as wasm in a browser) and anticipates a fourth (Macroquad). Nothing
+of that is built yet — the tree is exactly as Stage 12 left it.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
@@ -26,8 +31,11 @@ state machine and both loops of §15), `config.rs` (§6), `highscore.rs` (§14),
 `input.rs` (§10) and `ui/` (§12, §13). T1-T17 all pass, plus I1-I4, and the
 batch-invariance canary is in CI.
 
-There is no Stage 13. Further work is §18 and §19, and both are out of scope
-until somebody decides otherwise — see **Scope discipline** below.
+There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
+finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
+and web front-ends and restructures the tree so a fourth front-end is additive.
+Start at G0. §18 remains out of scope and §19 remains a list of constraints to
+honour rather than a work item — see **Scope discipline** below.
 
 ## The §17.3 sign-off
 
@@ -63,15 +71,26 @@ readable backtrace and exited 101.
 
 ## Read these first
 
-1. **`PLAN.md`** — twelve implementation stages. Find the current stage; it names
-   the spec sections that stage depends on and the tests that close it.
+1. **`EGUI.md`** — the live plan, stages G0-G13. Find the current stage; it
+   names the spec sections it depends on and the tests that close it. Read that
+   stage, plus "The decisions this plan rests on" and "The central idea", which
+   are what the rest of it follows from.
 2. **`FTM.md`** — the specification. Self-sufficient by design: every kick
    table, timing constant and screen layout is in it. Read the sections the
    current stage names, not the whole thing.
+3. **`PLAN.md`** — the twelve stages that built v1.0. History, not instructions.
+   Worth reading when you want to know why something is the shape it is.
 
 `FTM.md` is ground truth. **If the code and the spec disagree, the spec is
 wrong until it is amended** — fix the spec in the same commit and say so in the
 message. Never let the code silently diverge.
+
+**After G0 there are four documents, and section numbers do not move.** The
+sections that leave `FTM.md` keep their numbers in the file they move to, so
+every `§12.4` in the source still resolves — to `TUI.md` rather than to
+`FTM.md`. `FRONTEND.md` is the contract a new front-end is written against;
+`GUI.md` owns a fresh `§G` namespace. Until G0 lands, `FTM.md` is still whole
+and every reference means what it always did.
 
 ## Invariants that are easy to break
 
@@ -250,6 +269,15 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - The attract screen (§13) is explicitly provisional. It has now been built
   plainly and looked at; iterate on it if it wants it, but §17.3 never judged
   its looks and the plan is finished either way.
+- **`EGUI.md`'s scope is its stages and nothing beside them.** A window, and
+  especially a browser tab, makes sound, themes, mouse and touch input feel
+  newly reachable. §1.2 is unchanged: the game is keyboard-driven. Touch is the
+  one that deserves a real answer rather than a reflex, and it is an open
+  decision in that plan, to be settled before the web slice.
+- **Macroquad is `EGUI.md`'s §19**: a list of constraints so the front-end stays
+  cheap later, not a thing to build. Do not write `MACROQUAD.md`, and do not add
+  a `trait Frontend` — the front-ends share the shell by calling it, not by
+  satisfying an interface designed before the third one existed.
 
 ## What Stage 11 settled, and what it left
 
