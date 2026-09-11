@@ -273,6 +273,9 @@ struct App {
     bindings: Bindings,
     /// §13.5: the rules the game started under, whatever the config says now.
     hold_enabled: bool,
+    /// The rows the Options panel offers in *this* front-end
+    /// ([`Session::settings`]).
+    settings: &'static [Setting],
     /// Reused across ticks: the core appends and the common tick appends
     /// nothing, so this must not be reallocated sixty times a second (§12.8).
     events: Vec<GameEvent>,
@@ -295,6 +298,7 @@ impl App {
             bindings: Bindings::new(&presentation.keys, &rules),
             input: InputState::new(&rules, session.mode),
             hold_enabled: rules.hold_enabled,
+            settings: session.settings,
             game: Game::new(rules, session.next_seed()),
             events: Vec::new(),
             pending: Pending::default(),
@@ -454,7 +458,10 @@ impl App {
         if event.kind == KeyKind::Release {
             return Flow::Continue;
         }
-        let items = Setting::ALL.len();
+        // The rows this front-end offers, not every row §13.5 lists
+        // (`Session::settings`): a cursor that can reach a setting the screen
+        // is not drawing is a cursor the player cannot see.
+        let items = self.settings.len();
         match event.key {
             Key::Up => {
                 self.phase = Phase::Options {
@@ -467,7 +474,7 @@ impl App {
                 }
             }
             Key::Left | Key::Right => {
-                Setting::ALL[selected].step(&mut session.config, event.key == Key::Right);
+                self.settings[selected].step(&mut session.config, event.key == Key::Right);
                 session.bump();
             }
             Key::Esc | Key::Enter => {
@@ -797,6 +804,12 @@ impl Round {
     /// (§12.4, §12.7).
     pub fn hold_enabled(&self) -> bool {
         self.app.hold_enabled
+    }
+
+    /// The rows the §13.5 Options panel is offering, for the screen that draws
+    /// it: the same list [`Round::key`] navigates ([`Session::settings`]).
+    pub fn settings(&self) -> &'static [Setting] {
+        self.app.settings
     }
 
     /// §12.5's timers, for the front-end that draws them.

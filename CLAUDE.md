@@ -7,7 +7,7 @@ documents — see **The four documents** below.
 
 It is no longer only a terminal game, and no longer a single binary: `EGUI.md`
 builds a second and third front-end (a native egui window, and the same code as
-wasm in a browser) and anticipates a fourth (Macroquad). As of G7 the tree is
+wasm in a browser) and anticipates a fourth (Macroquad). As of G8 the tree is
 `core/` + `shell/` + `native.rs` + `tui/` + `gui/`, with `src/bin/ftm.rs` and
 `src/bin/ftm-gui.rs` behind `--features gui`; **the window opens and plays** —
 `make run-gui` — and **so does a browser tab** — `make run-web`. G0 changed no
@@ -16,10 +16,10 @@ rename and a feature gate, with no logic changed; G3 took the platform out from
 under the shell; G4 turned §15.2's loop inside out, so the shell is now *pumped*
 by a front-end rather than owning a `while`; G5 hung an `eframe` application on
 the pump; G6 compiled the same application for wasm and gave it a browser's
-four capabilities; G7 gave it the playing screen.
+four capabilities; G7 gave it the playing screen and G8 the boxes over it.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0-G7 complete — milestone MG4. Start at G8.** All
+stages G0-G8 complete — milestone MG5. Start at G9.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -38,23 +38,25 @@ progress into `Paused` (§8.4).
 §G4's playing screen over §G3's cell metric: the well with its ghost and grid,
 the hold panel (absent when hold is off), one to six previews, six figures, the
 status line, `show_debug`'s read-out, the too-small message below a 14-point
-cell, and a pause forced whenever the window loses the keyboard. What it does
-not have yet is §12.6's boxes (G8 — until then an overlay is a scrim over a
-blanked well), §12.5's animations (G9) and the attract screen (G11). `make
-run-web` serves the same thing in a browser tab through trunk (`index.html`,
-`Trunk.toml`), with `?seed=N` in the URL for `--seed N`, scores in
-`localStorage`, and §16's warnings on the console. `GUI.md` §G1-§G4 and the web
-build's half of §G8 are written and normative; §G5-§G7 and §G9 are still
-reserved.
+cell, and a pause forced whenever the window loses the keyboard. Over it are
+§G5's boxes: the pause menu, §9.17's countdown, game over, name entry, the
+Options panel (seven rows — §12.3's colour depth is the terminal's) and the
+controls table. What it does not have yet is §12.5's animations (G9) and the
+attract screen (G11). `make run-web` serves the same thing in a browser tab
+through trunk (`index.html`, `Trunk.toml`), with `?seed=N` in the URL for
+`--seed N`, scores in `localStorage`, and §16's warnings on the console.
+`GUI.md` §G1-§G5 and the web build's half of §G8 are written and normative;
+§G6, §G7 and §G9 are still reserved.
 
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
 and `Game::view()` still the only way to see the result — with `Game::debug()`
 beside it for the strip. Above it, `shell/` is what no front-end owns *and no
 platform reaches* — `config.rs` (§6), `input.rs` (§10), `highscore.rs` (§14),
 `keys.rs` (F5's neutral `Key`/`KeyEvent` and §10.1's name grammar), `menus.rs`
-(the §12.6 and §13 menu models), `attract.rs` (§13's state machine),
+(the §12.6 and §13 menu models, §10.1's controls table and which settings a
+panel offers), `attract.rs` (§13's state machine),
 `cosmetics.rs` (§12.5's timers), `palette.rs` (§9.2 levelled), `figures.rs`
-(the grouped score and `MM:SS`), `time.rs` (F1's
+(the grouped score, `MM:SS` and pieces per second), `time.rs` (F1's
 `Stamp`), `storage.rs` (F2's `Slot`/`Storage`), `host.rs` (F2-F4 as one
 borrowed bundle), and since G4 `session.rs` (`Session`, `Next`) and `round.rs`
 (`Round`, `FrameState`, `Debug`, and the `App` inside them). `src/native.rs` is
@@ -66,6 +68,7 @@ to the pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
 `overlays.rs` and `attract.rs` (§12, §13). `gui/` is the window: `app.rs`
 (`impl eframe::App`, the pump), `keys.rs` (the egui adapter), `layout.rs`
 (§G3's metric), `paint.rs` (colours and primitives), `playfield.rs` (§G4),
+`overlays.rs` (§G5),
 `query.rs` (§6.4 as a URL query string), `cli.rs` and `host_native.rs` for the
 desktop, and `host_web.rs` for a tab — `gui::host` is whichever one the target
 has, so `app.rs` never asks. T1-T17 all pass, plus I1-I4 and `tests/pump.rs`,
@@ -74,7 +77,7 @@ and the batch-invariance canary is in CI.
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
-Start at G8. §18 remains out of scope and §19 remains a list of constraints to
+Start at G9. §18 remains out of scope and §19 remains a list of constraints to
 honour rather than a work item — see **Scope discipline** below.
 
 ## The §17.3 sign-off
@@ -312,6 +315,13 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   with the density. Everything on the playing screen is placed through
   `Layout` — a rect computed in points beside it will land between pixels. Text
   is the exception and is placed freely; `egui` rounds it.
+
+- **A panel offers what its front-end can apply, and the shell navigates the
+  same list** (§13.5, `GUI.md` §G5). `Session::settings` is that list —
+  `Setting::ALL` for the terminal, `Setting::SHARED` for the window, which has
+  no §12.3 colour depth — and `Round::settings` is what the screen draws from.
+  Drawing a different list from the one `Round::key` walks puts the cursor on a
+  row nobody can see. G12 finishes the split and adds the `[gui]` rows.
 
 - **Losing the keyboard pauses a game, every pump, and draws nothing**
   (`GUI.md` §G4.7). `Round::keyboard(heard, now)` is §8.4's `cramp` path beside
@@ -680,6 +690,29 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   a release binary. `make check` gained `web-check` — clippy for the web
   front-end on wasm32, because `--all-features` on the host never compiles
   `host_web.rs` — and does not run trunk, so a developer needs only the target.
+
+## What G8 settled
+
+- **§12.6's boxes are `gui/overlays.rs`, and what they *do* is still
+  `shell/menus.rs`.** The window walks the same menus, the same settings and
+  the same name-entry rules as the terminal; only the boxes are new.
+  `overlays::rect_of` holds every box's size, so "does it fit in the block?" is
+  a question a test can ask without drawing.
+- **Name entry is not an `egui::TextEdit`**, deliberately: §12.6's twelve
+  printable ASCII and the `ANON` default are §14's rules, not a widget's, and
+  keeping the field neutral is also what keeps the soft-keyboard question shut
+  (§1.2).
+- **No non-ASCII in a box.** `▸` and `←→` are terminal glyphs; a window's fonts
+  may not carry them. The menu cursor is a drawn triangle and the hints are
+  words.
+- **The countdown is a numeral over the board, not a box**, because §9.17 is
+  for reading the board — and it is the one overlay that does not dim it.
+- **Two more shared answers left `tui/`**: `menus::controls` (§10.1's words and
+  §13.3's gating rule) and `figures::pps`.
+- **The window-to-terminal handoff is proven by a test over the real file
+  store**, not by a person at a window: this session cannot drive the native
+  GUI. `native.rs` has the test; the acceptance check itself still wants a
+  human once.
 
 ## What G7 settled
 

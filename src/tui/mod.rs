@@ -129,6 +129,9 @@ pub struct Hud<'a> {
     pub overlay: &'a Overlay,
     /// Read by the §13.5 Options panel, which is what edits it.
     pub config: &'a ConfigFile,
+    /// The rows that panel offers, which is the list the shell is navigating
+    /// (`Session::settings`).
+    pub settings: &'static [crate::shell::menus::Setting],
     /// The §12.4 debug strip, when `show_debug` is on.
     pub debug: Option<&'a Debug>,
     /// Which of §8.2's two paths is live, for the controls overlay.
@@ -152,7 +155,7 @@ pub fn draw(frame: &mut Frame, view: &GameView, chrome: &Chrome, fx: &Cosmetics,
         Overlay::None => {}
         Overlay::Paused { selected } => overlays::paused(frame, screen, chrome, *selected),
         Overlay::Options { selected } => {
-            overlays::options(frame, screen, chrome, hud.config, *selected)
+            overlays::options(frame, screen, chrome, hud.config, hud.settings, *selected)
         }
         Overlay::Resuming { count } => overlays::resuming(frame, screen, chrome, *count),
         Overlay::GameOver => overlays::game_over(frame, screen, view, chrome),

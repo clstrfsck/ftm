@@ -233,6 +233,64 @@ mod tests {
     }
 
     #[test]
+    fn a_score_one_binary_files_is_read_by_the_other() {
+        // §6.2 and §14 give `ftm` and `ftm-gui` **one** config file and one
+        // table between them, and this module is where that is decided — both
+        // native binaries answer `FRONTEND.md` F2 from here, so a score the
+        // window files at name entry is a score the terminal reads at start-up
+        // (`EGUI.md` G8). The two runs below are the two binaries: the only
+        // thing either of them adds is which front-end drew the box.
+        use crate::shell::config::{ConfigFile, Startup};
+        use crate::shell::host::Host;
+        use crate::shell::input::InputMode;
+        use crate::shell::session::Session;
+
+        let dir = scratch("ftm-host-shared-table");
+        let paths = || Files::at(Some(dir.join(CONFIG_FILE)), Some(dir.join(SCORES_FILE)));
+        let startup = |file: ConfigFile| Startup {
+            on_disk: file.clone(),
+            file,
+            existed: false,
+            wrote_config: false,
+            seed: 1,
+            // Unseeded: §6.4's seeded runs are never recorded.
+            seeded: false,
+            warnings: Vec::new(),
+        };
+        let view = {
+            let rules = ConfigFile::default().resolve().0;
+            let mut game = crate::core::Game::new(rules, 42);
+            let mut events = Vec::new();
+            game.tick(&crate::core::TickInput::default(), &mut events);
+            let mut view = game.view();
+            view.score = 12_480;
+            view
+        };
+
+        let mut store = paths();
+        let mut window = Session::new(
+            &startup(ConfigFile::default()),
+            InputMode::Enhanced,
+            Host::new(&mut store, || 1, || "2026-09-12".to_string()),
+        );
+        window.record("MS", &view);
+        assert_eq!(window.recent, Some(0), "it made the table");
+        drop(window);
+
+        let mut store = paths();
+        let terminal = Session::new(
+            &startup(ConfigFile::default()),
+            InputMode::Legacy,
+            Host::new(&mut store, || 2, || "2026-09-13".to_string()),
+        );
+        assert_eq!(terminal.scores.entries.len(), 1);
+        assert_eq!(terminal.scores.entries[0].name, "MS");
+        assert_eq!(terminal.scores.entries[0].score, 12_480);
+        assert!(terminal.warnings().is_empty(), "{:?}", terminal.warnings());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_slot_with_no_path_is_unavailable_rather_than_a_silent_success() {
         // §6.2, §14: a platform with no config or data directory. The shell
         // warns once, on the read (§16).

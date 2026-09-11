@@ -10,16 +10,14 @@
 //! Everything is drawn from the [`FrameState`] the pump reported and nothing
 //! reads `Game` (§12.7); what the view cannot answer — whether the running game
 //! has a hold slot at all, whether the grid is on — arrives as a [`Chrome`],
-//! exactly as it does in the terminal. §12.5's animations are `EGUI.md` G9's
-//! and §12.6's boxes are G8's; until then an overlay is a scrim over the well
-//! and nothing more.
+//! exactly as it does in the terminal. §12.6's boxes are drawn over this by
+//! [`overlays`](crate::gui::overlays); §12.5's animations are `EGUI.md` G9's.
 
 use crate::core::{GameView, PieceKind, Rotation, VIEW_HEIGHT, VIEW_WIDTH};
 use crate::gui::layout::{Layout, MAX_SLOTS};
 use crate::gui::paint::{self, Face};
 use crate::shell::cosmetics::Cosmetics;
 use crate::shell::figures::{clock, thousands};
-use crate::shell::menus::Overlay;
 use crate::shell::palette;
 use crate::shell::round::{Debug, FrameState};
 
@@ -72,12 +70,9 @@ pub fn draw(
     stats(painter, layout, view, chrome.hold_enabled);
     next(painter, layout, view);
     status(painter, layout, fx, state.restart);
-    // §12.6's boxes are `EGUI.md` G8's. Until they land, a darkened well is
-    // what says the game is not running, so a paused window does not merely
-    // look frozen.
-    if state.overlay != Overlay::None {
-        painter.rect_filled(layout.well(), 0.0, egui::Color32::from_black_alpha(0xC0));
-    }
+    // What goes over the screen is `overlays`' (§12.6, §G5), and the front-end
+    // draws it after this: a box is not part of the playing screen, and the
+    // screen must be complete underneath it.
 }
 
 /// §G4.1: the well, its walls, and what is in it.
@@ -346,6 +341,8 @@ mod tests {
     use super::*;
     use crate::core::{PieceView, PlayState};
     use crate::gui::layout::Measure;
+    use crate::shell::menus::Overlay;
+    use crate::shell::menus::Setting;
     use crate::shell::time::Stamp;
 
     /// An empty game, as the view of one would be.
@@ -413,6 +410,7 @@ mod tests {
         ppp: f32,
         state: &FrameState,
         chrome: Chrome,
+        boxes: bool,
     ) -> usize {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
@@ -432,11 +430,23 @@ mod tests {
                 bag: Vec::new(),
             },
         };
+        let config = crate::shell::config::ConfigFile::default();
+        let panels = crate::gui::overlays::Panels {
+            config: &config,
+            settings: &Setting::SHARED,
+        };
         let output = ctx.run_ui(input, |ui| {
             let area = ui.max_rect();
             let painter = ui.painter();
             match Measure::of(area, ui.ctx().pixels_per_point()) {
-                Measure::Fits(layout) => draw(painter, &layout, state, chrome, &fx),
+                Measure::Fits(layout) => {
+                    draw(painter, &layout, state, chrome, &fx);
+                    // §12.6 over the screen, as the front-end draws them —
+                    // unless the caller is counting what the screen alone drew.
+                    if boxes {
+                        crate::gui::overlays::draw(painter, &layout, state, &panels);
+                    }
+                }
                 Measure::TooSmall { need, have } => paint::too_small(painter, area, need, have),
             }
             self::debug(painter, area, &debug, state.view.ticks);
@@ -476,14 +486,60 @@ mod tests {
         ] {
             for ppp in [1.0, 1.5, 2.0] {
                 for next in [0, 1, 6, 9] {
-                    for overlay in [Overlay::None, Overlay::Paused { selected: 0 }] {
+                    for overlay in overlays() {
                         for chrome in chromes {
                             let state = frame_state(busy_view(next), overlay.clone());
-                            assert!(shapes(&ctx, size, ppp, &state, chrome) > 0);
+                            assert!(shapes(&ctx, size, ppp, &state, chrome, true) > 0);
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// Every overlay the program can show (§12.6), each in a state worth
+    /// drawing: a menu with the cursor moved, the panel on its last row, the
+    /// countdown mid-way, and the longest name the field takes.
+    fn overlays() -> Vec<Overlay> {
+        vec![
+            Overlay::None,
+            Overlay::Paused { selected: 4 },
+            Overlay::Options {
+                selected: Setting::SHARED.len() - 1,
+            },
+            Overlay::Controls,
+            Overlay::Resuming { count: 2 },
+            Overlay::GameOver,
+            Overlay::NameEntry {
+                rank: 10,
+                name: "M".repeat(crate::shell::highscore::NAME_MAX),
+            },
+        ]
+    }
+
+    #[test]
+    fn every_overlay_fits_inside_the_block() {
+        // §12.6: a box is centred over the block, so it must not be wider or
+        // taller than one — at any preview count, and with the widest table
+        // the controls box can hold.
+        let layout = match Measure::of(
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(728.0, 672.0)),
+            1.0,
+        ) {
+            Measure::Fits(layout) => layout,
+            small => panic!("{small:?}"),
+        };
+        let block = layout.block();
+        let config = crate::shell::config::ConfigFile::default();
+        for overlay in overlays() {
+            let state = frame_state(empty_view(), overlay.clone());
+            let panels = crate::gui::overlays::Panels {
+                config: &config,
+                settings: &Setting::ALL,
+            };
+            let boxes = crate::gui::overlays::rect_of(&layout, &state.overlay, &panels);
+            let Some(rect) = boxes else { continue };
+            assert!(block.contains_rect(rect), "{overlay:?} is {rect:?}");
         }
     }
 
@@ -500,12 +556,14 @@ mod tests {
         let playing = frame_state(busy_view(5), Overlay::None);
         let paused = frame_state(busy_view(5), Overlay::Paused { selected: 0 });
         let ctx = egui::Context::default();
+        // The screen alone: what a box adds over it is `overlays`' business,
+        // and is drawn whether the well was blanked or not.
         let (playing, paused) = (
-            shapes(&ctx, size, 1.0, &playing, chrome),
-            shapes(&ctx, size, 1.0, &paused, chrome),
+            shapes(&ctx, size, 1.0, &playing, chrome, false),
+            shapes(&ctx, size, 1.0, &paused, chrome, false),
         );
-        // Nine on the floor, three of the piece on the field, four of ghost —
-        // less the scrim the paused frame adds.
-        assert_eq!(playing - paused, 9 + 3 + 4 - 1);
+        // Nine on the floor, three of the piece on the field, four of ghost.
+        // The scrim and the box are `overlays`', and are drawn either way.
+        assert_eq!(playing - paused, 9 + 3 + 4);
     }
 }

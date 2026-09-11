@@ -183,6 +183,7 @@ fn attract(
             let context = attract::Context {
                 chrome: &chrome,
                 config: &session.config,
+                settings: session.settings,
                 scores: &session.scores,
                 recent: session.recent,
                 mode: session.mode,
@@ -297,6 +298,7 @@ fn round(
             let hud = Hud {
                 overlay: &frame.state.overlay,
                 config: &session.config,
+                settings: game.settings(),
                 debug: debug.as_ref(),
                 mode: session.mode,
                 restart: frame.state.restart,

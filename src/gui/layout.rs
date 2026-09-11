@@ -213,6 +213,21 @@ impl Layout {
         )
     }
 
+    /// A box of whole cells, centred over the block (§12.6, §G5).
+    ///
+    /// Over the *block* rather than over the well, as §12.6 has it: a box wider
+    /// than the well's ten cells would otherwise sit off-centre, and the well is
+    /// the block's middle column, so a narrow box lands over it either way.
+    pub fn overlay(&self, cols: u32, rows: u32) -> egui::Rect {
+        let (cols, rows) = (cols.min(LAYOUT_COLS), rows.min(LAYOUT_ROWS));
+        self.cells(
+            (LAYOUT_COLS - cols) / 2,
+            (LAYOUT_ROWS - rows) / 2,
+            cols,
+            rows,
+        )
+    }
+
     /// The status line, the whole block wide, under the well's floor.
     pub fn status(&self) -> egui::Rect {
         self.cells(0, STATUS, LAYOUT_COLS, STATUS_ROWS)

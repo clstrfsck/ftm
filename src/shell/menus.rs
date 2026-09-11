@@ -179,7 +179,7 @@ pub enum Setting {
 }
 
 impl Setting {
-    /// §13.5, in the order it lists them.
+    /// §13.5, in the order it lists them: every setting a *terminal* can apply.
     pub const ALL: [Setting; 8] = [
         Setting::Preview,
         Setting::StartLevel,
@@ -188,6 +188,27 @@ impl Setting {
         Setting::Rotate180,
         Setting::LockDown,
         Setting::Colour,
+        Setting::Grid,
+    ];
+
+    /// The settings that mean something in every front-end.
+    ///
+    /// [`Setting::Colour`] is §12.3's colour depth and is the terminal's alone —
+    /// a window has no depths, no `mono` and no `$NO_COLOR` (`GUI.md`, "What
+    /// does not carry over"). A panel must offer what it can actually apply, so
+    /// which list a front-end navigates is its own answer, carried on
+    /// [`Session::settings`](crate::shell::session::Session::settings).
+    ///
+    /// This is the small half of the split `EGUI.md` G12 finishes, when the
+    /// `[gui]` table gives the window items of its own to put in `Colour`'s
+    /// place. Until then the window's panel is this list exactly.
+    pub const SHARED: [Setting; 7] = [
+        Setting::Preview,
+        Setting::StartLevel,
+        Setting::Ghost,
+        Setting::Hold,
+        Setting::Rotate180,
+        Setting::LockDown,
         Setting::Grid,
     ];
 
@@ -301,6 +322,47 @@ fn cycle<T: Copy + PartialEq>(values: &[T], current: T, forward: bool) -> T {
         (at + count - 1) % count
     };
     values[next]
+}
+
+/// §10.1's actions and the keys bound to each, as the controls box lists them.
+///
+/// Both front-ends show this box — from the pause menu (§12.6) and from the
+/// attract screen (§13.5) — so what it says is the specification's and not a
+/// screen's: the words, their order, and the rule that a binding whose setting
+/// is off is not listed at all (§13.3, §17.3 A9). How the two columns are set
+/// out is each front-end's.
+pub fn controls(file: &ConfigFile) -> Vec<(&'static str, String)> {
+    /// The eleven actions of §10.1, by the `[keys]` name that carries them.
+    const ACTIONS: [(&str, &str); 11] = [
+        ("move_left", "Move left"),
+        ("move_right", "Move right"),
+        ("soft_drop", "Soft drop"),
+        ("hard_drop", "Hard drop"),
+        ("rotate_cw", "Rotate clockwise"),
+        ("rotate_ccw", "Rotate counter-clockwise"),
+        ("rotate_180", "Rotate 180\u{b0}"),
+        ("hold", "Hold"),
+        ("pause", "Pause"),
+        ("restart", "Restart (hold 1 s)"),
+        ("quit", "Quit to menu"),
+    ];
+    let bound = file.keys.each();
+    ACTIONS
+        .iter()
+        .filter(|(name, _)| match *name {
+            "rotate_180" => file.gameplay.allow_180_rotation,
+            "hold" => file.gameplay.hold_enabled,
+            _ => true,
+        })
+        .map(|(name, label)| {
+            let keys = bound
+                .iter()
+                .find(|(bound, _)| bound == name)
+                .map(|(_, names)| names.join(", "))
+                .unwrap_or_default();
+            (*label, keys)
+        })
+        .collect()
 }
 
 /// §13.3's menu, in the order it is drawn.

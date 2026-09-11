@@ -366,6 +366,51 @@ fn losing_the_keyboard_pauses_the_game_and_lets_go_of_its_keys() {
 }
 
 #[test]
+fn a_panel_offers_the_rows_its_front_end_can_apply() {
+    // §13.5 and `GUI.md` §G5: which rows the Options panel lists is the
+    // front-end's answer, because a panel must offer what it can actually
+    // apply — §12.3's colour depth means nothing in a window. Whatever the
+    // list, the cursor stays inside it: a cursor that reached a row the screen
+    // was not drawing would be a cursor the player could not see.
+    let mut storage = Memory::new();
+    let mut session = session(&mut storage, true);
+    session.settings = &Setting::SHARED;
+    assert!(
+        !Setting::SHARED.contains(&Setting::Colour),
+        "the terminal's own row is not in the shared list",
+    );
+    let mut round = Round::new(&session, at(0));
+    assert_eq!(round.settings(), &Setting::SHARED, "what the screen draws");
+
+    // Into the panel: pause, down to Options, Enter.
+    round.key(&mut session, &press(Key::Esc), at(0));
+    for _ in 0..2 {
+        round.key(&mut session, &press(Key::Down), at(0));
+    }
+    round.key(&mut session, &press(Key::Enter), at(0));
+    assert_eq!(round.frame(at(0)).overlay, Overlay::Options { selected: 0 });
+
+    // Up from the top wraps to the last row this front-end offers, which is
+    // the seventh and not the eighth.
+    round.key(&mut session, &press(Key::Up), at(0));
+    assert_eq!(
+        round.frame(at(0)).overlay,
+        Overlay::Options {
+            selected: Setting::SHARED.len() - 1
+        },
+    );
+    // And changing it there edits the setting the screen is showing.
+    let before = session.config.display.show_grid;
+    round.key(&mut session, &press(Key::Right), at(0));
+    assert_eq!(session.config.display.show_grid, !before);
+    assert_eq!(
+        session.config.display.color_depth,
+        ConfigFile::default().display.color_depth,
+        "and never the row it is not showing",
+    );
+}
+
+#[test]
 fn the_restart_key_ends_the_round_after_its_second() {
     // §10.1: "Restart (hold 1 s)", and the hold is `advance`'s answer rather
     // than a key's — the key that starts it is not the event that ends the

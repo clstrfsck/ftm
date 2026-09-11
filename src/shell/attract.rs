@@ -126,7 +126,8 @@ impl Attract {
     /// comparing frames that a presentation setting moved under it (§15.2
     /// step 5).
     pub fn key(&mut self, session: &mut Session<'_>, event: &KeyEvent, now: Stamp) -> Option<Next> {
-        match self.dispatch(event, &mut session.config, now) {
+        let settings = session.settings;
+        match self.dispatch(event, &mut session.config, settings, now) {
             Outcome::Stay => None,
             Outcome::Play => Some(Next::Play),
             Outcome::Quit => Some(Next::Quit),
@@ -153,14 +154,20 @@ impl Attract {
     ///
     /// `config` is borrowed because the Options sub-screen edits it in place
     /// (§13.5); nothing else here touches it.
-    fn dispatch(&mut self, event: &KeyEvent, config: &mut ConfigFile, now: Stamp) -> Outcome {
+    fn dispatch(
+        &mut self,
+        event: &KeyEvent,
+        config: &mut ConfigFile,
+        settings: &'static [Setting],
+        now: Stamp,
+    ) -> Outcome {
         if event.kind == KeyKind::Release {
             return Outcome::Stay;
         }
         // §13.6: any key stops the idle colour cycle.
         self.last_key = now;
         match self.sub {
-            Some(Sub::Options { selected }) => self.options_key(event, config, selected),
+            Some(Sub::Options { selected }) => self.options_key(event, config, settings, selected),
             Some(_) => {
                 if matches!(event.key, Key::Esc | Key::Enter | Key::Char(' ')) {
                     self.sub = None;
@@ -198,9 +205,13 @@ impl Attract {
         &mut self,
         event: &KeyEvent,
         config: &mut ConfigFile,
+        settings: &'static [Setting],
         selected: usize,
     ) -> Outcome {
-        let items = Setting::ALL.len();
+        // The rows this front-end offers, not every row §13.5 lists: a cursor
+        // that can reach a setting the screen is not drawing is a cursor the
+        // player cannot see (`Session::settings`).
+        let items = settings.len();
         match event.key {
             Key::Up => {
                 self.sub = Some(Sub::Options {
@@ -213,7 +224,7 @@ impl Attract {
                 })
             }
             Key::Left | Key::Right => {
-                Setting::ALL[selected].step(config, event.key == Key::Right);
+                settings[selected].step(config, event.key == Key::Right);
             }
             Key::Esc | Key::Enter => {
                 self.sub = None;
@@ -260,7 +271,12 @@ mod tests {
         let later = start + IDLE + IDLE_STEP * 3;
         state.advance(later);
         assert_eq!(state.idle_shift(), 3);
-        state.dispatch(&press(Key::Char('x')), &mut ConfigFile::default(), later);
+        state.dispatch(
+            &press(Key::Char('x')),
+            &mut ConfigFile::default(),
+            &Setting::ALL,
+            later,
+        );
         assert_eq!(state.idle_shift(), 0);
     }
 
@@ -275,21 +291,21 @@ mod tests {
         let mut config = ConfigFile::default();
         assert_eq!(MenuChoice::ALL[0], MenuChoice::Play);
         assert_eq!(
-            state.dispatch(&press(Key::Enter), &mut config, now),
+            state.dispatch(&press(Key::Enter), &mut config, &Setting::ALL, now),
             Outcome::Play
         );
 
-        state.dispatch(&press(Key::Up), &mut config, now);
+        state.dispatch(&press(Key::Up), &mut config, &Setting::ALL, now);
         assert_eq!(
             state.selected,
             MenuChoice::ALL.len() - 1,
             "up wraps to QUIT"
         );
         assert_eq!(
-            state.dispatch(&press(Key::Enter), &mut config, now),
+            state.dispatch(&press(Key::Enter), &mut config, &Setting::ALL, now),
             Outcome::Quit
         );
-        state.dispatch(&press(Key::Down), &mut config, now);
+        state.dispatch(&press(Key::Down), &mut config, &Setting::ALL, now);
         assert_eq!(state.selected, 0, "and down wraps back to PLAY");
     }
 
@@ -305,11 +321,11 @@ mod tests {
         ] {
             let mut state = Attract::new(now);
             for _ in 0..steps {
-                state.dispatch(&press(Key::Down), &mut config, now);
+                state.dispatch(&press(Key::Down), &mut config, &Setting::ALL, now);
             }
-            state.dispatch(&press(Key::Enter), &mut config, now);
+            state.dispatch(&press(Key::Enter), &mut config, &Setting::ALL, now);
             assert_eq!(state.sub, Some(sub));
-            state.dispatch(&press(Key::Esc), &mut config, now);
+            state.dispatch(&press(Key::Esc), &mut config, &Setting::ALL, now);
             assert_eq!(state.sub, None, "{sub:?}");
         }
     }
@@ -323,10 +339,10 @@ mod tests {
         let mut state = Attract::new(now);
         let mut config = ConfigFile::default();
         state.sub = Some(Sub::Options { selected: 0 });
-        state.dispatch(&press(Key::Right), &mut config, now);
+        state.dispatch(&press(Key::Right), &mut config, &Setting::ALL, now);
         assert_eq!(config.gameplay.preview_count, 6);
         assert_eq!(
-            state.dispatch(&press(Key::Esc), &mut config, now),
+            state.dispatch(&press(Key::Esc), &mut config, &Setting::ALL, now),
             Outcome::OptionsClosed,
         );
     }

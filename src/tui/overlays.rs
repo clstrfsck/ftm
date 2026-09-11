@@ -11,10 +11,10 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use crate::core::GameView;
 use crate::shell::config::ConfigFile;
-use crate::shell::figures::{clock, thousands};
+use crate::shell::figures::{clock, pps, thousands};
 use crate::shell::highscore::NAME_MAX;
 use crate::shell::input::InputMode;
-use crate::shell::menus::{PauseChoice, Setting};
+use crate::shell::menus::{self, PauseChoice, Setting};
 use crate::tui::{Chrome, centred};
 
 /// The pause overlay (§12.6). The playfield underneath it has already been
@@ -104,12 +104,22 @@ fn field(name: &str) -> String {
 /// It reads a `ConfigFile` rather than a `GameView`, which is not a breach of
 /// §12.7: the config is presentation and rules settings, not game state, and
 /// the panel is what edits them.
-pub fn options(frame: &mut Frame, over: Rect, chrome: &Chrome, file: &ConfigFile, selected: usize) {
+pub fn options(
+    frame: &mut Frame,
+    over: Rect,
+    chrome: &Chrome,
+    file: &ConfigFile,
+    settings: &[Setting],
+    selected: usize,
+) {
     let mut lines = vec![
         Line::styled(centre("OPTIONS", OPTIONS_WIDTH), chrome.theme.bold()),
         Line::raw(" ".repeat(OPTIONS_WIDTH)),
     ];
-    for (index, setting) in Setting::ALL.iter().enumerate() {
+    // The rows the *shell* is navigating (`Session::settings`), which for this
+    // front-end is every row §13.5 lists. Drawing any other list would be a
+    // cursor that lands where nothing is drawn.
+    for (index, setting) in settings.iter().enumerate() {
         let marker = if index == selected { "\u{25b8} " } else { "  " };
         let style = if index == selected {
             chrome.theme.bold()
@@ -147,40 +157,14 @@ pub fn controls(
     mode: InputMode,
 ) {
     let theme = chrome.theme;
-    /// The eleven actions of §10.1, by the `[keys]` name that carries them.
-    const ACTIONS: [(&str, &str); 11] = [
-        ("move_left", "Move left"),
-        ("move_right", "Move right"),
-        ("soft_drop", "Soft drop"),
-        ("hard_drop", "Hard drop"),
-        ("rotate_cw", "Rotate clockwise"),
-        ("rotate_ccw", "Rotate counter-clockwise"),
-        ("rotate_180", "Rotate 180\u{b0}"),
-        ("hold", "Hold"),
-        ("pause", "Pause"),
-        ("restart", "Restart (hold 1 s)"),
-        ("quit", "Quit to menu"),
-    ];
-    let bound = file.keys.each();
     let mut lines = vec![
         Line::styled(centre("CONTROLS", CONTROLS_WIDTH), theme.bold()),
         Line::raw(" ".repeat(CONTROLS_WIDTH)),
     ];
-    for (name, label) in ACTIONS {
-        // §13.3, A9: a binding whose setting is off is not shown at all.
-        let gated = match name {
-            "rotate_180" => file.gameplay.allow_180_rotation,
-            "hold" => file.gameplay.hold_enabled,
-            _ => true,
-        };
-        if !gated {
-            continue;
-        }
-        let keys = bound
-            .iter()
-            .find(|(key, _)| *key == name)
-            .map(|(_, names)| names.join(", "))
-            .unwrap_or_default();
+    // The words and the order are the specification's and both front-ends show
+    // them, so they live in `shell::menus` — including §13.3's rule that a
+    // binding whose setting is off is not listed at all (A9).
+    for (label, keys) in menus::controls(file) {
         lines.push(Line::raw(format!("  {label:<24}{keys:>14}  ")));
     }
     lines.push(Line::raw(" ".repeat(CONTROLS_WIDTH)));
@@ -230,18 +214,6 @@ fn figure(label: &str, value: &str) -> String {
 pub fn centre(text: &str, width: usize) -> String {
     let left = width.saturating_sub(text.chars().count()) / 2;
     format!("{:left$}{text:<pad$}", "", pad = width - left)
-}
-
-/// Pieces per second over the whole run, to one decimal place (§11).
-///
-/// Integer arithmetic: the tenths are computed, not rounded off a float, so the
-/// figure is the same on every platform.
-fn pps(pieces: u32, ticks: u64) -> String {
-    if ticks == 0 {
-        return "0.0".to_string();
-    }
-    let tenths = u64::from(pieces) * 600 / ticks;
-    format!("{}.{}", tenths / 10, tenths % 10)
 }
 
 #[cfg(test)]
@@ -386,14 +358,6 @@ mod tests {
         assert_eq!(field("").chars().count(), OVER_WIDTH);
     }
 
-    #[test]
-    fn pieces_per_second_is_over_the_whole_run() {
-        // §11, and the §12.6 mock-up's own numbers: 128 pieces in 2:14.
-        assert_eq!(pps(0, 0), "0.0");
-        assert_eq!(pps(128, (2 * 60 + 14) * 60), "0.9");
-        assert_eq!(pps(60, 60 * 60), "1.0");
-        assert_eq!(pps(150, 60 * 60), "2.5");
-    }
     /// §13.5's panel, as the code draws it. Not in the specification as a
     /// mock-up — §12.6 draws only its three boxes — so this pins the layout the
     /// same way, and would catch a label or a value column drifting.
@@ -422,6 +386,7 @@ mod tests {
                 area,
                 &chrome(),
                 &file,
+                &Setting::ALL,
                 0
             )),
             OPTIONS,

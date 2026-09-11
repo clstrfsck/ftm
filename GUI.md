@@ -1,7 +1,7 @@
 # Falling Tetromino Manager — The egui Front-End
 
-**Version:** 0.3 — §G1-§G4 and the web build's half of §G8 are written;
-§G5–§G7 and §G9 are still reserved.
+**Version:** 0.4 — §G1-§G5 and the web build's half of §G8 are written;
+§G6, §G7 and §G9 are still reserved.
 **Date:** 2026-09-11
 **Companion to:** [FTM.md](FTM.md) (the specification),
 [FRONTEND.md](FRONTEND.md) (the contract every front-end is written against),
@@ -17,9 +17,9 @@ their own.
 **It is written stage by stage, not up front.** `EGUI.md`'s stages G5–G13 each
 name the section they fill, and each fills it in the same commit as the code.
 §G1 and §G2 were written by G5, §G8's web build by G6 — its `[gui]` table and
-the rest of its query parameters wait for G12 — and §G3 and §G4 by G7. The rest
-is still the namespace and the reservations below, deliberately, so that a
-`§G5` written in a doc comment during G8 has somewhere agreed to land.
+the rest of its query parameters wait for G12 — §G3 and §G4 by G7, and §G5 by
+G8. The rest is still the namespace and the reservations below, deliberately, so
+that a `§G6` written in a doc comment during G9 has somewhere agreed to land.
 
 ## The `§G` namespace
 
@@ -37,7 +37,7 @@ that document owns. `§Gn` means this file.
 | G2 | Input | `EGUI.md` G5 ✅ | The `egui` → `shell::keys` adapter (`FRONTEND.md` F5), repeats, focus loss, and the keys the browser wants for itself. |
 | G3 | Layout | `EGUI.md` G7 ✅ | The integer-cell metric, `LAYOUT_COLS` / `LAYOUT_ROWS`, the minimum `cell` and the too-small state below it (`FRONTEND.md` F6, §8.4). |
 | G4 | The playing screen | `EGUI.md` G7 ✅ | §12.4's information — field, hold, next, stats, status — drawn as pixels rather than characters, `show_debug`, and the pause that losing the keyboard forces. |
-| G5 | Overlays | `EGUI.md` G8 | §12.6's pause, game-over and name-entry boxes, and the §13.5 Options and §10.1 controls panels. |
+| G5 | Overlays | `EGUI.md` G8 ✅ | §12.6's pause, game-over and name-entry boxes, and the §13.5 Options and §10.1 controls panels. |
 | G6 | Animations | `EGUI.md` G9, G10 | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
 | G7 | The attract screen | `EGUI.md` G11 | §13's wordmark, menu, cycling panel and drifting background, laid out for a window rather than a 36 × 20 grid. |
 | G8 | The web build | `EGUI.md` G6 ✅, G12 | The canvas and its keyboard focus, `localStorage` for §6.2 and §14, URL query parameters in place of §6.4's flags, and the `[gui]` config table. |
@@ -117,13 +117,12 @@ Three rules bind that, and each is `FTM.md`'s rather than this document's:
 
 ### G1.4 What G5 built, and what it did not
 
-The G5 slice draws the locked cells of `GameView::rows` and the falling piece, as
+The G5 slice drew the locked cells of `GameView::rows` and the falling piece, as
 rectangles in §12.3's levelled palette, over a well centred in the window. A
-non-`None` `Overlay` darkens the well and nothing more — §12.6's boxes are §G5's
-and arrive at `EGUI.md` G8; until then the scrim is what says a game is not
-running, so that a paused window does not merely look frozen. There is no hold
-box, no next queue, no stats, no ghost and no grid: §12.4's information is §G4's
-and arrives at G7, over §G3's metric.
+non-`None` `Overlay` darkened the well and nothing more; there was no hold box,
+no next queue, no stats, no ghost and no grid. §12.4's information arrived at
+G7 (§G3, §G4) and §12.6's boxes at G8 (§G5), which is what the scrim was
+standing in for.
 
 §7's screen field has one arm. A game that hands back `Next::Play` — §10.1's held
 restart — starts a fresh one; `Next::Attract` and `Next::Quit` both close the
@@ -135,9 +134,9 @@ of the screen: **Click to play** (§G8.2). It is drawn in both builds, over
 whatever else is on screen. At G5 it paused nothing; since G7 losing the keyboard
 pauses a game in progress (§G4.7).
 
-**G7 replaced the slice's screen** with §G3's layout and §G4's playing screen.
-What is still to come is §G5's boxes (G8) — until then an overlay is a scrim
-over the well — §G6's animations (G9, G10) and §G7's attract screen (G11).
+**G7 replaced the slice's screen** with §G3's layout and §G4's playing screen,
+and **G8 put §G5's boxes over it**. What is still to come is §G6's animations
+(G9, G10) and §G7's attract screen (G11).
 
 ---
 
@@ -376,9 +375,9 @@ noise.
 **While the game is paused, the well is drawn empty** (§9.17) — the pause menu,
 and the Options and Controls boxes it opens, but not the countdown, which exists
 so the board can be read again. That is `Overlay::blanks`, and it is the game's
-rule rather than this screen's. Until §G5's boxes land at `EGUI.md` G8, any
-overlay also darkens the well, so that a game that is not running does not merely
-look frozen.
+rule rather than this screen's. The dimming under a box is §G5's, and is a
+separate thing: it is what a game-over box sits over, where the stack is still
+there to be read.
 
 ### G4.2 The hold panel
 
@@ -480,7 +479,98 @@ terminal for focus reports, and a terminal behind another window plays on.
 
 ---
 
-§G5–§G7 are reserved for `EGUI.md` G8–G11 and are not yet written.
+## G5. Overlays
+
+§12.6's three boxes, §9.17's countdown, and the two panels both screens open:
+the §13.5 Options panel and the §10.1 controls table. They are drawn over a
+complete playing screen (§G4), never instead of one.
+
+**What each of them does is not this front-end's.** The menus are walked,
+edited and closed by `shell::menus` through `Round::key`, exactly as the
+terminal's are: the items, their order, their words, the twelve-character name
+field, the setting each row steps through and the rule that `Esc` saves the
+config on the way out of the panel. A front-end that invented any of that would
+be a second §12.6. What is here is the boxes they are drawn in.
+
+### G5.1 The box
+
+A box is a rounded rect of whole cells, **centred over the block** as §12.6 has
+it — not over the well, so that a box wider than ten cells is still centred on
+the screen — on a ground a shade above the panels, with a thin border. Inside:
+a title a cell down, a body of one-cell rows starting two cells down, and a
+**hint** at the foot in the faintest grey, saying which keys the box answers to.
+A box with *n* rows is *n* + 4 cells tall. `overlays::rect_of` is where the
+sizes live, so "does it fit inside the block?" can be asked without drawing
+anything, and it is a test.
+
+The well **dims** under every box, so the box reads over it. That is not
+§9.17's blanking, which has already emptied the well where it applies
+(`Overlay::blanks`) and is the game's rule rather than this screen's: the
+dimming is what a game-over box sits over, where the stack is still there to be
+seen.
+
+The cursor of a menu is **a drawn triangle**, not `▸`: a window has no
+guarantee that its fonts carry that glyph, and a shape cannot go missing. For
+the same reason every word in a box is ASCII — `Left / Right change, Esc saves`
+rather than `←→ change`.
+
+### G5.2 The pause menu, and the countdown
+
+**PAUSED**, and §9.17's five items — Resume, Restart, Options, Controls, Quit
+to menu — the selected one in a lit bar with the cursor beside it. Twelve cells
+wide, so it covers the well and its walls and not the columns beside it, which
+is what §12.6's box does in the terminal.
+
+**The countdown is not a box.** §9.17 resumes through 3-2-1 over a playfield
+that is visible again, and the point of it is that the player can read the
+board: it is a single numeral drawn large and part-transparent over the well —
+and it is the one overlay that does not dim what is behind it.
+
+### G5.3 Game over, and name entry
+
+**GAME OVER** lists §12.6's six figures — score grouped in threes, level,
+lines, time, pieces, and pieces per second to one decimal — every one of them
+the view's, so the box cannot disagree with the stats panel behind it (§11).
+`Press any key`, after §9.16's second of lockout, which is the shell's.
+
+**NEW HIGH SCORE** shows the rank the table has offered, the field, and
+`Enter confirms, Esc discards`. The field is `shell::menus::NameEntry` drawn as
+text with a caret after it — **not** an `egui::TextEdit`. §12.6's twelve
+printable ASCII and its `ANON` default are rules about §14's table rather than
+about a text field, and they belong where both front-ends reach them. It also
+keeps the web build honest: a mobile browser's soft keyboard is a question of
+its own, and it must not be answered by accident here (§1.2, §G8.8).
+
+### G5.4 The Options panel
+
+**OPTIONS**, one row per setting — label left, value right, the selected row
+lit — and `Left / Right change, Esc saves`.
+
+**The panel offers seven rows, not §13.5's eight.** §12.3's colour depth is the
+terminal's alone: a window has no depths, no `mono` and no `$NO_COLOR`. Which
+rows a panel offers is therefore the front-end's own answer, and it is carried
+on `Session::settings`, which this front-end sets to `Setting::SHARED` at
+start-up. **Both the screen and the shell navigate that same list**, so the
+cursor can never land on a row the screen is not drawing — the failure a panel
+that simply drew fewer rows than the menu walked would have.
+
+This is the small half of the split `EGUI.md` G12 finishes, when a `[gui]`
+table gives this front-end settings of its own to put in `Colour`'s place.
+What §13.5 says about the panel is unchanged: presentation applies at once,
+rules never — a game keeps the rules it started under, and a `Hold` switched
+off here leaves the running game's hold box exactly where it was.
+
+### G5.5 The controls table
+
+**CONTROLS**, §10.1's actions and the keys bound to each. The words, their
+order and §13.3's rule that a binding whose setting is off is not listed at all
+(§17.3 A9) are `shell::menus::controls`', and both front-ends print the same
+list; the two columns are this front-end's. §8.2's input mode, which the
+terminal's box names, is **not** shown: there is only the one path here (§G2.2).
+
+---
+
+§G6 and §G7 are reserved for `EGUI.md` G9–G11 and are not yet written.
 
 ---
 

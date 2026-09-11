@@ -18,6 +18,7 @@ use crate::shell::config::{self, ConfigFile, Startup};
 use crate::shell::highscore::{self, Entry};
 use crate::shell::host::Host;
 use crate::shell::input::InputMode;
+use crate::shell::menus::Setting;
 
 /// Where the run goes next (§7).
 ///
@@ -45,6 +46,15 @@ pub struct Session<'a> {
     /// Which of §8.2's two input paths is live. A front-end that always has
     /// key releases says `Enhanced` and never thinks about it again.
     pub mode: InputMode,
+    /// The rows the §13.5 Options panel offers, which is the front-end's own
+    /// answer: a panel must offer what it can actually apply.
+    ///
+    /// [`Setting::ALL`] is a terminal's and is the default; the window front-end
+    /// sets [`Setting::SHARED`], because §12.3's colour depth means nothing off
+    /// a terminal (`GUI.md` §G5). Both screens that draw the panel navigate
+    /// *this* list, so the cursor can never land on a row the screen is not
+    /// showing.
+    pub settings: &'static [Setting],
     /// The three capabilities a run borrows from the front-end (§3.1,
     /// `FRONTEND.md` F2-F4): §6.2's and §14's bytes, the seed for the next
     /// game and §14's date stamp. The fourth, time, arrives as a
@@ -79,6 +89,9 @@ impl<'a> Session<'a> {
             scores,
             recent: None,
             mode,
+            // A terminal's list, which is every setting §13.5 lists; a
+            // front-end with fewer says so (`GUI.md` §G5).
+            settings: &Setting::ALL,
             host,
             warnings,
             saved: false,

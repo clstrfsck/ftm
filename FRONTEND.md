@@ -358,6 +358,9 @@ So adding one is a directory, a feature, a `[[bin]]`, and this checklist:
 4. **F6 and F7**: a minimum, a loop, and a draw path from `GameView` alone.
 5. **Its own acceptance list**, mirroring §17.3's A1–A10 and checked one by one,
    and its own headless render test at several viewport sizes.
+   Say which of §13.5's settings its Options panel can apply
+   (`Session::settings`): a panel must offer what it can actually apply, and
+   the shell navigates the same list the screen draws.
 6. **The two `cargo check` lines above stay green**, and every Makefile target
    grows the new feature — a bare `cargo test` that stops compiling a front-end
    is the easiest thing here to forget and the failure is silent.

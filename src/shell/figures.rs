@@ -35,9 +35,30 @@ pub fn clock(ticks: u64) -> String {
     format!("{:02}:{:02}", seconds / 60, seconds % 60)
 }
 
+/// Pieces per second over the whole run, to one decimal place (§11, §12.6).
+///
+/// Integer arithmetic: the tenths are computed, not rounded off a float, so the
+/// figure is the same on every platform.
+pub fn pps(pieces: u32, ticks: u64) -> String {
+    if ticks == 0 {
+        return "0.0".to_string();
+    }
+    let tenths = u64::from(pieces) * 600 / ticks;
+    format!("{}.{}", tenths / 10, tenths % 10)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pieces_per_second_is_over_the_whole_run() {
+        // §11, and the §12.6 mock-up's own numbers: 128 pieces in 2:14.
+        assert_eq!(pps(0, 0), "0.0");
+        assert_eq!(pps(128, (2 * 60 + 14) * 60), "0.9");
+        assert_eq!(pps(60, 60 * 60), "1.0");
+        assert_eq!(pps(150, 60 * 60), "2.5");
+    }
 
     #[test]
     fn scores_are_grouped_in_threes() {

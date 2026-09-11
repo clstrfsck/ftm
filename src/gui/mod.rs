@@ -30,6 +30,7 @@ pub mod host_native;
 pub mod host_web;
 pub mod keys;
 pub mod layout;
+pub mod overlays;
 pub mod paint;
 pub mod playfield;
 pub mod query;
@@ -43,6 +44,7 @@ pub(crate) use self::host_web as host;
 
 use crate::gui::app::Gui;
 use crate::gui::host::Clock;
+use crate::shell::menus::Setting;
 use crate::shell::session::Session;
 
 /// Open the window and play, returning when it closes.
@@ -52,6 +54,10 @@ use crate::shell::session::Session;
 /// warnings afterwards — the window's equivalent of §8.3's "after teardown".
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run(session: &mut Session<'_>) -> eframe::Result {
+    // §G5: this front-end's Options panel offers the shared rows and not
+    // §12.3's colour depth, which means nothing in a window. Said once, here,
+    // because it is a property of the front-end rather than of a game.
+    session.settings = &Setting::SHARED;
     // F1: the clock starts here, and it is the front-end's, so every `Stamp`
     // in the run is measured from one origin.
     let clock = Clock::new();
@@ -97,6 +103,9 @@ pub const STATUS_ID: &str = "status";
 #[cfg(target_arch = "wasm32")]
 pub fn start(runner: eframe::WebRunner, session: &'static mut Session<'static>) {
     use wasm_bindgen::JsCast as _;
+
+    // §G5, as natively: the panel offers the shared rows.
+    session.settings = &Setting::SHARED;
 
     let document = web_sys::window()
         .and_then(|window| window.document())

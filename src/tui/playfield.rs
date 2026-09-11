@@ -462,6 +462,7 @@ pub mod tests {
         Hud {
             overlay: &crate::shell::menus::Overlay::None,
             config: CONFIG.get_or_init(crate::shell::config::ConfigFile::default),
+            settings: &crate::shell::menus::Setting::ALL,
             debug,
             mode: crate::shell::input::InputMode::Enhanced,
             restart: None,

@@ -32,6 +32,7 @@
 use crate::gui::host::{self, Clock};
 use crate::gui::keys::Keyboard;
 use crate::gui::layout::Measure;
+use crate::gui::overlays::{self, Panels};
 use crate::gui::paint;
 use crate::gui::playfield::{self, Chrome};
 use crate::shell::keys::KeyEvent;
@@ -198,12 +199,18 @@ impl eframe::App for Gui<'_, '_> {
         // panel edits it in place, and immediate mode has no chrome to rebuild
         // and no generation to watch for (§G1.3). Hold is the running game's
         // answer, not the config's: a game keeps the rules it started under.
-        let display = &self.session.config.display;
+        let config = &self.session.config;
         let chrome = Chrome {
-            show_grid: display.show_grid,
+            show_grid: config.display.show_grid,
             hold_enabled: self.round.hold_enabled(),
         };
-        let show_debug = display.show_debug;
+        let show_debug = config.display.show_debug;
+        // §13.5's panel and §12.6's Controls box read the config as it stands,
+        // and the panel offers the rows the shell is navigating (§G5).
+        let panels = Panels {
+            config,
+            settings: self.round.settings(),
+        };
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(paint::BACKGROUND))
             .show(ui, |ui| {
@@ -217,6 +224,9 @@ impl eframe::App for Gui<'_, '_> {
                             chrome,
                             self.round.cosmetics(),
                         );
+                        // §12.6 over §G4, in that order: a box is drawn on top
+                        // of a screen that is complete underneath it.
+                        overlays::draw(painter, &layout, &self.state, &panels);
                     }
                     Some(Measure::TooSmall { need, have }) => {
                         paint::too_small(painter, area, need, have);

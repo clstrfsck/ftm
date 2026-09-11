@@ -232,6 +232,9 @@ impl Background {
 pub struct Context<'a> {
     pub chrome: &'a Chrome,
     pub config: &'a ConfigFile,
+    /// The rows the §13.5 panel offers, which is the list the shell is
+    /// navigating (`Session::settings`).
+    pub settings: &'static [crate::shell::menus::Setting],
     pub scores: &'a Table,
     /// The entry the run that just finished added, highlighted in the
     /// high-score sub-screen (§13.5).
@@ -328,7 +331,7 @@ pub fn draw(frame: &mut Frame, state: &Attract, background: &Background, cx: &Co
         Some(Sub::HighScores) => high_scores(frame, area, cx),
         Some(Sub::Controls) => overlays::controls(frame, area, cx.chrome, cx.config, cx.mode),
         Some(Sub::Options { selected }) => {
-            overlays::options(frame, area, cx.chrome, cx.config, selected)
+            overlays::options(frame, area, cx.chrome, cx.config, cx.settings, selected)
         }
     }
 }
@@ -563,6 +566,7 @@ mod tests {
         Context {
             chrome,
             config,
+            settings: &crate::shell::menus::Setting::ALL,
             scores,
             recent: None,
             mode: InputMode::Enhanced,

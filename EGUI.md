@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [PLAN.md](PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** G0–G7 complete (**MG4**); G8 next.
+**Status:** G0–G8 complete (**MG5**); G9 next.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -1204,6 +1204,48 @@ is the first proof that the two native front-ends share §14's table correctly.
 
 **MG5.**
 
+### What G8 found
+
+- **The Options panel needed the split to be *navigated*, not just drawn.** A
+  panel that drew seven rows while `Round::key` walked eight would put the
+  cursor on a row the screen was not showing — invisible, and one key from
+  changing a setting the player cannot see. So which rows a panel offers became
+  a front-end's answer this stage rather than G12's: `Session::settings`, set
+  once at start-up, navigated by both `Round` and `Attract`, and reported by
+  `Round::settings` for the screen to draw. `Setting::SHARED` is the seven;
+  G12 still owns the rest of the split, and the `[gui]` rows that go in
+  `Colour`'s place.
+- **Three more shared answers left `tui/`**, for the same reason as G7's:
+  `menus::controls` (§10.1's action words, their order, and §13.3's rule that a
+  binding whose setting is off is not listed) and `figures::pps`. Both
+  front-ends print the same table now, and the terminal's own mock-up tests did
+  not move.
+- **The boxes are ASCII and the cursor is a triangle.** §12.6 draws `▸` and
+  `←→`; a window cannot assume its fonts carry either, and a glyph that goes
+  missing is a box with a hole in it. The cursor is drawn as a shape and the
+  hints are words.
+- **The countdown is not a box.** §9.17 exists so the player can read the board
+  before the clock starts, so drawing a box over the board would defeat it: the
+  numeral is drawn large and part-transparent over the well, and it is the one
+  overlay that does not dim what is behind it.
+- **A game-over box wants the stack visible; a pause must not show it.** Those
+  are two different rules — the dimming is this front-end's, §9.17's blanking is
+  the game's (`Overlay::blanks`, G7) — and keeping them apart is what let the
+  scrim stay under every box without leaking a paused stack.
+- **Checked on the web, end to end**: paused, the panel edited (seven rows, the
+  cursor wrapping at the seventh), the controls table, the countdown over a
+  visible board, a top out, the game-over box, name entry typed into and
+  confirmed, and the entry in `localStorage` with §14's fields.
+- **The cross-binary half of "done when" is not fully checked, and that is
+  honest.** The session that built this stage cannot drive the native window —
+  no screen capture, no synthetic key events — so the window-to-terminal
+  handoff is covered by a test over the real file store (`native.rs`: a score
+  one `Session` files is read by the next through `Files`), by the shared code
+  path itself (§6.2 and §14 are answered once, in `src/native.rs`, for both
+  binaries), and by the web build's own top-out. Playing `ftm-gui` to a top out
+  and seeing the entry on `ftm`'s attract screen is a person's check, and it is
+  worth doing once.
+
 ---
 
 ## Stage G9 — Animations
@@ -1710,6 +1752,9 @@ for no benefit.
 | `gui/layout.rs` | G7 | New. §G3's metric without a window: whole pixels at six densities, the arrangement, centring, the minimum and its message, and no panic on a zero or nonsensical viewport. |
 | `gui/playfield.rs` headless render | G7 | New. Every size from 0 × 0 to 4K at three densities through a real `egui::Context`, and §9.17's blank well. G13's harness test succeeds it. |
 | `Round::keyboard` | G7 | New, in `tests/pump.rs` and `shell/round.rs`. B10's shell half: the pause, the released keys, and a countdown that runs out without the keyboard. |
+| `Session::settings` | G8 | New, in `tests/pump.rs`. The panel offers what the front-end can apply, and the cursor stays inside that list. |
+| Every overlay, headless | G8 | New, in `gui/playfield.rs`. All six drawn at every size, and `overlays::rect_of` asserted to fit inside the block. |
+| The shared §14 table | G8 | New, in `native.rs`. A score one run files is read by the next through the real file store — the two native binaries' half of G8's acceptance. |
 | Config round-trip preservation | G12 | New. Every direction. The data-loss guard. |
 | Query-parameter precedence | G12 | New. §6.1, on the web build. |
 | `fall_progress` behaviour | G10 | New. Zero when landed, resets on the row change, well-defined above 1 G. |

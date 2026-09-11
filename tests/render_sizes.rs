@@ -142,6 +142,7 @@ fn the_playing_screen_renders_at_every_size() {
                 let hud = Hud {
                     overlay: &overlay,
                     config: &config,
+                    settings: &ftm::shell::menus::Setting::ALL,
                     debug: strip,
                     mode: InputMode::Enhanced,
                     restart: Some(45),
@@ -168,6 +169,7 @@ fn every_colour_depth_renders_at_every_size() {
                 let hud = Hud {
                     overlay: &Overlay::None,
                     config: &config,
+                    settings: &ftm::shell::menus::Setting::ALL,
                     debug: None,
                     mode: InputMode::Enhanced,
                     restart: None,
@@ -224,6 +226,7 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
                 let cx = attract::Context {
                     chrome: &chrome,
                     config: &session.config,
+                    settings: &ftm::shell::menus::Setting::ALL,
                     scores: &scores,
                     recent: Some(0),
                     mode: InputMode::Enhanced,
@@ -260,6 +263,7 @@ fn the_minimum_terminal_gets_the_real_screen_and_one_short_of_it_does_not() {
         let hud = Hud {
             overlay: &Overlay::None,
             config: &config,
+            settings: &ftm::shell::menus::Setting::ALL,
             debug: None,
             mode: InputMode::Enhanced,
             restart: None,
