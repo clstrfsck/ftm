@@ -7,7 +7,7 @@ documents — see **The four documents** below.
 
 It is no longer only a terminal game, and no longer a single binary: `EGUI.md`
 builds a second and third front-end (a native egui window, and the same code as
-wasm in a browser) and anticipates a fourth (Macroquad). As of G6 the tree is
+wasm in a browser) and anticipates a fourth (Macroquad). As of G7 the tree is
 `core/` + `shell/` + `native.rs` + `tui/` + `gui/`, with `src/bin/ftm.rs` and
 `src/bin/ftm-gui.rs` behind `--features gui`; **the window opens and plays** —
 `make run-gui` — and **so does a browser tab** — `make run-web`. G0 changed no
@@ -16,10 +16,10 @@ rename and a feature gate, with no logic changed; G3 took the platform out from
 under the shell; G4 turned §15.2's loop inside out, so the shell is now *pumped*
 by a front-end rather than owning a `while`; G5 hung an `eframe` application on
 the pump; G6 compiled the same application for wasm and gave it a browser's
-four capabilities.
+four capabilities; G7 gave it the playing screen.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0-G6 complete — milestone MG4. Start at G7.** All
+stages G0-G7 complete — milestone MG4. Start at G8.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -34,14 +34,17 @@ the §6.2 and §14 warnings reach stderr after teardown. Below §12.1's 60 x 24 
 resize replaces every screen with the too-small message and forces a game in
 progress into `Paused` (§8.4).
 
-`cargo run --release --features gui --bin ftm-gui` opens a window with a well,
-a falling piece and §10.1's keys — G5's vertical slice, which is the whole
-`eframe`/`winit`/GL stack retired as a risk and nothing beyond that: no hold
-box, no next queue, no stats, no ghost, no grid, no overlays and no attract
-screen. `make run-web` serves the same slice in a browser tab through trunk
-(`index.html`, `Trunk.toml`), with `?seed=N` in the URL for `--seed N`, scores
-in `localStorage`, and §16's warnings on the console. `GUI.md` §G1, §G2 and the
-web build's half of §G8 are written and normative; §G3-§G7 and §G9 are still
+`cargo run --release --features gui --bin ftm-gui` opens a window on `GUI.md`
+§G4's playing screen over §G3's cell metric: the well with its ghost and grid,
+the hold panel (absent when hold is off), one to six previews, six figures, the
+status line, `show_debug`'s read-out, the too-small message below a 14-point
+cell, and a pause forced whenever the window loses the keyboard. What it does
+not have yet is §12.6's boxes (G8 — until then an overlay is a scrim over a
+blanked well), §12.5's animations (G9) and the attract screen (G11). `make
+run-web` serves the same thing in a browser tab through trunk (`index.html`,
+`Trunk.toml`), with `?seed=N` in the URL for `--seed N`, scores in
+`localStorage`, and §16's warnings on the console. `GUI.md` §G1-§G4 and the web
+build's half of §G8 are written and normative; §G5-§G7 and §G9 are still
 reserved.
 
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
@@ -50,7 +53,8 @@ beside it for the strip. Above it, `shell/` is what no front-end owns *and no
 platform reaches* — `config.rs` (§6), `input.rs` (§10), `highscore.rs` (§14),
 `keys.rs` (F5's neutral `Key`/`KeyEvent` and §10.1's name grammar), `menus.rs`
 (the §12.6 and §13 menu models), `attract.rs` (§13's state machine),
-`cosmetics.rs` (§12.5's timers), `palette.rs` (§9.2 levelled), `time.rs` (F1's
+`cosmetics.rs` (§12.5's timers), `palette.rs` (§9.2 levelled), `figures.rs`
+(the grouped score and `MM:SS`), `time.rs` (F1's
 `Stamp`), `storage.rs` (F2's `Slot`/`Storage`), `host.rs` (F2-F4 as one
 borrowed bundle), and since G4 `session.rs` (`Session`, `Next`) and `round.rs`
 (`Round`, `FrameState`, `Debug`, and the `App` inside them). `src/native.rs` is
@@ -60,7 +64,8 @@ crossterm adapter), `cli.rs` (§6.4's grammar), `term.rs` (§8.1-§8.3), `run.rs
 (§7's state machine and both loops of §15, which is now what a *terminal* adds
 to the pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
 `overlays.rs` and `attract.rs` (§12, §13). `gui/` is the window: `app.rs`
-(`impl eframe::App`, the pump), `keys.rs` (the egui adapter), `paint.rs`,
+(`impl eframe::App`, the pump), `keys.rs` (the egui adapter), `layout.rs`
+(§G3's metric), `paint.rs` (colours and primitives), `playfield.rs` (§G4),
 `query.rs` (§6.4 as a URL query string), `cli.rs` and `host_native.rs` for the
 desktop, and `host_web.rs` for a tab — `gui::host` is whichever one the target
 has, so `app.rs` never asks. T1-T17 all pass, plus I1-I4 and `tests/pump.rs`,
@@ -69,7 +74,7 @@ and the batch-invariance canary is in CI.
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
-Start at G7. §18 remains out of scope and §19 remains a list of constraints to
+Start at G8. §18 remains out of scope and §19 remains a list of constraints to
 honour rather than a work item — see **Scope discipline** below.
 
 ## The §17.3 sign-off
@@ -299,6 +304,27 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   by a key, a compositor or a tab regaining focus, and one that renders at
   vsync may ignore it. `tests/pump.rs` is what holds both, and it is §19.4's
   sibling — the same desync, one layer up.
+
+- **The window's grid is whole pixels, and its minimum is in points** (`GUI.md`
+  §G3). `gui::layout::Measure` floors the cell in *physical* pixels and centres
+  the block on a whole pixel, so every rect it hands out is crisp at 1.25 as
+  well as at 2; the minimum is 14 *points*, because legibility does not double
+  with the density. Everything on the playing screen is placed through
+  `Layout` — a rect computed in points beside it will land between pixels. Text
+  is the exception and is placed freely; `egui` rounds it.
+
+- **Losing the keyboard pauses a game, every pump, and draws nothing**
+  (`GUI.md` §G4.7). `Round::keyboard(heard, now)` is §8.4's `cramp` path beside
+  `Round::viewport`, and `gui/app.rs` calls it on every `logic` pass rather than
+  on the change: a countdown the player leaves running when they click away is
+  not `Playing`, so the pump it runs out on is the one that must pause, and
+  `keyboard` settles the countdown first so that pump plays no tick. A hidden
+  tab has no focus, so this is also why a backgrounded game no longer creeps.
+  The terminal does not call it.
+
+- **§9.17's blank well is `Overlay::blanks`, not a front-end's `matches!`.**
+  Both front-ends ask it. G5's scrim let the paused stack show through at a
+  quarter brightness, which was exactly the free look §9.17 forbids.
 
 - **The four capabilities are the front-end's, and three of them travel as
   `shell::host::Host`** (§3.1, `FRONTEND.md` F1-F4). Storage, the seed and the
@@ -577,9 +603,9 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **Focus loss synthesises releases**, because the release of a key let go
   outside the window never arrives and a held direction would keep charging DAS.
   `gui::keys::Keyboard` remembers what it reported as held; F5 makes the stream
-  synthesisable precisely so a front-end may do this. It does **not** pause the
-  game: §8.4's forced pause is about a viewport that cannot host the screen, and
-  a window behind another one still can.
+  synthesisable precisely so a front-end may do this. At G5 it did not pause
+  the game; **G7 reversed that** (`GUI.md` §G4.7, and the invariant above), and
+  the releases still come first.
 - **A tap shorter than a frame is lost, in both front-ends.** Press and release
   of a movement key inside one pump cancel before any tick consumes the pending
   cell (`KeyTimer::release` resets `initial`). This is pre-existing and shared —
@@ -655,14 +681,33 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   front-end on wasm32, because `--all-features` on the host never compiles
   `host_web.rs` — and does not run trunk, so a developer needs only the target.
 
+## What G7 settled
+
+- **The playing screen is 26 x 24 cells** (`GUI.md` §G3.2): a one-cell margin,
+  a six-cell column, a gutter, the ten-cell well, a gutter, a six-cell column, a
+  margin; the mouth, twenty rows, two status rows, a margin. A next panel of one
+  slot is the hold panel's shape, and six fit beside the well exactly.
+- **Pixels changed three of §12.4's decisions, in the spec.** The score is
+  grouped live, combo and back-to-back are figures in the stats panel, and a
+  preview is centred by the cells it occupies. `TUI.md` is unchanged; `GUI.md`
+  §G4.4 says why each differs.
+- **Shared answers moved out of `tui/`**: `shell::figures` (`thousands`,
+  `clock`), `Debug::figures` and `Fps` (`shell/round.rs`), `Overlay::blanks`
+  (`shell/menus.rs`). The terminal's output is byte-for-byte what it was — its
+  mock-up tests say so.
+- **A headless `egui` test must reuse one `Context`**, and must call
+  `FullOutput::drop_without_applying_deltas` on a pass nobody renders. The first
+  costs a minute if forgotten; the second is a debug-assertion panic.
+- **Checking the web build without a visible Chrome**: a headless Chrome driven
+  over the DevTools protocol paints, because its page is never occluded — but
+  an emulated device scale factor leaves the canvas a 1× buffer under a 2×
+  `egui`, so the page looks half-size. Use a scale factor of 1. The native
+  window has not been looked at by the session that built G7 (no screen
+  capture); it runs the same drawing code.
+
 ---
 
 ## Open decisions
-
-- **Does losing focus pause a game?** `GUI.md` §G2.3 (written at G5) says no,
-  and `EGUI.md` G7 and B10 say yes, by §8.4's path. G6 left it alone and
-  measured what a hidden tab does meanwhile (§G8.7). G7 has to pick one and
-  amend the other.
 
 - **The legacy key path's feel (§8.2).** Measured over two seconds of holding
   left: enhanced moves at 0 ms then every 33 ms from 166 ms; legacy moves at

@@ -1,7 +1,7 @@
 # Falling Tetromino Manager — The egui Front-End
 
-**Version:** 0.2 — §G1, §G2 and the web build's half of §G8 are written;
-§G3–§G7 and §G9 are still reserved.
+**Version:** 0.3 — §G1-§G4 and the web build's half of §G8 are written;
+§G5–§G7 and §G9 are still reserved.
 **Date:** 2026-09-11
 **Companion to:** [FTM.md](FTM.md) (the specification),
 [FRONTEND.md](FRONTEND.md) (the contract every front-end is written against),
@@ -16,10 +16,10 @@ their own.
 
 **It is written stage by stage, not up front.** `EGUI.md`'s stages G5–G13 each
 name the section they fill, and each fills it in the same commit as the code.
-§G1 and §G2 were written by G5, and §G8's web build by G6 — its `[gui]` table
-and the rest of its query parameters wait for G12. The rest is still the
-namespace and the reservations below, deliberately, so that a `§G4` written in a
-doc comment during G7 has somewhere agreed to land.
+§G1 and §G2 were written by G5, §G8's web build by G6 — its `[gui]` table and
+the rest of its query parameters wait for G12 — and §G3 and §G4 by G7. The rest
+is still the namespace and the reservations below, deliberately, so that a
+`§G5` written in a doc comment during G8 has somewhere agreed to land.
 
 ## The `§G` namespace
 
@@ -35,8 +35,8 @@ that document owns. `§Gn` means this file.
 |---|---|---|---|
 | G1 | The application | `EGUI.md` G5 ✅ | The `eframe` application, the pinned `egui` / `eframe` versions and the MSRV they set, the window, the loop that pumps the shell. |
 | G2 | Input | `EGUI.md` G5 ✅ | The `egui` → `shell::keys` adapter (`FRONTEND.md` F5), repeats, focus loss, and the keys the browser wants for itself. |
-| G3 | Layout | `EGUI.md` G7 | The integer-cell metric, `LAYOUT_COLS` / `LAYOUT_ROWS`, the minimum `cell` and the too-small state below it (`FRONTEND.md` F6, §8.4). |
-| G4 | The playing screen | `EGUI.md` G7 | §12.4's information — field, hold, next, stats, status — drawn as pixels rather than characters, and `show_debug`. |
+| G3 | Layout | `EGUI.md` G7 ✅ | The integer-cell metric, `LAYOUT_COLS` / `LAYOUT_ROWS`, the minimum `cell` and the too-small state below it (`FRONTEND.md` F6, §8.4). |
+| G4 | The playing screen | `EGUI.md` G7 ✅ | §12.4's information — field, hold, next, stats, status — drawn as pixels rather than characters, `show_debug`, and the pause that losing the keyboard forces. |
 | G5 | Overlays | `EGUI.md` G8 | §12.6's pause, game-over and name-entry boxes, and the §13.5 Options and §10.1 controls panels. |
 | G6 | Animations | `EGUI.md` G9, G10 | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
 | G7 | The attract screen | `EGUI.md` G11 | §13's wordmark, menu, cycling panel and drifting background, laid out for a window rather than a 36 × 20 grid. |
@@ -95,17 +95,19 @@ moment, and reports them on the console as they arise (§G8.6).
 
 | `eframe` | §15.2 | What it does |
 |---|---|---|
-| `App::logic(ctx, frame)` | steps 1–4, 6–7 | Drains `ctx.input(…).events` into `Round::key`, calls `Round::advance`, then `ctx.request_repaint_after(Round::deadline(now))`. |
+| `App::logic(ctx, frame)` | steps 1–4, 6–7 | Drains `ctx.input(…).events` into `Round::key`, tells the round whether the viewport fits (§G3.3) and whether the keyboard is heard (§G4.7), calls `Round::advance`, then `ctx.request_repaint_after(Round::deadline(now))`. |
 | `App::ui(ui, frame)` | step 5 | Paints what the last `Round::frame` reported. |
 
 Three rules bind that, and each is `FTM.md`'s rather than this document's:
 
 1. **The game advances by §15.1's tick and by nothing else.** `stable_dt` is
    never a step size and frames are never counted. `App::logic` is called while
-   the window is hidden and `App::ui` is not, so a hidden window keeps playing
+   the window is hidden and `App::ui` is not, so a hidden window keeps pumping
    and simply is not drawn. A backgrounded tab is the same case at a throttled
    cadence (§G8.7), and §15.2 step 4's catch-up cap is what stops either from
-   resuming into an instant death.
+   resuming into an instant death. (Since `EGUI.md` G7 a *game* in either is
+   paused rather than played, because neither has the keyboard — §G4.7. The
+   pump runs regardless, and has to be correct at that cadence.)
 2. **`deadline` is advice, not a frame rate** (§15.2 step 6). The compositor may
    call back sooner, a key will, and `advance` is correct either way.
 3. **There is no frame comparison.** §15.2 step 5's decision to skip an unchanged
@@ -130,8 +132,12 @@ close itself, so there those two start a fresh game as well (§G8.1).
 
 A window or a canvas that does not have the keyboard says so, across the middle
 of the screen: **Click to play** (§G8.2). It is drawn in both builds, over
-whatever else is on screen, and it pauses nothing — whether losing focus should
-pause a game is `EGUI.md` G7's question.
+whatever else is on screen. At G5 it paused nothing; since G7 losing the keyboard
+pauses a game in progress (§G4.7).
+
+**G7 replaced the slice's screen** with §G3's layout and §G4's playing screen.
+What is still to come is §G5's boxes (G8) — until then an overlay is a scrim
+over the well — §G6's animations (G9, G10) and §G7's attract screen (G11).
 
 ---
 
@@ -193,10 +199,13 @@ synthesisable precisely so that a front-end may manufacture it, and a polled
 front-end will manufacture the whole of it. A repeat does not enqueue a second
 release, and a key released normally is not released twice.
 
-Focus loss does **not** pause the game. §8.4's forced pause is about a viewport
-that cannot host the screen, and a window behind another one still can; §9.17's
-pause is the player's. A game left unattended tops out, which is what it does in
-a terminal whose window is behind another one.
+Focus loss also **pauses a game in progress**, which is §G4.7's rule and is
+amended here from what G5 wrote: that §8.4's forced pause was about a viewport
+alone, and a game left unattended should top out as it would in a terminal behind
+another window. G6 measured what that meant in a hidden tab (§G8.7) — a game
+that went on placing pieces for its absent player — and `EGUI.md` G7 settled it
+the other way. The adapter's part is unchanged: it synthesises the releases, and
+the pause that follows them is the shell's.
 
 ### G2.4 The keys the browser wants for itself
 
@@ -209,7 +218,269 @@ they do natively. There is no pointer path in either build (§1.2).
 
 ---
 
-§G3–§G7 are reserved for `EGUI.md` G7–G11 and are not yet written.
+## G3. Layout
+
+### G3.1 The cell
+
+Everything on the playing screen is measured in one unit, the **cell** — one
+mino of the well — and the cell is derived from the viewport by one rule:
+
+```
+cell = floor(min(width / LAYOUT_COLS, height / LAYOUT_ROWS))
+```
+
+taken in **physical pixels**, with the block centred on a whole pixel. Every
+rect on the screen — the well, each panel, each mino — is then a whole number of
+pixels at a whole-pixel position, at any window size and any display density,
+which is what keeps the grid crisp without fighting `egui`'s float coordinates.
+A resize scales the whole screen rather than reflowing it, and what the viewport
+has beyond the block is margin, exactly as §12.1 has it for a terminal: the
+screen does not stretch, because the well's 1 : 2 must stay 1 : 2. A browser
+window gets responsive sizing for free, which matters because it is whatever
+size the visitor's happens to be.
+
+Text is placed in cells too but is not held to the grid; `egui` rounds it to the
+pixel. The one rect that is not a whole number of cells from the block's origin
+is a piece in a hold or preview slot, which is centred by the cells it occupies
+(§G3.2) — and that half cell is rounded down to a whole pixel, so it is crisp all
+the same.
+
+`gui/layout.rs` is the metric, and it is pure: a viewport and a scale factor go
+in, rectangles come out. Its tests hold §G3's promises without a window.
+
+### G3.2 The arrangement
+
+**`LAYOUT_COLS` is 26 and `LAYOUT_ROWS` is 24.** In cells, from the block's
+top-left:
+
+```
+col  0   1 ─────── 6   7   8 ─────────────── 17   18  19 ────── 24  25
+row  0   ·                 ·   (the mouth: no lid)  ·                ·
+     1   ┌ HOLD ───┐       ┃                    ┃       ┌ NEXT ───┐
+     2   │  slot   │       ┃                    ┃       │  slot 0 │
+     4   └─────────┘       ┃                    ┃       │         │
+     6   ┌ SCORE ──┐       ┃        well        ┃       │  slot 1 │
+         │ LEVEL   │       ┃     10 x 20        ┃       │   ...   │
+         │ LINES   │       ┃                    ┃       │         │
+         │ TIME    │       ┃                    ┃       └─────────┘
+         │ COMBO   │       ┃                    ┃
+    20   └ B2B ────┘       ┗━━━━━━━━━━━━━━━━━━━━┛
+    21   ·                  status line                              ·
+    23   ·                                                           ·
+```
+
+| Rect | Cells: column, row, width × height |
+|---|---|
+| Well | 8, 1, 10 × 20 — the visible field, one cell per matrix cell |
+| Hold panel | 1, 1, 6 × 4 — **absent** when the running game has no hold |
+| Stats panel | 1, 6, 6 × 15; or 1, 1 when there is no hold panel above it |
+| Next panel | 19, 1, 6 × (3*n* + 1), for *n* = `preview_count` |
+| Status line | 0, 21, 26 × 2 |
+
+The panels are six cells wide: the widest piece, and one either side. The hold
+panel and the next panel have the same insides — a label row, then two-row slots
+a row apart, then a row of padding — so a next panel with one slot is exactly the
+hold panel's shape, and one with six is 19 rows, which fits beside the 20-row
+well. §6.3's `preview_count` range therefore never needs §12.4's `+N`, and the
+layout leaves room for exactly six slots and no more. The stats panel's foot is
+level with the well's floor when the hold panel is above it; without hold, it
+moves to the top of the column, as §12.4's does.
+
+A piece in a slot lies `North` and is **centred by the cells it occupies**, both
+ways: a three-wide piece sits a cell and a half in from either side, and an `I`,
+which occupies one row of its box, sits half a cell down rather than on the
+slot's lower row. This is a deliberate difference from §12.4, where two
+characters to the cell leave no half to centre by.
+
+The well is the block's middle column, so the status line, centred in the whole
+width, is centred under the well too.
+
+### G3.3 The minimum, and below it
+
+**The minimum cell is 14 points.** Points rather than pixels, because the
+question is legibility and a pixel on a high-density display is half the size it
+is on another: at 14 points a panel's label is about eight points high and a
+figure twelve. That is a viewport of **364 × 336 points** at any whole density;
+at a fractional one the cell must still be whole pixels, so a little more is
+needed — 375 × 346 at 1.25 — and the viewport fits when its cell in pixels is at
+least `ceil(14 × pixels_per_point)`.
+
+Below it, every screen is replaced by a message, centred, after §12.1's:
+
+```
+Window too small
+Need 364 x 336, have 300 x 200
+Resize to continue
+```
+
+The sizes are in points — what a player dragging an edge can relate to — and
+*need* is what fits at this display's density, not a round number at which it
+still would not. The text is a fixed size rather than one scaled to the window,
+since the window is by definition too small to scale anything to; in a viewport
+smaller than the message, the message is clipped. **Rendering never panics at
+any size** (`FRONTEND.md` F6), a zero-area viewport included — which is what a
+minimised window reports, and what a canvas squeezed out of its page is.
+
+**§8.4's rule is the shell's and is not restated here**: a game in progress is
+forced into `Paused` *before* the screen goes, its held keys are released, and
+the pause does not undo itself when there is room again. The window reports
+whether it fits on every pass of `App::logic` — not `App::ui`, because a hidden
+window has a size and no paint — through `Round::viewport` (F6). Only the
+threshold is this front-end's.
+
+The window itself has **no minimum size**. It opens at a cell of 28 points,
+728 × 672, and can be dragged below 364 × 336 like any other. A tiling window
+manager and a browser window would ignore a minimum anyway, and a too-small state
+that only a tab could reach would be one that was only ever tested in a tab.
+
+---
+
+## G4. The playing screen
+
+§12.4's information — the well, the hold slot, the next queue, the figures and
+the status line — drawn as pixels over §G3's cell. Not a translation of §12.4's
+44 × 23 block: pixels leave room the characters did not, and where that changes
+where something goes, this section says so. Everything is drawn from the
+`FrameState` the pump reported and never from `Game` (§12.7), and what the view
+cannot answer arrives beside it, as it does in the terminal: whether the
+*running game* has a hold slot, from `Round::hold_enabled` (§13.5), and whether
+the grid and the debug read-out are on, from the config as it stands. There is no
+generation counter to watch for a change to either (§G1.3): immediate mode reads
+them every repaint.
+
+Colours: the ground is `#121216` and the page's (§G8.1); the well and the panels
+are a shade up, `#1E1E24`, so their edges read without a border. Every piece
+colour is §12.3's **levelled** palette, and each of §12.3's brightness
+percentages lands as a plain RGB scale of it — a piece, its ghost and its preview
+are one hue.
+
+### G4.1 The well
+
+The locked cells of `GameView::rows`, the ghost when the view has one (§9.8,
+at §12.3's 45 %), and the falling piece over it, each mino a tile: the cell less
+a gutter of a sixteenth of it, never under a pixel, on whole pixels. The ghost
+goes down before the piece, so where they overlap the piece is what is drawn.
+Either may be absent — the ghost when `ghost_piece` is off, the piece during the
+clear and entry delays — and that is the view's answer rather than a case here;
+a mino above the field is `OFF_SCREEN` in the view, and is not drawn.
+
+The well has **walls and a floor and no lid**, an eighth of a cell thick and
+outside the ten-by-twenty interior, so the interior is exactly the field. The row
+above it is the mouth a piece comes in through, as in §12.4.
+
+With `show_grid` on, every cell of the well is drawn first as a faint tile, the
+same shape as a mino: the pixel reading of §12.2's `··`. The well only — §6.3
+puts the dots in the empty *playfield*, and a tiled ground behind a preview is
+noise.
+
+**While the game is paused, the well is drawn empty** (§9.17) — the pause menu,
+and the Options and Controls boxes it opens, but not the countdown, which exists
+so the board can be read again. That is `Overlay::blanks`, and it is the game's
+rule rather than this screen's. Until §G5's boxes land at `EGUI.md` G8, any
+overlay also darkens the well, so that a game that is not running does not merely
+look frozen.
+
+### G4.2 The hold panel
+
+Labelled **HOLD**, with the held piece in its slot. While hold is locked out for
+the current piece (§9.7) the label and the piece are both drawn dimmed, the piece
+at 45 %. **When the running game has no hold, the panel is absent, not empty**,
+and the stats panel takes its place at the top of the column — the
+`Chrome::hold_enabled` rule, for a front-end that can no more ask the config
+than the terminal can: an empty slot and an absent mechanic are both `hold:
+None` in the view.
+
+### G4.3 The next panel
+
+Labelled **NEXT**, with one slot per previewed piece, slot 0 — the next to spawn
+— at the top. Slot 0 is at full brightness, slot 1 at 75 % and the rest at 55 %:
+§12.4's three steps, which are shared presentation (`shell::palette`). The
+panel's height follows the preview count (§G3.2), 1 to 6.
+
+### G4.4 The figures
+
+Six, each a label over its figure, two and a half rows apart, the label on the
+left and the figure right-aligned:
+
+| Label | Figure |
+|---|---|
+| `SCORE` | the score, **grouped in threes** (`12,480`) |
+| `LEVEL` | the level |
+| `LINES` | lines cleared |
+| `TIME` | `MM:SS` from the view's ticks, capped at `99:59` (§12.4, §11) |
+| `COMBO` | `xN` while the combo counter is 1 or more, `-` otherwise |
+| `B2B` | `ON` while the back-to-back chain is live, `-` otherwise |
+
+Two differences from §12.4, and both are room. **The score is grouped live**, not
+only at rest: §12.4's bare digits are a concession to eight characters of
+interior, and a six-cell panel holds `9,999,999` with a cell to spare. And
+**combo and back-to-back are figures here**, not words on the status line: they
+are standing state, and the panel has the rows. Each is always listed and says
+`-` when it has nothing to report, so the panel does not reflow as a chain
+starts and ends. `B2B` is `GameView::back_to_back` — whether the chain is live —
+and not whether the last clear was paid at the chained rate (§9.15, §12.8).
+
+Figures are set in monospace, so a number that changes does not shuffle the
+digits beside it. A figure too wide for its panel — a score of twenty digits —
+is drawn smaller rather than cut off at the edge, because a truncated figure is a
+wrong one. `shell::figures` writes the score and the time, for both front-ends.
+
+### G4.5 The status line
+
+Centred under the well: the most recent clear's name — `QUAD`, `T-SPIN DOUBLE`,
+`PERFECT CLEAR` — for the 1.5 s `Cosmetics::clear_name` keeps it. While §10.1's
+restart key is held it shows **RESTART** and a bar filling over the key's second
+instead, as §12.4's does: a hold with no feedback is indistinguishable from a
+key that did nothing, and a player about to throw the game away is not reading
+the name of their last clear.
+
+### G4.6 The debug read-out
+
+With `show_debug` on, a plain panel over the bottom-left corner of the window:
+§12.4's nine figures — frame rate, ticks, dropped ticks, gravity in G, the lock
+delay, `fall_period`, DAS charge, what is left of the bag, and the input mode —
+in three rows of three, in 11-point monospace on a dark translucent ground.
+**The figures and their words are `Debug::figures`'**, and the terminal's strip
+prints the same nine; only the setting-out is this front-end's. The frame rate is
+the frames this front-end drew — `App::ui` calls — in the last second.
+
+It sits **outside §G3's metric**: a developer's read-out and not a supported
+layout, so it moves no minimum, changes no cell, and is drawn over whatever is
+under it. The bottom corner, because what is under it there is the status band
+and the margin, which hold the least of the game — over the top one it hid the
+hold panel. Beneath the block, where the terminal puts its strip, would have
+taken rows from a viewport whose spare room is usually at its sides.
+
+### G4.7 Losing the keyboard pauses the game
+
+A window — or a tab — that does not have the keyboard **forces a game in
+progress into `Paused`**, by §8.4's path: `Round::keyboard(false, now)`, which is the same
+pause `Round::viewport` forces below the minimum, held keys released and all. A
+game with lock delay that goes on without its player places pieces where the
+player did not put them, and a window, unlike a terminal, is told when that has
+happened.
+
+- **Every pass without it, not only the first.** A countdown the player left
+  running when they clicked away is not `Playing` and has nothing to pause, so
+  the pass it runs out on is the one that pauses — before a tick is played that
+  nobody could answer.
+- **It does not undo itself.** Focus coming back shows the pause menu, and the
+  player leaves it and gets §9.17's countdown, exactly as after a resize.
+- **The releases come first.** The adapter's synthesised releases (§G2.3) reach
+  the shell on the pass focus is lost, before the pause; the pause then lets go
+  of whatever else was held.
+- **Click to play** (§G8.2) is still drawn over the screen while the keyboard is
+  away. It says what to do; the pause is what makes it safe to take a moment
+  doing it.
+- **A hidden tab has no keyboard**, so this is also what stops a backgrounded
+  game from creeping (§G8.7).
+
+This front-end has the rule and the terminal does not: `TUI.md` does not ask a
+terminal for focus reports, and a terminal behind another window plays on.
+
+---
+
+§G5–§G7 are reserved for `EGUI.md` G8–G11 and are not yet written.
 
 ---
 
@@ -339,9 +610,15 @@ and returning to it costs nothing: there is no burst of arrears, and the player
 is not killed by coming back. Measured in Chrome at G6: 36 seconds minimised
 advanced a level-1 game by about nine seconds of play.
 
-It still plays. A long absence at a high level can lock pieces the player did not
-place, which is the case `EGUI.md` G7's focus-loss pause is for; until then this
-is §G2.3's rule, that losing focus does not pause, in its web form.
+**Since `EGUI.md` G7 a game in progress does not creep: it pauses.** A hidden
+tab reports no focus — `eframe` counts a hidden document as unfocused — so the
+first `App::logic` pass after hiding forces the pause of §G4.7, and the player
+comes back to the pause menu rather than to a game that went on without them. The
+measurement above is G6's, from before that rule, and is kept because it is what
+settled it: at a high level, nine seconds of play in thirty-six locks pieces
+nobody placed. What still runs while hidden is the pump itself, and it is
+correct at that cadence, so anything that is not a game in progress — the
+attract screen, from G11 — creeps as described.
 
 A hidden tab can hear no keys. `eframe` hands the same unconsumed input to every
 hidden pass until one paints, so the adapter sees each focus change more than

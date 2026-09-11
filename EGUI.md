@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [PLAN.md](PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** G0–G6 complete (**MG4**); G7 next.
+**Status:** G0–G7 complete (**MG4**); G8 next.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -226,6 +226,7 @@ ftm/
     │   ├── attract.rs        # the attract state machine (§13.1, §13.3, §13.6)
     │   ├── menus.rs          # PauseChoice, Setting, NameEntry, MenuChoice, Overlay
     │   ├── cosmetics.rs      # §12.5 animation timers, from events + a clock
+    │   ├── figures.rs        # how a score and a clock are written (G7)
     │   └── palette.rs        # §9.2 + the levelled lift, as plain RGB
     ├── tui/                  # #[cfg(feature = "tui")]
     │   ├── mod.rs            # Tui, fits, too_small, draw dispatch
@@ -1105,6 +1106,72 @@ because a browser window is whatever the visitor's window happens to be.
 A full game is playable and legible, natively and on the web, at several window
 sizes, including with `preview_count` at 1 and at 6.
 
+### What G7 found
+
+- **Focus loss pauses, and the open decision is closed that way.** `GUI.md`
+  §G2.3 said no and this stage's work list and B10 said yes; G6's measurement of
+  a hidden tab — a game going on placing pieces for nobody — is what decided it.
+  §G4.7 is normative and §G2.3, §G8.7 and §G1.3 are amended. The shell grew
+  `Round::keyboard(heard, now)` beside `Round::viewport(fits)`: the same
+  `cramp` path, held keys released, but with nothing replaced on screen. Two
+  things about it were not obvious. It is **told every pump**, not on the
+  change, because a countdown the player leaves running when they click away is
+  not `Playing` and has nothing to pause — the pump it runs out on is the one
+  that must pause; and it **settles the countdown first**, so that pump plays no
+  tick. And it takes care of G6's creeping tab for free: a hidden document has
+  no focus, so a backgrounded game is paused on the first `logic` pass.
+- **The metric is in pixels and the minimum in points.** `cell` is floored in
+  physical pixels so the grid is crisp at 1.25 and 1.5 as well as at 1 and 2;
+  the minimum is 14 *points*, because legibility does not double with the
+  density. At a fractional density those two disagree by up to a pixel a cell,
+  so §G3.3's message computes what is *needed* at this density — 375 × 346 at
+  1.25, not 364 × 336 — rather than printing a size at which it still would not
+  fit. The window has no minimum size, so the too-small state is reachable
+  natively too, not only in a tab.
+- **Pixels changed three of §12.4's decisions, deliberately and in the spec.**
+  The score is grouped in threes live (§12.4's bare digits were eight
+  characters' concession); combo and back-to-back are figures in the stats
+  panel rather than words on the status line; and a preview is centred by the
+  cells it occupies, so an `I` sits in the middle of its slot. `LAYOUT_COLS` is
+  26 and `LAYOUT_ROWS` 24; a next panel of one slot is exactly the hold panel's
+  shape, and six fit beside the well with nothing to spare.
+- **G5's scrim was leaking the stack.** It darkened the paused well to a
+  quarter of its brightness, which is a free look §9.17 forbids. The well is now
+  blanked, as the terminal's is — and the rule moved to the shell as
+  `Overlay::blanks`, so the two front-ends cannot disagree about which overlays
+  hide the board.
+- **Four small things left `tui/` for the shell**, because the window needs the
+  same answers: `shell::figures` (the grouped score and `MM:SS`),
+  `Debug::figures` (the nine debug figures and their words) and `Fps` (frames
+  drawn in the last second). The terminal's behaviour is unchanged — the §12.4
+  mock-up test and the debug strip's are byte-for-byte what they were, and a
+  `tools/drive.py` run draws the same screen.
+- **`show_debug` is a plain panel over the bottom-left corner**, outside the
+  metric, as the open decision suggested. It began at the top-left and hid the
+  hold panel; the band under the well holds the least of the game.
+- **A headless `egui` render test is cheap if it keeps one `Context`.** Making
+  a context lays out the fonts; a test that made one per case took a minute and
+  one that reuses it takes under a second. And a pass that is not handed to a
+  renderer must say so (`FullOutput::drop_without_applying_deltas`), or `egui`'s
+  debug assertion fires on the unapplied font atlas. The test in
+  `gui/playfield.rs` draws every size from 0 × 0 up at three densities; G13's
+  `tests/gui_render.rs` is still its harness-driven successor.
+- **How it was checked, and what was not.** The web build was played in a
+  headless Chrome driven over the DevTools protocol, because the desktop
+  Chrome window was occluded and an occluded tab is `document.hidden` and never
+  painted (G6's trap, again). Checked there: seed 42 dealing J T S I L Z, DAS
+  sliding to the wall, hold, hard drop, a scripted `SINGLE` on the status line,
+  the restart bar, `preview_count` 6 with the grid and the read-out, 1 with hold
+  and the ghost off, the too-small message at 360 × 300, a top-out and the fresh
+  game after it, and a blur mid-slide: paused with the well blank, the clock
+  stopped through the blur and the countdown, and no slide on resuming. One
+  headless trap worth knowing: an emulated device scale factor gives the canvas
+  a 1× buffer while `egui` assumes 2×, so the page looks like a window half its
+  size — use a scale of 1. **The native window was not looked at**: screen
+  capture is not available to the session that built this, so the native build
+  is covered by the same drawing code, the headless render test and `make
+  check`, and by nothing that saw its pixels.
+
 ---
 
 ## Stage G8 — Overlays and the pause path
@@ -1640,6 +1707,9 @@ for no benefit.
 | `gui/query.rs` | G6 | New. `?seed=` into the same `Overrides` as `--seed`; unknown parameters silent, bad values one warning each. |
 | The bag's generator size, on wasm32 | G6 | New, and a `const` assertion rather than a test, because tests run on a 64-bit host and cannot see it. `make portable` evaluates it. |
 | `make web-check` | G6 | New. The web front-end linted for its own target; `--all-features` on the host never compiles it. |
+| `gui/layout.rs` | G7 | New. §G3's metric without a window: whole pixels at six densities, the arrangement, centring, the minimum and its message, and no panic on a zero or nonsensical viewport. |
+| `gui/playfield.rs` headless render | G7 | New. Every size from 0 × 0 to 4K at three densities through a real `egui::Context`, and §9.17's blank well. G13's harness test succeeds it. |
+| `Round::keyboard` | G7 | New, in `tests/pump.rs` and `shell/round.rs`. B10's shell half: the pause, the released keys, and a countdown that runs out without the keyboard. |
 | Config round-trip preservation | G12 | New. Every direction. The data-loss guard. |
 | Query-parameter precedence | G12 | New. §6.1, on the web build. |
 | `fall_progress` behaviour | G10 | New. Zero when landed, resets on the row change, well-defined above 1 G. |
@@ -1685,10 +1755,9 @@ not make on its own.
   a visitor the game is played with a keyboard; §1.2 says so and `GUI.md` §G8.8
   is normative. An on-screen control layer stays possible as a §1.2 amendment
   and a piece of design in its own right, and is not planned.
-- **Does losing focus pause a game?** `GUI.md` §G2.3, written at G5, says it
-  does not; G7's work list and B10 say it does, by §8.4's path. G6 measured what
-  a hidden tab does in the meantime (§G8.7 — it creeps, at about a quarter of
-  its speed in Chrome) and left the rule alone. G7 picks one and amends the other.
+- ~~**Does losing focus pause a game?**~~ **Settled at G7: yes**, by §8.4's
+  path (`Round::keyboard`), on every pump without the keyboard. `GUI.md` §G4.7
+  is normative and §G2.3 is amended; a hidden tab no longer creeps (§G8.7).
 - **Sub-tick extrapolation on top of `fall_progress`.** The field itself is
   settled — it is [G10](#stage-g10--sub-cell-gravity). What is not settled is
   whether a front-end should also extrapolate *within* a tick for displays above
@@ -1701,9 +1770,10 @@ not make on its own.
 - **Whether `ftm-gui` should remember its window geometry.** §G8's `[gui]` table
   has a place for it, but a game that reopens where it was last is also a game
   that can reopen off-screen. Suggest: remember size, not position.
-- **What the GUI does with `show_debug`.** The strip is §12.4's, in characters.
-  The figures are front-end-agnostic (`Debug` + `DebugView`); the layout is not.
-  Suggest a plain overlay panel, but it is not specified until G7.
+- ~~**What the GUI does with `show_debug`.**~~ **Settled at G7:** a plain
+  panel over the window's bottom-left corner, outside §G3's metric (§G4.6). The
+  nine figures and their words are `Debug::figures`, shared with the terminal's
+  strip.
 - **Where the web build is served, and whether high scores stay local.**
   `localStorage` makes every visitor's table private to their browser, which is
   the honest default and needs no server. A shared leaderboard is a §19 question

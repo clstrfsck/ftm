@@ -458,7 +458,7 @@ fn top_three(cx: &Context) -> Vec<String> {
             "  {}. {:<12}{:>15}  ",
             index + 1,
             entry.name,
-            crate::tui::thousands(entry.score),
+            crate::shell::figures::thousands(entry.score),
         ));
     }
     rows
@@ -516,7 +516,7 @@ fn entry_row(rank: usize, entry: &Entry) -> String {
     score_row(
         &rank.to_string(),
         &entry.name,
-        &crate::tui::thousands(entry.score),
+        &crate::shell::figures::thousands(entry.score),
         &entry.level.to_string(),
         &entry.lines.to_string(),
         &entry.date,

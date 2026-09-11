@@ -240,6 +240,11 @@ A front-end draws §12.7's `GameView` however it likes; `TUI.md` §12.4 and
   so a player is never killed by a resize. The pause does not undo itself when
   there is room again; the player leaves it and gets §9.17's countdown for it.
 - **Rendering never panics at any size**, including one absurdly small (§17.2).
+- **A front-end that can tell it has lost the keyboard may force the same
+  pause** — `Round::keyboard(false, now)`, every pump it lacks one. The window
+  front-end does (`GUI.md` §G4.7), because a window and a tab are told; the
+  terminal does not ask. It is the same path as the viewport's, held keys
+  released, and changes nothing about what is drawn.
 
 ### F7 — The loop
 
@@ -254,6 +259,7 @@ round.advance(&mut session, now);     // steps 1, 3-5; returns Some(next) when o
 round.frame(now);                     // everything needed to draw, as one value
 round.deadline(now);                  // how long it may wait before advancing again
 round.viewport(fits);                 // F6
+round.keyboard(heard, now);           // F6's pause, for a front-end that knows it lost the keys
 ```
 
 Three more are there because `GameView` cannot answer them: `hold_enabled()`

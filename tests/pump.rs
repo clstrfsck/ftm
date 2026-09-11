@@ -303,6 +303,68 @@ fn a_viewport_below_the_minimum_pauses_the_game_and_says_so() {
     );
 }
 
+/// The leftmost column the falling piece occupies.
+fn left_edge(round: &Round, now: Stamp) -> u8 {
+    let view = round.frame(now).view;
+    let piece = view.current.expect("a piece is falling");
+    piece.cells.iter().map(|&(col, _)| col).min().unwrap()
+}
+
+#[test]
+fn losing_the_keyboard_pauses_the_game_and_lets_go_of_its_keys() {
+    // `GUI.md` §G4.7 and B10: a front-end that cannot hear the keyboard forces
+    // §8.4's pause, held keys released, without replacing the screen. A
+    // direction held when focus went must not still be charging DAS when the
+    // player comes back — the release of a key let go elsewhere never arrives.
+    let mut storage = Memory::new();
+    let mut session = session(&mut storage, true);
+
+    // What holding left does if nothing intervenes: it slides to the wall.
+    let mut control = Round::new(&session, at(0));
+    control.key(&mut session, &press(Key::Left), at(0));
+    let start = {
+        control.advance(&mut session, at(50_000));
+        left_edge(&control, at(50_000))
+    };
+    for frame in 2..=20 {
+        control.advance(&mut session, at(frame * 50_000));
+    }
+    assert!(
+        left_edge(&control, at(1_000_000)) < start,
+        "held left slides"
+    );
+
+    let mut round = Round::new(&session, at(0));
+    round.key(&mut session, &press(Key::Left), at(0));
+    round.advance(&mut session, at(50_000));
+    let before = left_edge(&round, at(50_000));
+
+    round.keyboard(false, at(50_000));
+    let frame = round.frame(at(50_000));
+    assert_eq!(frame.overlay, Overlay::Paused { selected: 0 });
+    assert!(
+        !frame.cramped,
+        "the screen is not replaced; the front-end says why"
+    );
+
+    // Suspended on every pass until focus returns, which changes nothing more.
+    round.keyboard(false, at(1_000_000));
+    round.advance(&mut session, at(1_000_000));
+    assert_eq!(
+        round.frame(at(1_000_000)).overlay,
+        Overlay::Paused { selected: 0 }
+    );
+
+    // The player comes back and leaves the pause; left was never released as
+    // far as this front-end heard, and still does not slide.
+    round.key(&mut session, &press(Key::Esc), at(1_000_000));
+    for frame in 21..=100 {
+        round.advance(&mut session, at(frame * 50_000));
+    }
+    assert_eq!(round.frame(at(5_000_000)).overlay, Overlay::None, "resumed");
+    assert_eq!(left_edge(&round, at(5_000_000)), before, "and nothing slid");
+}
+
 #[test]
 fn the_restart_key_ends_the_round_after_its_second() {
     // §10.1: "Restart (hold 1 s)", and the hold is `advance`'s answer rather

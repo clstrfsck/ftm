@@ -44,6 +44,23 @@ pub enum Overlay {
     Controls,
 }
 
+impl Overlay {
+    /// Whether the playfield under this overlay is drawn empty (§9.17).
+    ///
+    /// The anti-pause-scumming rule: while the game is paused — the menu, and
+    /// the two boxes it opens — the player gets no free look at the stack. It
+    /// is a rule of the game rather than of a screen, so it is answered here
+    /// once; the countdown shows the board again, because reading it is what
+    /// the countdown is for, and the game-over and name-entry boxes sit over
+    /// a game that is finished.
+    pub const fn blanks(&self) -> bool {
+        matches!(
+            self,
+            Overlay::Paused { .. } | Overlay::Options { .. } | Overlay::Controls
+        )
+    }
+}
+
 /// The pause menu of §9.17, in the order it is drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PauseChoice {
@@ -327,6 +344,24 @@ pub enum Sub {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_paused_game_hides_the_stack_and_the_countdown_shows_it_again() {
+        // §9.17: blanked while paused, in every front-end. The two boxes the
+        // pause menu opens are still the pause; the countdown is not, because
+        // it exists so the player can read the board before play resumes.
+        assert!(Overlay::Paused { selected: 0 }.blanks());
+        assert!(Overlay::Options { selected: 3 }.blanks());
+        assert!(Overlay::Controls.blanks());
+        assert!(!Overlay::Resuming { count: 3 }.blanks());
+        assert!(!Overlay::None.blanks());
+        assert!(!Overlay::GameOver.blanks());
+        let entry = Overlay::NameEntry {
+            rank: 1,
+            name: String::new(),
+        };
+        assert!(!entry.blanks());
+    }
 
     #[test]
     fn the_field_takes_twelve_printable_ascii_characters() {

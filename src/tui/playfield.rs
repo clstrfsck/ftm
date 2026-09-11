@@ -17,6 +17,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 use crate::core::{GameView, PieceKind, Rotation, VIEW_HEIGHT, VIEW_WIDTH};
 use crate::shell::cosmetics::{Banner, Cosmetics};
+use crate::shell::figures::clock;
 use crate::shell::palette;
 use crate::shell::round::Debug;
 use crate::tui::cells::{CELL_WIDTH, Paint, span};
@@ -159,42 +160,13 @@ pub fn render(
 
 /// The §12.4 debug strip: nine figures in three columns of three.
 ///
-/// Everything here is either the shell's own or comes from a `DebugView`
-/// (§12.7). Gravity is printed from the core's integer milli-G rather than
-/// computed here, so the strip cannot disagree with the rules about how fast
-/// the piece is falling.
+/// What the figures are, and how each is written, is [`Debug::figures`]'s —
+/// the window front-end shows the same nine (`GUI.md` §G4). What is the
+/// terminal's is the three fixed-width columns they are set in.
 fn debug_lines(debug: &Debug, view: &GameView) -> Vec<Line<'static>> {
-    // The bag empties as the queue is topped up, so "nothing left" is the
-    // common answer at the default `preview_count` and is worth showing as
-    // something rather than as a blank column.
-    let bag: String = match debug
-        .core
-        .bag
+    debug
+        .figures(view.ticks)
         .iter()
-        .map(|kind| kind.glyph())
-        .collect::<String>()
-    {
-        empty if empty.is_empty() => "-".to_string(),
-        bag => bag,
-    };
-    let rows = [
-        [
-            ("FPS", debug.fps.to_string()),
-            ("TICKS", view.ticks.to_string()),
-            ("DROPPED", debug.dropped.to_string()),
-        ],
-        [
-            ("G", gravity(debug.core.milli_g)),
-            ("LOCK", optional(debug.core.lock_delay)),
-            ("PERIOD", debug.core.fall_period.to_string()),
-        ],
-        [
-            ("DAS", format!("{}%", debug.das_charge)),
-            ("BAG", bag),
-            ("INPUT", debug.mode.name().to_string()),
-        ],
-    ];
-    rows.iter()
         .map(|row| {
             Line::raw(
                 row.iter()
@@ -208,16 +180,6 @@ fn debug_lines(debug: &Debug, view: &GameView) -> Vec<Line<'static>> {
             )
         })
         .collect()
-}
-
-/// Gravity in G, from the core's integer thousandths (§9.9).
-fn gravity(milli_g: u32) -> String {
-    format!("{}.{:03}", milli_g / 1000, milli_g % 1000)
-}
-
-/// A figure that is only sometimes there — the lock delay, while grounded.
-fn optional(value: Option<u32>) -> String {
-    value.map_or_else(|| "-".to_string(), |v| v.to_string())
 }
 
 /// The border every box on this screen is drawn with (§12.4).
@@ -293,12 +255,6 @@ fn stats(view: &GameView) -> Vec<Line<'static>> {
             width = LABEL_WIDTH - 1
         )),
     ]
-}
-
-/// `MM:SS`, capped at `99:59` (§12.4).
-pub fn clock(ticks: u64) -> String {
-    let seconds = (ticks / 60).min(99 * 60 + 59);
-    format!("{:02}:{:02}", seconds / 60, seconds % 60)
 }
 
 /// A box label: left-aligned, the full interior width.
@@ -840,16 +796,6 @@ pub mod tests {
         assert_eq!(buffer[(2, 7)].symbol(), "S", "the stats box is still drawn");
     }
 
-    #[test]
-    fn the_clock_counts_ticks_and_stops_at_ninety_nine_fifty_nine() {
-        // §11: elapsed time is counted in ticks and converted for display, so
-        // it cannot drift from the game. §12.4 caps it.
-        assert_eq!(clock(0), "00:00");
-        assert_eq!(clock(59), "00:00");
-        assert_eq!(clock(60), "00:01");
-        assert_eq!(clock((2 * 60 + 14) * 60), "02:14");
-        assert_eq!(clock(u64::MAX), "99:59");
-    }
     /// Render at an arbitrary size with the debug strip on, and read it back.
     fn screenshot_with_debug(view: &GameView, chrome: &Chrome, rows: u16) -> Vec<String> {
         let backend = TestBackend::new(SCREEN_WIDTH, rows);
@@ -916,16 +862,6 @@ pub mod tests {
         assert_eq!(lines.join("\n"), MOCK_UP);
     }
 
-    #[test]
-    fn gravity_is_printed_from_the_cores_own_integer() {
-        // §9.9: no floating point in the rules, and none introduced here — the
-        // strip cannot disagree with the core about how fast a piece falls.
-        assert_eq!(gravity(16), "0.016");
-        assert_eq!(gravity(1_250), "1.250");
-        assert_eq!(gravity(0), "0.000");
-        assert_eq!(optional(None), "-");
-        assert_eq!(optional(Some(30)), "30");
-    }
     #[test]
     fn a_configured_glyph_leaves_the_field_a_rectangle() {
         // Stage 10's exit criterion, and the reason §12.2's width rule is the

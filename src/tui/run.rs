@@ -28,9 +28,8 @@ use crate::shell::attract::Attract;
 use crate::shell::config::{DisplaySettings, Startup};
 use crate::shell::host::Host;
 use crate::shell::input::InputMode;
-use crate::shell::round::{FrameState, Round};
+use crate::shell::round::{Fps, FrameState, Round};
 use crate::shell::session::{Next, Session};
-use crate::shell::time::Stamp;
 use crate::tui::attract::{self, Background};
 use crate::tui::keys::neutral;
 use crate::tui::theme::{Glyphs, Theme};
@@ -51,40 +50,6 @@ struct Frame {
     /// §12.1: the terminal's size, while it is below the minimum. `None` is
     /// the ordinary case of a terminal with room for the screen.
     size: Option<Size>,
-}
-
-/// Frames actually drawn in the last second (§12.4).
-///
-/// Counted rather than derived from the frame time, because §15.2 step 5 skips
-/// a frame that would not change anything: the interesting number is how many
-/// were drawn, not how fast one of them was. It is the terminal's own figure
-/// for the same reason the comparison above is.
-#[derive(Debug)]
-struct Fps {
-    since: Stamp,
-    frames: u32,
-    rate: u32,
-}
-
-impl Fps {
-    fn new(now: Stamp) -> Self {
-        Self {
-            since: now,
-            frames: 0,
-            rate: 0,
-        }
-    }
-
-    /// Count one drawn frame and report the rate.
-    fn drew(&mut self, now: Stamp) -> u32 {
-        self.frames += 1;
-        if now.saturating_since(self.since) >= Duration::from_secs(1) {
-            self.rate = self.frames;
-            self.frames = 0;
-            self.since = now;
-        }
-        self.rate
-    }
 }
 
 /// The §7 state machine: attract, play, attract, until the player quits.
@@ -364,29 +329,5 @@ fn chrome_for(display: &DisplaySettings, glyphs: Glyphs, hold_enabled: bool) -> 
         theme: Theme::resolve(display.color_depth, glyphs),
         show_grid: display.show_grid,
         hold_enabled,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_frame_rate_is_frames_drawn_not_frames_due() {
-        // §12.4: the interesting number is how many frames were drawn, and
-        // §15.2 step 5 skips a frame that would change nothing — so counting
-        // is right and deriving it from the frame time is not.
-        let start = Stamp::ZERO;
-        let mut fps = Fps::new(start);
-        assert_eq!(fps.drew(start), 0, "nothing to report in the first second");
-        for _ in 0..40 {
-            fps.drew(start + Duration::from_millis(500));
-        }
-        assert_eq!(fps.drew(start + Duration::from_secs(1)), 42);
-        assert_eq!(
-            fps.drew(start + Duration::from_millis(1_500)),
-            42,
-            "and it holds until the next second is up",
-        );
     }
 }

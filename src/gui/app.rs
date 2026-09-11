@@ -11,11 +11,12 @@
 //! `eframe` 0.36 splits its callback in two, and the split lands exactly where
 //! §15.2's does. [`App::logic`](eframe::App::logic) is steps 1-4 and 6-7 and is
 //! called even while the window is hidden; [`App::ui`](eframe::App::ui) is step
-//! 5 and is called only when there is something to paint into. So the game
-//! advances behind a hidden window and simply is not drawn, and a backgrounded
-//! tab is the same case: `eframe` keeps calling `logic` there on a timer the
+//! 5 and is called only when there is something to paint into. So the pump
+//! runs behind a hidden window and simply is not drawn, and a backgrounded tab
+//! is the same case: `eframe` keeps calling `logic` there on a timer the
 //! browser throttles, and §15.2 step 4's catch-up cap turns each call into at
-//! most a tenth of a second of play (§G8.7).
+//! most a tenth of a second of play (§G8.7). A *game* in either is paused, not
+//! played, because neither has the keyboard (§G4.7).
 //!
 //! What this deliberately does **not** add is §15.2 step 5's frame comparison.
 //! That exists because `ratatui` diffs against a previous buffer; immediate
@@ -30,17 +31,13 @@
 
 use crate::gui::host::{self, Clock};
 use crate::gui::keys::Keyboard;
+use crate::gui::layout::Measure;
 use crate::gui::paint;
+use crate::gui::playfield::{self, Chrome};
 use crate::shell::keys::KeyEvent;
-use crate::shell::menus::Overlay;
-use crate::shell::round::{FrameState, Round};
+use crate::shell::round::{Fps, FrameState, Round};
 use crate::shell::session::{Next, Session};
 use crate::shell::time::Stamp;
-
-/// The window's initial size, in points. Room for a 20-row well and the
-/// §12.4 furniture that `EGUI.md` G7 puts beside it; §G3 gives this a metric
-/// of its own then.
-pub const INITIAL_SIZE: [f32; 2] = [520.0, 760.0];
 
 /// One window, one session, one game.
 ///
@@ -56,18 +53,27 @@ pub struct Gui<'session, 'host> {
     keyboard: Keyboard,
     /// One frame's neutral key events, reused rather than reallocated.
     keys: Vec<KeyEvent>,
-    /// §7, as a field rather than a `match` in a `loop`. The G5 slice has one
-    /// screen; `EGUI.md` G11 adds the attract screen beside it, at which point
+    /// §7, as a field rather than a `match` in a `loop`. There is one screen
+    /// until `EGUI.md` G11 adds the attract screen beside it, at which point
     /// this becomes the `Screen` enum the plan describes.
     round: Round,
     /// What step 5 last reported, for the paint that follows it. Carried
     /// rather than recomputed so that the two halves of one callback are
     /// looking at the same moment (F1).
     state: FrameState,
+    /// The moment `state` is of: what the paint counts its frame at.
+    now: Stamp,
+    /// §G3's answer about the viewport, as `logic` measured it — carried for
+    /// the same reason `state` is, so the pause that §8.4 forces and the screen
+    /// that is drawn agree about whether there was room.
+    measure: Option<Measure>,
     /// Whether the keyboard is ours. Without it the game cannot hear the
-    /// player, and in a tab the page scrolls on the keys meant for it
-    /// (§G8.2) — so the paint says so rather than looking merely ignored.
+    /// player — so a game in progress is paused (§G4.7) — and in a tab the
+    /// page scrolls on the keys meant for it (§G8.2), so the paint says so
+    /// rather than looking merely ignored.
     focused: bool,
+    /// Frames `ui` has drawn, for `show_debug`'s read-out (§G4.6).
+    fps: Fps,
     /// How many of the session's §16 warnings have been handed to
     /// [`host::report`] — all of them, on a host that reports as they arise.
     reported: usize,
@@ -86,9 +92,13 @@ impl<'session, 'host> Gui<'session, 'host> {
             keys: Vec::new(),
             round,
             state,
+            now,
+            // Until `logic` has measured one: `eframe` calls it first.
+            measure: None,
             // Until `egui` says otherwise: a window opens focused, and a
             // canvas is focused by `gui::start` the moment it can be.
             focused: true,
+            fps: Fps::new(now),
             reported: 0,
         }
     }
@@ -138,10 +148,21 @@ impl eframe::App for Gui<'_, '_> {
             }
         }
 
-        // F6: this front-end has no minimum yet — §G3 states one at `EGUI.md`
-        // G7 and §8.4's forced pause follows from it. Until then the window
-        // always fits, which is `Round`'s default and needs saying rather than
-        // calling.
+        // F6, §8.4: below §G3's minimum the screen is replaced, and a game in
+        //    progress is forced into `Paused` *before* it goes. The minimum is
+        //    this front-end's; the consequence is the shell's. Measured here,
+        //    in `logic`, because a hidden window has no `ui` and still has a
+        //    size — and some platforms give a minimised one none at all.
+        let measure = Measure::of(ctx.content_rect(), ctx.pixels_per_point());
+        self.round.viewport(measure.fits());
+        self.measure = Some(measure);
+        // §G4.7: a window or a tab that cannot hear the keyboard does not play
+        //    on without it — §8.4's path again, keys released and all. Told on
+        //    every pass, not only when it changes: a countdown the player left
+        //    running when they clicked away has to be caught when it runs out.
+        //    A hidden tab reports no focus, so this is also what stops a
+        //    backgrounded game creeping on (§G8.7).
+        self.round.keyboard(self.focused, now);
 
         // 1, 3, 4, 5. The clock, DAS/ARR, whole ticks and §12.5's timers — and
         //    §10.1's restart key, once it has been held for its second. The
@@ -152,6 +173,7 @@ impl eframe::App for Gui<'_, '_> {
             self.leave(next, ctx, frame.is_web(), now);
         }
         self.state = self.round.frame(now);
+        self.now = now;
 
         // §16: anything the pass above had to warn about — a high-score table
         // the store refused, say. Natively this does nothing and `main` prints
@@ -171,17 +193,42 @@ impl eframe::App for Gui<'_, '_> {
     /// Every repaint, unconditionally. The comparison the terminal front-end
     /// makes is a retained-mode concern and is not ported (`FRONTEND.md` F7).
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let fps = self.fps.drew(self.now);
+        // §13.5: presentation is read as it stands, every repaint. The Options
+        // panel edits it in place, and immediate mode has no chrome to rebuild
+        // and no generation to watch for (§G1.3). Hold is the running game's
+        // answer, not the config's: a game keeps the rules it started under.
+        let display = &self.session.config.display;
+        let chrome = Chrome {
+            show_grid: display.show_grid,
+            hold_enabled: self.round.hold_enabled(),
+        };
+        let show_debug = display.show_debug;
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(paint::BACKGROUND))
             .show(ui, |ui| {
-                paint::playfield(
-                    ui.painter(),
-                    ui.max_rect(),
-                    &self.state.view,
-                    self.state.overlay != Overlay::None,
-                );
+                let (painter, area) = (ui.painter(), ui.max_rect());
+                match self.measure {
+                    Some(Measure::Fits(layout)) => {
+                        playfield::draw(
+                            painter,
+                            &layout,
+                            &self.state,
+                            chrome,
+                            self.round.cosmetics(),
+                        );
+                    }
+                    Some(Measure::TooSmall { need, have }) => {
+                        paint::too_small(painter, area, need, have);
+                    }
+                    None => {}
+                }
+                if show_debug {
+                    let debug = self.round.debug(fps);
+                    playfield::debug(painter, area, &debug, self.state.view.ticks);
+                }
                 if !self.focused {
-                    paint::unfocused(ui.painter(), ui.max_rect());
+                    paint::unfocused(painter, area);
                 }
             });
     }

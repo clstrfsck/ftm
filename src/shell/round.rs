@@ -164,6 +164,87 @@ pub struct Debug {
     pub core: DebugView,
 }
 
+impl Debug {
+    /// The nine figures of §12.4's debug read-out, labelled and written out,
+    /// in three rows of three.
+    ///
+    /// What the figures are and how each is written is shared, so that the
+    /// terminal's strip and the window's panel cannot disagree about a number;
+    /// how they are set out is each front-end's (`TUI.md` §12.4, `GUI.md`
+    /// §G4). `ticks` is the view's, which is the one figure `Debug` does not
+    /// carry. Gravity is written from the core's integer milli-G rather than
+    /// computed here, so the read-out cannot disagree with the rules about how
+    /// fast a piece is falling (§9.9).
+    pub fn figures(&self, ticks: u64) -> [[(&'static str, String); 3]; 3] {
+        // The bag empties as the queue is topped up, so "nothing left" is the
+        // common answer at the default `preview_count` and is worth showing as
+        // something rather than as a blank.
+        let bag: String = self.core.bag.iter().map(|kind| kind.glyph()).collect();
+        [
+            [
+                ("FPS", self.fps.to_string()),
+                ("TICKS", ticks.to_string()),
+                ("DROPPED", self.dropped.to_string()),
+            ],
+            [
+                ("G", gravity(self.core.milli_g)),
+                ("LOCK", optional(self.core.lock_delay)),
+                ("PERIOD", self.core.fall_period.to_string()),
+            ],
+            [
+                ("DAS", format!("{}%", self.das_charge)),
+                ("BAG", if bag.is_empty() { "-".to_string() } else { bag }),
+                ("INPUT", self.mode.name().to_string()),
+            ],
+        ]
+    }
+}
+
+/// Gravity in G, from the core's integer thousandths (§9.9).
+fn gravity(milli_g: u32) -> String {
+    format!("{}.{:03}", milli_g / 1000, milli_g % 1000)
+}
+
+/// A figure that is only sometimes there — the lock delay, while grounded.
+fn optional(value: Option<u32>) -> String {
+    value.map_or_else(|| "-".to_string(), |v| v.to_string())
+}
+
+/// Frames actually drawn in the last second: [`Debug::fps`] (§12.4).
+///
+/// Counted rather than derived from the frame time, because what the figure
+/// means is how many frames the front-end *drew* — and a terminal skips a frame
+/// that would change nothing (§15.2 step 5) while a window draws whenever the
+/// compositor asks. The front-end calls [`Fps::drew`] once for each frame it
+/// actually drew; what counts as one is its own business.
+#[derive(Debug)]
+pub struct Fps {
+    since: Stamp,
+    frames: u32,
+    rate: u32,
+}
+
+impl Fps {
+    pub fn new(now: Stamp) -> Self {
+        Self {
+            since: now,
+            frames: 0,
+            rate: 0,
+        }
+    }
+
+    /// Count one drawn frame and report the rate.
+    pub fn drew(&mut self, now: Stamp) -> u32 {
+        self.frames += 1;
+        if now.saturating_since(self.since) >= Duration::from_secs(1) {
+            self.rate = self.frames;
+            self.frames = 0;
+            self.since = now;
+        }
+        self.rate
+    }
+}
+
 /// Everything a front-end needs to draw one frame of a game (§15.2 step 5).
 ///
 /// It is the *state*, not a decision to redraw. A retained-mode front-end may
@@ -661,6 +742,29 @@ impl Round {
     pub fn viewport(&mut self, fits: bool) {
         self.fits = fits;
         if !fits {
+            self.app.cramp();
+        }
+    }
+
+    /// Whether the front-end can hear the keyboard: §8.4's forced pause, for a
+    /// reason that is not the viewport's (`GUI.md` §G4.7).
+    ///
+    /// Not hearing it takes the same path [`Round::viewport`] takes below the
+    /// minimum — a game in progress goes to `Paused` and its held keys are
+    /// released — and like it, nothing undoes itself: the player leaves the
+    /// pause, and gets §9.17's countdown for it. A front-end that can tell
+    /// reports on *every* pump, not only when it changes. The countdown is not
+    /// `Playing`, so a pause forced during it would find nothing to pause;
+    /// settling it first is what catches the pump it runs out on, before
+    /// `advance` can play a tick the player cannot answer.
+    ///
+    /// Unlike the viewport, this changes nothing about what is drawn: a
+    /// front-end that has lost the keyboard can still show the screen, and says
+    /// so in its own words. A front-end that cannot tell — a terminal that has
+    /// not asked for focus reports — never calls it.
+    pub fn keyboard(&mut self, heard: bool, now: Stamp) {
+        if !heard {
+            self.settle(now);
             self.app.cramp();
         }
     }
@@ -1458,6 +1562,64 @@ mod tests {
             round.app.pending.actions,
             Actions::default(),
             "the rotation reached the game, not the overlay",
+        );
+    }
+
+    #[test]
+    fn a_countdown_that_runs_out_without_the_keyboard_pauses_rather_than_plays() {
+        // `GUI.md` §G4.7: a front-end that has lost the keyboard says so on
+        // every pump. The countdown is not `Playing`, so there is nothing to
+        // pause while it runs — but the pump it runs out in must pause the
+        // game before `advance` plays a tick nobody can answer.
+        let mut storage = Memory::new();
+        let mut session = session(&mut storage);
+        let start = Stamp::ZERO;
+        let mut round = Round::new(&session, start);
+        round.app.phase = Phase::Resuming { since: start };
+
+        round.keyboard(false, start + COUNTDOWN / 2);
+        assert_eq!(
+            round.app.phase,
+            Phase::Resuming { since: start },
+            "the countdown carries on",
+        );
+
+        let now = start + COUNTDOWN;
+        round.keyboard(false, now);
+        assert_eq!(round.app.phase, Phase::Paused { selected: 0 });
+        let before = round.frame(now).view;
+        round.advance(&mut session, now + Duration::from_secs(1));
+        assert_eq!(round.frame(now).view, before, "and nothing was played");
+        assert!(!round.frame(now).cramped, "the screen is not replaced");
+    }
+
+    #[test]
+    fn gravity_is_written_from_the_cores_own_integer() {
+        // §9.9: no floating point in the rules, and none introduced here — the
+        // read-out cannot disagree with the core about how fast a piece falls.
+        assert_eq!(gravity(16), "0.016");
+        assert_eq!(gravity(1_250), "1.250");
+        assert_eq!(gravity(0), "0.000");
+        assert_eq!(optional(None), "-");
+        assert_eq!(optional(Some(30)), "30");
+    }
+
+    #[test]
+    fn the_frame_rate_is_frames_drawn_not_frames_due() {
+        // §12.4: the interesting number is how many frames were drawn, and
+        // §15.2 step 5 skips a frame that would change nothing — so counting
+        // is right and deriving it from the frame time is not.
+        let start = Stamp::ZERO;
+        let mut fps = Fps::new(start);
+        assert_eq!(fps.drew(start), 0, "nothing to report in the first second");
+        for _ in 0..40 {
+            fps.drew(start + Duration::from_millis(500));
+        }
+        assert_eq!(fps.drew(start + Duration::from_secs(1)), 42);
+        assert_eq!(
+            fps.drew(start + Duration::from_millis(1_500)),
+            42,
+            "and it holds until the next second is up",
         );
     }
 }

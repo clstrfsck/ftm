@@ -11,10 +11,10 @@ use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
 
 use crate::core::GameView;
 use crate::shell::config::ConfigFile;
+use crate::shell::figures::{clock, thousands};
 use crate::shell::highscore::NAME_MAX;
 use crate::shell::input::InputMode;
 use crate::shell::menus::{PauseChoice, Setting};
-use crate::tui::playfield::clock;
 use crate::tui::{Chrome, centred};
 
 /// The pause overlay (§12.6). The playfield underneath it has already been
@@ -61,7 +61,7 @@ pub fn game_over(frame: &mut Frame, over: Rect, view: &GameView, chrome: &Chrome
     let lines = vec![
         Line::styled(centre("GAME OVER", OVER_WIDTH), chrome.theme.bold()),
         blank.clone(),
-        Line::raw(figure("SCORE", &crate::tui::thousands(view.score))),
+        Line::raw(figure("SCORE", &thousands(view.score))),
         Line::raw(figure("LEVEL", &view.level.to_string())),
         Line::raw(figure("LINES", &view.lines.to_string())),
         Line::raw(figure("TIME", &clock(view.ticks))),

@@ -7,11 +7,11 @@
 //! and [`host`] is whichever one this build has, under one name, so the shared
 //! modules never say which.
 //!
-//! What it draws today is `EGUI.md` G5's vertical slice, served natively and —
-//! since G6 — as wasm: a well, a falling piece and §10.1's keys. §12.4's
-//! information, §12.6's overlays, §12.5's animations and §13's attract screen
-//! arrive at G7-G11, each over the same [`Round`](crate::shell::round::Round)
-//! this one already pumps.
+//! What it draws today is the playing screen of `GUI.md` §G4 over §G3's cell
+//! metric (`EGUI.md` G7) — [`layout`] says where, [`paint`] how, and
+//! [`playfield`] what — served natively and as wasm. §12.6's overlays, §12.5's
+//! animations and §13's attract screen arrive at G8-G11, each over the same
+//! [`Round`](crate::shell::round::Round) this one already pumps.
 //!
 //! Three things this front-end inherits from nowhere, all of them recorded in
 //! `GUI.md`'s "What does not carry over": there are no colour depths and no
@@ -29,7 +29,9 @@ pub mod host_native;
 #[cfg(target_arch = "wasm32")]
 pub mod host_web;
 pub mod keys;
+pub mod layout;
 pub mod paint;
+pub mod playfield;
 pub mod query;
 
 /// This build's four capabilities (`FRONTEND.md` F1-F4), under one name.
@@ -56,7 +58,7 @@ pub fn run(session: &mut Session<'_>) -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(TITLE)
-            .with_inner_size(app::INITIAL_SIZE)
+            .with_inner_size(layout::INITIAL_SIZE)
             .with_app_id("ftm"),
         ..Default::default()
     };

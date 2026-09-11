@@ -29,6 +29,7 @@
 pub mod attract;
 pub mod config;
 pub mod cosmetics;
+pub mod figures;
 pub mod highscore;
 pub mod host;
 pub mod input;
