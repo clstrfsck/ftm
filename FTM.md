@@ -172,7 +172,7 @@ are visible to another.
 
 | Crate | Version | Purpose |
 |---|---|---|
-| `rand` | 0.10 | `SmallRng` — `Xoshiro256PlusPlus` — as the bag's bit source. Its seeding and its range draw are §9.6's, not `rand`'s. **`default-features = false`**: an OS entropy source is a front-end capability (§3.1), the front-end features turn it back on, and without that `getrandom` will not compile for `wasm32-unknown-unknown` at all. |
+| `rand` | 0.10 | `Xoshiro256PlusPlus`, named rather than taken as `SmallRng`, as the bag's bit source on every target. Its seeding and its range draw are §9.6's, not `rand`'s. **`default-features = false`**: an OS entropy source is a front-end capability (§3.1), the front-end features turn it back on, and without that `getrandom` will not compile for `wasm32-unknown-unknown` at all. |
 | `serde` + `serde_derive` | 1 | Config and high-score (de)serialisation. |
 | `toml` | 1 | Config file format. |
 | `serde_json` | 1 | High-score file format. |
@@ -908,12 +908,17 @@ games but not during one.
   times by drawing from the bag, refilling the bag as needed. Because the queue
   may straddle a bag boundary, the maximum meaningful preview is 6; this is why
   `preview_count` is clamped to `1..=6`.
-- The RNG is `rand::rngs::SmallRng` — `Xoshiro256PlusPlus` on a 64-bit build —
-  seeded from the OS by default or from `--seed`. Given a fixed seed the entire
-  piece sequence must be reproducible, **including across upgrades of `rand`**,
-  so `rand` supplies the generator and nothing else. Two things it would
-  otherwise decide are specified here instead, because it has changed both
-  before and `SmallRng` is documented as non-portable:
+- The RNG is `rand::rngs::Xoshiro256PlusPlus`, **named, on every target** —
+  seeded from the front-end's entropy by default or from `--seed`. Given a fixed
+  seed the entire piece sequence must be reproducible, **including across
+  upgrades of `rand` and across targets**, so `rand` supplies the generator and
+  nothing else. It is not `SmallRng`, which is that generator on a 64-bit target
+  and `Xoshiro128PlusPlus` on a 32-bit one: `wasm32-unknown-unknown` is 32-bit,
+  and under `SmallRng` the web build dealt a different game for every seed until
+  `EGUI.md` G6 found it. On a 64-bit target the two are the same stream, so no
+  recorded seed changed meaning. Two things `rand` would otherwise decide are
+  specified here instead, because it has changed both before and documents its
+  small generators as non-portable:
   - **Seeding.** A `u64` seed is expanded to the generator's 32-byte seed with
     PCG32 (multiplier `6364136223846793005`, increment `11634580027462260723`),
     four bytes at a time, advancing the state before each output. This is what

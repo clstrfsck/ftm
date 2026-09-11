@@ -350,7 +350,12 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   once already — the seeding by 0.10, the range draw by 0.9 — and either change
   silently makes every recorded seed name a different game. `rand` supplies the
   generator and nothing else. The I1 snapshot is what catches a mistake here,
-  and it caught this one.
+  and it caught this one. **The generator is named, too**: `Xoshiro256PlusPlus`,
+  never `SmallRng`, which is `Xoshiro128PlusPlus` on a 32-bit target — and
+  wasm32 is one, so the web build dealt a different game for every seed until
+  G6 found it. The I1 snapshot *cannot* catch that one, because the tests run on
+  a 64-bit host; a `const` assertion on the generator's size in `core/bag.rs`
+  does, in `make portable`.
 
 - **`Chrome` carries what `GameView` cannot.** `hold_enabled` is the one layout
   question the view cannot answer — an empty hold slot and an absent hold

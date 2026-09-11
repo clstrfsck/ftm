@@ -12,10 +12,31 @@
 
 use std::collections::VecDeque;
 
-use rand::rngs::SmallRng;
+use rand::rngs::Xoshiro256PlusPlus;
 use rand::{Rng, SeedableRng};
 
 use crate::core::piece::PieceKind;
+
+/// §9.6's generator, **named** rather than left to `SmallRng`.
+///
+/// `SmallRng` is `Xoshiro256PlusPlus` on a 64-bit target and
+/// `Xoshiro128PlusPlus` on a 32-bit one — and `wasm32-unknown-unknown` is a
+/// 32-bit one. Under `SmallRng` the web build of `EGUI.md` G6 dealt seed 42
+/// as J L S O where every native build deals J T S I L Z O: a different game
+/// for every seed, which §15.4 forbids and which a §19 peer on a 32-bit
+/// machine would have found the hard way. On a 64-bit target `SmallRng` is a
+/// transparent wrapper around this type, so naming it changes nothing that
+/// was ever recorded; the I1 snapshot is what says so.
+type Generator = Xoshiro256PlusPlus;
+
+// The guard, where the compiler can see it on every target: `make portable`
+// builds this module for wasm32, where a `SmallRng` would be 16 bytes. The
+// tests below run only on the host, which is 64-bit and cannot tell the two
+// apart.
+const _: () = assert!(
+    size_of::<Generator>() == 32,
+    "§9.6: the bag's generator must be the 256-bit one on every target",
+);
 
 /// The run's generator, seeded so that a seed always means the same game
 /// (§9.6).
@@ -27,7 +48,7 @@ use crate::core::piece::PieceKind;
 /// next. The generator itself has not changed and is what `rand` is here for;
 /// only its starting state is ours to fix, so the PCG32 expansion is written
 /// out here and the seed is handed over as 32 bytes.
-fn seeded(mut state: u64) -> SmallRng {
+fn seeded(mut state: u64) -> Generator {
     // PCG32, four bytes at a time, filling the generator's 32-byte seed.
     let mut word = || {
         const MUL: u64 = 6_364_136_223_846_793_005;
@@ -42,13 +63,13 @@ fn seeded(mut state: u64) -> SmallRng {
     for chunk in seed.as_chunks_mut::<4>().0 {
         *chunk = word();
     }
-    SmallRng::from_seed(seed)
+    Generator::from_seed(seed)
 }
 
 /// The 7-bag randomiser and the visible next queue.
 #[derive(Clone, Debug)]
 pub struct Bag {
-    rng: SmallRng,
+    rng: Generator,
     /// The current bag, drawn from the front.
     bag: VecDeque<PieceKind>,
     /// The next queue, kept at `preview_count + 1` or longer.
@@ -129,8 +150,9 @@ impl Bag {
     /// (§9.6).
     ///
     /// Written out rather than left to `rand`'s own range sampling, because
-    /// that is **not stable across versions** — `SmallRng` is documented as
-    /// non-portable, and `rand` 0.9 changed how a draw is mapped onto a range —
+    /// that is **not stable across versions** — `rand` documents its small
+    /// generators as non-portable, and 0.9 changed how a draw is mapped onto a
+    /// range —
     /// while §9.6 requires a seed to give the same game. The generator's stream
     /// is one thing and what the shuffle makes of it is another; only the
     /// second is ours to promise, so it lives here.
