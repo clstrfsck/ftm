@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [PLAN.md](PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** G0–G3 complete (**MG1**); G4 next.
+**Status:** G0–G4 complete (**MG2**); G5 next.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -762,10 +762,13 @@ must become methods on an object that any front-end can drive.
 `shell/round.rs`:
 
 ```rust
-pub struct Round { /* App, accumulator, last, fps, settings generation */ }
+pub struct Round { /* App, Cosmetics, accumulator, last, settings generation, fits */ }
 
 impl Round {
-    pub fn new(session: &Session) -> Self;
+    /// §7: Attract -> Playing, or a restart. `now` is the moment the
+    /// front-end is starting it at (F1): the accumulator and §12.5's timers
+    /// both date from here.
+    pub fn new(session: &Session, now: Stamp) -> Self;
 
     /// Steps 1 and 3-5: advance the clock, resolve DAS/ARR, run whole ticks,
     /// feed the cosmetics. Returns Some(next) when the round is over.
@@ -783,11 +786,24 @@ impl Round {
 
     /// How long the front-end may wait before calling `advance` again (step 7).
     pub fn deadline(&self, now: Stamp) -> Duration;
+
+    /// The three things `GameView` cannot answer: §13.5's rule about a running
+    /// game's rules, §12.5's timers, and §12.4's figures.
+    pub fn hold_enabled(&self) -> bool;
+    pub fn cosmetics(&self) -> &Cosmetics;
+    pub fn debug(&self, fps: u32) -> Debug;
 }
 ```
 
+`Cosmetics` lives *inside* `Round` rather than beside it, so that no front-end
+has to remember to feed it and step 5's rule — nothing below it can reach the
+core — is kept by the shape rather than by a comment.
+
 `shell/attract.rs` grows the same methods with a 10 fps deadline (§15.3) and no
-accumulator.
+accumulator. Its `advance(now)` answers a `bool` rather than a `Next`, because
+it has no core to advance and no way to end itself; its `key` takes the
+`Session` so that §13.5's save is the shell's and not a thing each front-end
+has to remember.
 
 `tui/run.rs` becomes: drain crossterm events into `key`, call `advance`, compare
 `frame()` with the previous one, draw if it differs, `event::poll(deadline())`.

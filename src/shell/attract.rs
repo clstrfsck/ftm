@@ -12,6 +12,7 @@ use std::time::Duration;
 use crate::shell::config::ConfigFile;
 use crate::shell::keys::{Key, KeyEvent, KeyKind};
 use crate::shell::menus::{MenuChoice, Setting, Sub};
+use crate::shell::session::{Next, Session};
 use crate::shell::time::Stamp;
 
 /// The panel cycles every six seconds (§13.3).
@@ -20,6 +21,9 @@ const FACE: Duration = Duration::from_secs(6);
 const IDLE: Duration = Duration::from_secs(60);
 /// ...one step per second.
 const IDLE_STEP: Duration = Duration::from_secs(1);
+/// §15.3: the attract screen runs at 10 fps, with no accumulator — there is no
+/// core under it to advance.
+const FRAME: Duration = Duration::from_millis(100);
 
 /// What the attract screen asks the caller to do next (§7).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,11 +93,14 @@ impl Attract {
 
     /// Advance the clock, reporting whether the *state* changed.
     ///
-    /// §15.3 redraws only when something moved, and this is one of its two
-    /// halves: the panel's cycle and §13.6's idle colours. §13.4's drift is
-    /// the other, and it belongs to whichever front-end is drawing it, so its
-    /// answer is folded in by the caller.
-    pub fn step(&mut self, now: Stamp) -> bool {
+    /// [`Round::advance`](crate::shell::round::Round::advance)'s opposite
+    /// number, and the reason it answers a `bool` rather than a
+    /// [`Next`]: the attract screen has no core to advance and no way to end
+    /// itself, so what §15.3 wants to know is whether anything moved. This is
+    /// one of the two halves of that — the panel's cycle and §13.6's idle
+    /// colours. §13.4's drift is the other, and it belongs to whichever
+    /// front-end is drawing it, so its answer is folded in by the caller.
+    pub fn advance(&mut self, now: Stamp) -> bool {
         let was = (self.face, self.idle_shift());
         self.now = now;
         // §13.3: the cycle pauses while a menu item other than PLAY is
@@ -110,11 +117,43 @@ impl Attract {
         was != (self.face, self.idle_shift())
     }
 
+    /// §15.2 step 2, for the front screen: fold in one key and say whether
+    /// the run leaves for another screen (§7).
+    ///
+    /// §13.5's save happens here rather than in the front-end, because the
+    /// rule is the specification's and a second front-end that forgot it would
+    /// be a second §13.5. The generation bump is what tells a front-end
+    /// comparing frames that a presentation setting moved under it (§15.2
+    /// step 5).
+    pub fn key(&mut self, session: &mut Session<'_>, event: &KeyEvent, now: Stamp) -> Option<Next> {
+        match self.dispatch(event, &mut session.config, now) {
+            Outcome::Stay => None,
+            Outcome::Play => Some(Next::Play),
+            Outcome::Quit => Some(Next::Quit),
+            // §13.5: presentation takes effect the moment the panel is left,
+            // and the config is written there and then.
+            Outcome::OptionsClosed => {
+                session.save_config();
+                session.bump();
+                None
+            }
+        }
+    }
+
+    /// §15.3's deadline: how long the front-end may wait before pumping again.
+    ///
+    /// Advice, exactly as [`Round::deadline`](crate::shell::round::Round::deadline)
+    /// is — but a flat 10 fps, because there is no accumulator to be partway
+    /// through. §15.3 asks for idle CPU under 2 %, and this is how.
+    pub fn deadline(&self) -> Duration {
+        FRAME
+    }
+
     /// Fold in one key (§10.1: `↑`/`↓`, `Enter`/`Space`, `Esc`, always).
     ///
     /// `config` is borrowed because the Options sub-screen edits it in place
     /// (§13.5); nothing else here touches it.
-    pub fn key(&mut self, event: &KeyEvent, config: &mut ConfigFile, now: Stamp) -> Outcome {
+    fn dispatch(&mut self, event: &KeyEvent, config: &mut ConfigFile, now: Stamp) -> Outcome {
         if event.kind == KeyKind::Release {
             return Outcome::Stay;
         }
@@ -204,13 +243,13 @@ mod tests {
         // §13.6.
         let start = Stamp::ZERO;
         let mut state = Attract::new(start);
-        state.step(start + IDLE - Duration::from_millis(1));
+        state.advance(start + IDLE - Duration::from_millis(1));
         assert_eq!(state.idle_shift(), 0, "not yet");
-        state.step(start + IDLE);
+        state.advance(start + IDLE);
         assert_eq!(state.idle_shift(), 0, "the first step is a second later");
-        state.step(start + IDLE + IDLE_STEP);
+        state.advance(start + IDLE + IDLE_STEP);
         assert_eq!(state.idle_shift(), 1);
-        state.step(start + IDLE + IDLE_STEP * 7);
+        state.advance(start + IDLE + IDLE_STEP * 7);
         assert_eq!(state.idle_shift(), 7, "and it does not stop");
     }
 
@@ -219,9 +258,9 @@ mod tests {
         let start = Stamp::ZERO;
         let mut state = Attract::new(start);
         let later = start + IDLE + IDLE_STEP * 3;
-        state.step(later);
+        state.advance(later);
         assert_eq!(state.idle_shift(), 3);
-        state.key(&press(Key::Char('x')), &mut ConfigFile::default(), later);
+        state.dispatch(&press(Key::Char('x')), &mut ConfigFile::default(), later);
         assert_eq!(state.idle_shift(), 0);
     }
 
@@ -236,21 +275,21 @@ mod tests {
         let mut config = ConfigFile::default();
         assert_eq!(MenuChoice::ALL[0], MenuChoice::Play);
         assert_eq!(
-            state.key(&press(Key::Enter), &mut config, now),
+            state.dispatch(&press(Key::Enter), &mut config, now),
             Outcome::Play
         );
 
-        state.key(&press(Key::Up), &mut config, now);
+        state.dispatch(&press(Key::Up), &mut config, now);
         assert_eq!(
             state.selected,
             MenuChoice::ALL.len() - 1,
             "up wraps to QUIT"
         );
         assert_eq!(
-            state.key(&press(Key::Enter), &mut config, now),
+            state.dispatch(&press(Key::Enter), &mut config, now),
             Outcome::Quit
         );
-        state.key(&press(Key::Down), &mut config, now);
+        state.dispatch(&press(Key::Down), &mut config, now);
         assert_eq!(state.selected, 0, "and down wraps back to PLAY");
     }
 
@@ -266,11 +305,11 @@ mod tests {
         ] {
             let mut state = Attract::new(now);
             for _ in 0..steps {
-                state.key(&press(Key::Down), &mut config, now);
+                state.dispatch(&press(Key::Down), &mut config, now);
             }
-            state.key(&press(Key::Enter), &mut config, now);
+            state.dispatch(&press(Key::Enter), &mut config, now);
             assert_eq!(state.sub, Some(sub));
-            state.key(&press(Key::Esc), &mut config, now);
+            state.dispatch(&press(Key::Esc), &mut config, now);
             assert_eq!(state.sub, None, "{sub:?}");
         }
     }
@@ -284,10 +323,10 @@ mod tests {
         let mut state = Attract::new(now);
         let mut config = ConfigFile::default();
         state.sub = Some(Sub::Options { selected: 0 });
-        state.key(&press(Key::Right), &mut config, now);
+        state.dispatch(&press(Key::Right), &mut config, now);
         assert_eq!(config.gameplay.preview_count, 6);
         assert_eq!(
-            state.key(&press(Key::Esc), &mut config, now),
+            state.dispatch(&press(Key::Esc), &mut config, now),
             Outcome::OptionsClosed,
         );
     }
@@ -299,18 +338,18 @@ mod tests {
         let start = Stamp::ZERO;
         let mut state = Attract::new(start);
         assert_eq!(state.face, 0);
-        assert!(state.step(start + FACE), "the face changed");
+        assert!(state.advance(start + FACE), "the face changed");
         assert_eq!(state.face, 1);
-        state.step(start + FACE * 3);
+        state.advance(start + FACE * 3);
         assert_eq!(state.face, 3, "and round to the first face again");
 
         state.selected = 1;
-        state.step(start + FACE * 9);
+        state.advance(start + FACE * 9);
         assert_eq!(state.face, 3, "held while HIGH SCORES is selected");
         state.selected = 0;
-        state.step(start + FACE * 9 + FACE - Duration::from_millis(1));
+        state.advance(start + FACE * 9 + FACE - Duration::from_millis(1));
         assert_eq!(state.face, 3, "and it resumes from where it paused");
-        state.step(start + FACE * 10);
+        state.advance(start + FACE * 10);
         assert_eq!(state.face, 4);
     }
 }

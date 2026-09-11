@@ -17,13 +17,14 @@ fall on the outermost layer, with a reference to where each is stated. Where thi
 document and `FTM.md` disagree, `FTM.md` wins and one of them is amended in the
 same commit.
 
-> **Status.** F1–F5 are built and are the code's own shapes as of `EGUI.md`
-> stage G3: `shell::keys` (F5), `shell::time::Stamp` (F1), `shell::storage`
+> **Status.** F1–F7 are built and are the code's own shapes as of `EGUI.md`
+> stage G4: `shell::keys` (F5), `shell::time::Stamp` (F1), `shell::storage`
 > (F2) and `shell::host::Host`, which carries F2's store beside F3's seed and
 > F4's date. `tui::host` is the terminal front-end's answer to all four, in
-> about a hundred and fifty lines. F6 and F7 are still phrased as the plan will
-> build them: the loop inversion is stage G4, and until it lands the terminal
-> front-end owns §15.2's steps as the body of a `while` rather than as methods.
+> about a hundred and fifty lines. F6 and F7 are `shell::round::Round` and
+> `shell::attract::Attract` over the `shell::session::Session` they share:
+> §15.2's seven steps are methods, the terminal front-end calls them from its
+> poll loop, and `tests/pump.rs` calls them with no screen at all.
 
 ---
 
@@ -240,12 +241,22 @@ The front-end owns the loop, because a windowing system calls an application
 rather than being called by one. §15.2's steps become methods it calls:
 
 ```rust
-round.key(session, &event, now);      // step 2, once per event drained
-round.advance(session, now);          // steps 1, 3-5; returns Some(next) when over
+let mut round = Round::new(&session, now);   // §7: Attract -> Playing
+
+round.key(&mut session, &event, now); // step 2, once per event drained
+round.advance(&mut session, now);     // steps 1, 3-5; returns Some(next) when over
 round.frame(now);                     // everything needed to draw, as one value
 round.deadline(now);                  // how long it may wait before advancing again
 round.viewport(fits);                 // F6
 ```
+
+Three more are there because `GameView` cannot answer them: `hold_enabled()`
+(§13.5 — the running game's rules, not the config's), `cosmetics()` (§12.5's
+timers, already fed) and `debug(fps)` (§12.4's figures, with the front-end's own
+count of the frames it drew). The attract screen (§13) is the same shape with a
+flat 10 fps `deadline()` and no accumulator; its `advance(now)` answers a `bool`
+— whether anything moved — rather than a `Next`, because it has no core to
+advance and no way to end itself.
 
 - **`advance` must be correct at any cadence**, and it is: the accumulator is
   over real elapsed time, not over frames. 60 Hz, 144 Hz, twice in a millisecond,

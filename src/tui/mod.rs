@@ -34,11 +34,12 @@ use ratatui::layout::{Rect, Size};
 use ratatui::text::Line;
 use ratatui::widgets::{Clear, Paragraph};
 
-use crate::core::{DebugView, GameView};
+use crate::core::GameView;
 use crate::shell::config::ConfigFile;
 use crate::shell::cosmetics::Cosmetics;
 use crate::shell::input::InputMode;
 use crate::shell::menus::Overlay;
+use crate::shell::round::Debug;
 use crate::tui::theme::Theme;
 
 /// The terminal the game draws on.
@@ -137,25 +138,6 @@ pub struct Chrome {
     pub theme: Theme,
     pub show_grid: bool,
     pub hold_enabled: bool,
-}
-
-/// The debug strip's figures (§12.4), half from the shell and half from the
-/// core.
-///
-/// The core's half arrives as a [`DebugView`] — a view type, not a `Game` — so
-/// §12.7's layering rule holds here as it does everywhere else in `tui`.
-#[derive(Clone, Debug)]
-pub struct Debug {
-    /// Frames actually drawn in the last second (§15.2).
-    pub fps: u32,
-    /// Ticks abandoned to the catch-up cap since the game began (§15.2 step 4).
-    pub dropped: u64,
-    /// How far the held direction's DAS charge has come, as a percentage
-    /// (§10.3).
-    pub das_charge: u8,
-    /// Which of §8.2's two paths is live.
-    pub mode: InputMode,
-    pub core: DebugView,
 }
 
 /// Everything the playing screen shows that is not the game itself.

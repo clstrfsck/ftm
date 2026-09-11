@@ -21,16 +21,20 @@ use ratatui::backend::TestBackend;
 
 use ftm::core::{Action, Actions, Game, GameEvent, GameView, TickInput};
 use ftm::shell::attract::Attract;
-use ftm::shell::config::ConfigFile;
+use ftm::shell::config::{ConfigFile, Startup};
 use ftm::shell::cosmetics::Cosmetics;
 use ftm::shell::highscore::{Entry, Table};
+use ftm::shell::host::Host;
 use ftm::shell::input::InputMode;
 use ftm::shell::keys::{Key, KeyEvent};
 use ftm::shell::menus::Overlay;
+use ftm::shell::round::Debug;
+use ftm::shell::session::Session;
+use ftm::shell::storage::{Memory, Storage};
 use ftm::shell::time::Stamp;
 use ftm::tui::attract::{self, Background};
 use ftm::tui::theme::{Depth, Glyphs, Theme};
-use ftm::tui::{Chrome, Debug, Hud};
+use ftm::tui::{Chrome, Hud};
 
 /// The four sizes of §17.2, exactly.
 const SIZES: [(u16, u16); 4] = [(60, 24), (80, 24), (200, 60), (1, 1)];
@@ -40,6 +44,26 @@ fn at(size: (u16, u16), draw: impl FnOnce(&mut ratatui::Frame)) {
     let backend = TestBackend::new(size.0, size.1);
     let mut terminal = Terminal::new(backend).expect("a test terminal");
     terminal.draw(|frame| draw(frame)).expect("a frame");
+}
+
+/// A session over a store that never touches a file, for the screens that are
+/// drawn from one (§6.2, §14: both slots are just text).
+fn session(storage: &mut dyn Storage) -> Session<'_> {
+    let file = ConfigFile::default();
+    let startup = Startup {
+        on_disk: file.clone(),
+        file,
+        existed: false,
+        wrote_config: false,
+        seed: 42,
+        seeded: true,
+        warnings: Vec::new(),
+    };
+    Session::new(
+        &startup,
+        InputMode::Enhanced,
+        Host::new(storage, || 42, || "2026-09-05".to_string()),
+    )
 }
 
 fn chrome(depth: Depth, show_grid: bool, hold_enabled: bool) -> Chrome {
@@ -169,7 +193,10 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
             "2026-09-05".to_string(),
         ));
     }
-    let mut config = ConfigFile::default();
+    // The attract screen walks its menu through the shell's own entry point,
+    // which takes the `Session` both screens share (`FRONTEND.md` F7), so the
+    // test builds one over a store that never touches a file.
+    let mut storage = Memory::new();
     let press = |key| KeyEvent::press(key);
     let now = Stamp::ZERO;
     // The menu, then each of §13.5's three sub-screens over it.
@@ -180,14 +207,15 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
         &[Key::Down, Key::Down, Key::Down, Key::Enter],
     ];
     for keys in opened {
+        let mut session = session(&mut storage);
         let mut state = Attract::new(now);
         for key in keys {
-            state.key(&press(*key), &mut config, now);
+            state.key(&mut session, &press(*key), now);
         }
         // A step with the background running, so the drifting pieces of §13.4
         // are on screen for the sizes that have room for them.
         let later = now + Duration::from_secs(3);
-        state.step(later);
+        state.advance(later);
         let mut background = Background::new(now);
         background.step(later, (100, 60));
         for size in SIZES {
@@ -195,7 +223,7 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
                 let chrome = chrome(depth, false, true);
                 let cx = attract::Context {
                     chrome: &chrome,
-                    config: &config,
+                    config: &session.config,
                     scores: &scores,
                     recent: Some(0),
                     mode: InputMode::Enhanced,

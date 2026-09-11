@@ -11,10 +11,12 @@ a browser) and anticipates a fourth (Macroquad), and as of G2 the tree is
 `core/` + `shell/` + `tui/` with `src/bin/ftm.rs` and a stub `src/bin/ftm-gui.rs`
 behind `--features gui`. None of the window is built yet. G0 changed no code;
 G1 moved the key vocabulary out of crossterm's hands; G2 was a move, a rename
-and a feature gate, with no logic changed.
+and a feature gate, with no logic changed; G3 took the platform out from under
+the shell; G4 turned §15.2's loop inside out, so the shell is now *pumped* by a
+front-end rather than owning a `while`.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0-G3 complete — milestone MG1. Start at G4.** All
+stages G0-G4 complete — milestone MG2. Start at G5.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -35,15 +37,16 @@ beside it for the strip. Above it, `shell/` is what no front-end owns *and no
 platform reaches* — `config.rs` (§6), `input.rs` (§10), `highscore.rs` (§14),
 `keys.rs` (F5's neutral `Key`/`KeyEvent` and §10.1's name grammar), `menus.rs`
 (the §12.6 and §13 menu models), `attract.rs` (§13's state machine),
-`cosmetics.rs` (§12.5's timers), `palette.rs` (§9.2 levelled), and since G3
-`time.rs` (F1's `Stamp`), `storage.rs` (F2's `Slot`/`Storage`) and `host.rs`
-(F2-F4 as one borrowed bundle) — and `tui/` is the terminal front-end:
-`keys.rs` (the crossterm adapter), `host.rs` (F1-F4, natively), `cli.rs`
-(§6.4's grammar), `term.rs` (§8.1-§8.3), `run.rs` (§7's state machine and both
-loops of §15, which is still where `Session` and `App` live until G4 prises them
-out), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`, `overlays.rs` and
-`attract.rs` (§12, §13). T1-T17 all pass, plus I1-I4, and the batch-invariance
-canary is in CI.
+`cosmetics.rs` (§12.5's timers), `palette.rs` (§9.2 levelled), `time.rs` (F1's
+`Stamp`), `storage.rs` (F2's `Slot`/`Storage`), `host.rs` (F2-F4 as one
+borrowed bundle), and since G4 `session.rs` (`Session`, `Next`) and `round.rs`
+(`Round`, `FrameState`, `Debug`, and the `App` inside them) — and `tui/` is the
+terminal front-end: `keys.rs` (the crossterm adapter), `host.rs` (F1-F4,
+natively), `cli.rs` (§6.4's grammar), `term.rs` (§8.1-§8.3), `run.rs` (§7's
+state machine and both loops of §15, which is now what a *terminal* adds to the
+pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
+`overlays.rs` and `attract.rs` (§12, §13). T1-T17 all pass, plus I1-I4 and
+`tests/pump.rs`, and the batch-invariance canary is in CI.
 
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
@@ -214,14 +217,18 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   case I3 pins at exactly one warning.
 - **`tui::theme::Glyphs` are leaked, once, at start-up** so `Theme` stays `Copy`
   (§12.2). `Glyphs::configured` is a start-up call, not a per-frame one.
-- **`Session::generation` is one of the frame's five components.** §15.2 step 5
-  draws only when the frame changed, and `app::Frame` compares the `GameView`,
-  the `Overlay`, the generation counter, §10.1's restart bar and §12.1's
-  cramped size. Anything else the screen comes to show has to join that struct
-  or bump the counter, or it will not be redrawn — and, worse, will not be
-  *erased*. Two things have already walked into this: the restart bar, and the
-  too-small message, which names the terminal's size and so changes as the
-  window is dragged.
+- **`Session::generation` is one of the frame's five components, and the
+  comparison is the *terminal's*.** §15.2 step 5 draws only when the frame
+  changed, and `tui::run::Frame` compares `shell::round::FrameState` — the
+  `GameView`, the `Overlay`, the generation counter, §10.1's restart bar and
+  whether the viewport is cramped — plus §12.1's terminal size, which is the
+  terminal's own addition because its message names it. Anything else the
+  screen comes to show has to join that struct or bump the counter, or it will
+  not be redrawn — and, worse, will not be *erased*. Two things have already
+  walked into this: the restart bar, and the too-small message, which changes
+  as the window is dragged. **An immediate-mode front-end must not port this**
+  (`FRONTEND.md` F7): `frame()` returns the state, and the decision to compare
+  is the front-end's alone.
 - **A score of 0 never qualifies, ties keep the older entry above, and a
   seeded run is never recorded** (§14, §6.4). All three live in
   `highscore::Table`; the seed rule is `App::finish`'s, because it is the only
@@ -262,6 +269,18 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   entry, the 16-colour name, `DIM`. `Colour::rgb` is still §9.2, which is what
   a §19 client is handed, and the levelled value is the *base* the §12.3
   dimming scale runs from, so a piece and its ghost are one hue.
+
+- **The shell is pumped, not looped** (§7, §15.2, `FRONTEND.md` F7). §15.2's
+  seven numbered steps are methods on `shell::round::Round` — `key` is step 2,
+  `advance` is steps 1 and 3-5, `frame` is what step 5 draws from, `deadline`
+  is step 6's advice and `viewport` is §8.4 — and the front-end owns the loop
+  around them. Two consequences are easy to lose. **`advance` must stay correct
+  at any cadence**, which it is because its accumulator is over real elapsed
+  time and never over frames; nothing may start counting frames. And
+  **`deadline` is advice, not a frame rate**: a front-end may be woken sooner
+  by a key, a compositor or a tab regaining focus, and one that renders at
+  vsync may ignore it. `tests/pump.rs` is what holds both, and it is §19.4's
+  sibling — the same desync, one layer up.
 
 - **The four capabilities are the front-end's, and three of them travel as
   `shell::host::Host`** (§3.1, `FRONTEND.md` F1-F4). Storage, the seed and the
@@ -412,10 +431,10 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   Makefile grew `--all-features`**, and this is the single easiest thing to
   forget: a bare `cargo test` builds only the `tui` half, and the failure mode
   is silent — the other front-end simply stops being compiled.
-- **`Session` and `App` are in `tui/run.rs`, and that is deliberate.** They are
-  shell objects and `EGUI.md`'s target layout names them as `shell/session.rs`
-  and `shell/round.rs`, but they cannot move while they own crossterm's event
-  queue and ratatui's `Size`. G4 inverts the loop; G2 only moved files.
+- **`Session` and `App` stayed in `tui/run.rs`, and that was deliberate.** They
+  are shell objects, but they could not move while they owned crossterm's event
+  queue and ratatui's `Size`. G2 only moved files; G4 inverted the loop and
+  then they moved, to `shell/session.rs` and `shell/round.rs`.
 - **`Attract` lost its `Background`.** §13.4's drift is positioned in matrix
   cells of a *character grid*, so it stays in `tui/attract.rs`; a window will
   want its own. `Attract::step(now)` reports whether the *state* changed and
@@ -457,6 +476,51 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   why §17.3 never saw it. Left alone deliberately — it is a §16 wording question
   rather than a G3 one.
 
+## What G4 settled
+
+- **`Round` is §15.2's loop body as an object, and `tests/pump.rs` is the proof
+  it can be driven by something that is not a terminal.** Cadence invariance is
+  the test that matters: the same key log over the same span of stamps, at
+  60 Hz, at 144 Hz and at a jittery cadence with several zero-length frames,
+  gives a byte-identical `GameView`. It also plays a whole game to a top out
+  and through name entry, headless, in half a second — the part of §17.3's A6
+  that used to need a pty.
+- **Key stamps in that test sit at multiples of 50 ms, and that is load-bearing
+  rather than tidy.** A key is consumed by the first tick that runs at or after
+  it reaches the shell, so "the same inputs at the same moments" has to mean
+  the same *tick*: a front-end that polled at 10 fps would genuinely deliver
+  its keys later and would genuinely play a different game. Every cadence in
+  the test is woken at each key's stamp (§15.2 step 6 wakes a loop early on a
+  key), and no cadence runs more than one tick in a frame, so every cadence
+  hands each key to the same tick. Loosen either and the test starts failing
+  for a reason that is not a bug.
+- **The countdown is settled at the top of `key` as well as `advance`.** §9.17's
+  3-2-1 is the one non-running phase that ends by itself, and it ended *before*
+  the event queue was drained when these steps were a loop body. `Round::settle`
+  is what keeps that true now that they are not: a key arriving in the frame the
+  countdown expires is the player's first input of the resumed game, not one
+  swallowed by the overlay.
+- **`Glyphs` left `Session`.** Leaking three `&'static str` so a ratatui `Theme`
+  can be `Copy` is a terminal's concession; `tui::run::run` interns them once and
+  carries them down. A browser tab that is reloaded repeatedly is exactly the
+  wrong place to have inherited it.
+- **`Cosmetics` lives inside `Round`**, not beside it, so no front-end has to
+  remember to feed it — and §15.2 step 5's rule that nothing below it can reach
+  the core is kept by the shape rather than by a comment.
+- **`Attract::key` takes the `Session` and saves the config itself.** §13.5's
+  "leaving the panel writes the file" is the specification's, and a second
+  front-end that forgot it would be a second §13.5. What the front-end notices
+  instead is `Session::generation`, which the panel bumps.
+- **The terminal's behaviour is unchanged, and that was checked rather than
+  assumed.** A3, A4, A6 and A7 were re-run on a pty: the attract screen on
+  launch, a 50 ms kitty tap moving exactly one cell either way against a 0.6 s
+  hold sliding to the wall, a full game recorded to a throwaway `HOME` and
+  shown by a fresh process, `stty -a` byte-identical either side, and §8.3's
+  teardown bytes in order. §8.4's forced pause and §12.1's message were checked
+  with `resize:`.
+
+---
+
 ## Open decisions
 
 - **The legacy key path's feel (§8.2).** Measured over two seconds of holding
@@ -477,6 +541,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 make check           # everything CI runs: fmt, clippy, test, shell, release build
 cargo check          # fast feedback
 cargo test --all-features      # unit + integration
+cargo test --all-features --test pump   # the shell, pumped headlessly (G4)
 cargo check --no-default-features   # core + shell alone: the G2 boundary
 make portable        # ...and with no platform under them: the G3 boundary
                      # (needs `rustup target add wasm32-unknown-unknown`)
@@ -495,6 +560,11 @@ tools/drive.py enter resize:20x50   # §8.4 and §12.1, without a window to drag
 and the §14 data path, which is how a full game can be played to a top out and
 its score checked without touching the real files. A `--seed` run is never
 recorded (§14) and so needs no such care.
+
+`tests/pump.rs` is the shell driven headlessly — §15.2's steps called the way a
+front-end calls them, with no screen and no clock. It is where cadence
+invariance, the catch-up cap, §7's phases and `deadline`'s bounds are checked,
+and it is the test a fourth front-end inherits for free.
 
 `tools/drive.py` is the only way to check the terminal layer without a human at
 a terminal: §17.1 is "core, no terminal" by design, and what `cargo test` does

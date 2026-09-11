@@ -18,8 +18,9 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use crate::core::{GameView, PieceKind, Rotation, VIEW_HEIGHT, VIEW_WIDTH};
 use crate::shell::cosmetics::{Banner, Cosmetics};
 use crate::shell::palette;
+use crate::shell::round::Debug;
 use crate::tui::cells::{CELL_WIDTH, Paint, span};
-use crate::tui::{Chrome, Debug, Hud, centred};
+use crate::tui::{Chrome, Hud, centred};
 
 /// The whole screen, in characters (§12.4).
 pub const SCREEN_WIDTH: u16 = 44;

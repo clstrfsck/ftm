@@ -602,8 +602,8 @@ enum Phase {                  // where a game is; only under `Playing`
     Paused { selected: usize },
     Options { selected: usize },   // §13.5's panel, over the paused playfield
     Controls,                      // §10.1's binding table, likewise
-    Resuming { since: Instant },   // §9.17's 3-2-1 countdown
-    GameOver { since: Instant },
+    Resuming { since: Stamp },     // §9.17's 3-2-1 countdown
+    GameOver { since: Stamp },
     NameEntry { rank: usize },
 }
 ```
