@@ -12,9 +12,10 @@
 //! §15.2's does. [`App::logic`](eframe::App::logic) is steps 1-4 and 6-7 and is
 //! called even while the window is hidden; [`App::ui`](eframe::App::ui) is step
 //! 5 and is called only when there is something to paint into. So the game
-//! advances behind a hidden window and simply is not drawn — which is the
-//! backgrounded-tab case of `EGUI.md` G6 arriving early, and §15.2 step 4's
-//! catch-up cap is what keeps it from resuming into an instant death.
+//! advances behind a hidden window and simply is not drawn, and a backgrounded
+//! tab is the same case: `eframe` keeps calling `logic` there on a timer the
+//! browser throttles, and §15.2 step 4's catch-up cap turns each call into at
+//! most a tenth of a second of play (§G8.7).
 //!
 //! What this deliberately does **not** add is §15.2 step 5's frame comparison.
 //! That exists because `ratatui` diffs against a previous buffer; immediate
@@ -22,8 +23,12 @@
 //! "anything the screen comes to show must join the struct" hazard to inherit.
 //! [`Session::generation`](crate::shell::session::Session::generation) is
 //! ignored here for the same reason.
+//!
+//! The same code runs natively and in a browser tab, and does not ask which
+//! except in one place, where the answer is a fact about the platform rather
+//! than a choice: a tab cannot close itself (see `leave`).
 
-use crate::gui::host_native::Clock;
+use crate::gui::host::{self, Clock};
 use crate::gui::keys::Keyboard;
 use crate::gui::paint;
 use crate::shell::keys::KeyEvent;
@@ -42,7 +47,8 @@ pub const INITIAL_SIZE: [f32; 2] = [520.0, 760.0];
 /// The session is **borrowed**, not owned, and that is what makes §16 work
 /// without a shutdown hook: `eframe::run_native` hands control back when the
 /// window closes, and the caller still has the warnings, the edited config and
-/// the §14 table to deal with (§6.2, §16).
+/// the §14 table to deal with (§6.2, §16). In a tab the borrow is `'static`,
+/// because a tab's run has no end to hand anything back at (§G8.1).
 pub struct Gui<'session, 'host> {
     session: &'session mut Session<'host>,
     /// F1: the front-end's clock, and the only thing here that reads one.
@@ -58,6 +64,13 @@ pub struct Gui<'session, 'host> {
     /// rather than recomputed so that the two halves of one callback are
     /// looking at the same moment (F1).
     state: FrameState,
+    /// Whether the keyboard is ours. Without it the game cannot hear the
+    /// player, and in a tab the page scrolls on the keys meant for it
+    /// (§G8.2) — so the paint says so rather than looking merely ignored.
+    focused: bool,
+    /// How many of the session's §16 warnings have been handed to
+    /// [`host::report`] — all of them, on a host that reports as they arise.
+    reported: usize,
 }
 
 impl<'session, 'host> Gui<'session, 'host> {
@@ -73,17 +86,25 @@ impl<'session, 'host> Gui<'session, 'host> {
             keys: Vec::new(),
             round,
             state,
+            // Until `egui` says otherwise: a window opens focused, and a
+            // canvas is focused by `gui::start` the moment it can be.
+            focused: true,
+            reported: 0,
         }
     }
 
     /// §7: where the run goes when a game hands back.
     ///
     /// `Play` is §10.1's held restart. The other two are the ways out of a
-    /// game — the quit key, and Ctrl-C (§16) — and both close the window,
-    /// because there is no attract screen to return to until `EGUI.md` G11.
-    fn leave(&mut self, next: Next, ctx: &egui::Context, now: Stamp) {
+    /// game — the quit key, and Ctrl-C (§16) — and there is no attract screen
+    /// to return to until `EGUI.md` G11, so natively both close the window. A
+    /// tab cannot close itself — `window.close()` is refused to a page the
+    /// player opened — so there both start a fresh game instead, which is the
+    /// attract screen's stand-in until G11 replaces it (§G8.1).
+    fn leave(&mut self, next: Next, ctx: &egui::Context, web: bool, now: Stamp) {
         match next {
             Next::Play => self.round = Round::new(self.session, now),
+            Next::Attract | Next::Quit if web => self.round = Round::new(self.session, now),
             Next::Attract | Next::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         }
     }
@@ -91,7 +112,7 @@ impl<'session, 'host> Gui<'session, 'host> {
 
 impl eframe::App for Gui<'_, '_> {
     /// §15.2 steps 1-4 and 6-7, once per callback and also while hidden.
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // F1: one stamp for the whole frame, so every step below agrees about
         // when it is happening.
         let now = self.clock.now();
@@ -99,8 +120,17 @@ impl eframe::App for Gui<'_, '_> {
         // 2. Drain `egui`'s queue and hand every event over. Nothing is held
         //    back for the next frame, which §15.2 forbids and which a
         //    high-refresh window would otherwise make tempting.
+        //
+        //    One thing to know about a hidden tab: `eframe` hands the same
+        //    unconsumed input to every pass until one paints, so while hidden
+        //    this sees each event more than once. The only events a hidden tab
+        //    can receive are focus changes, and the adapter's answer to those
+        //    is idempotent — a key already released is not released again.
         self.keys.clear();
-        ctx.input(|input| self.keyboard.absorb(&input.events, &mut self.keys));
+        ctx.input(|input| {
+            self.keyboard.absorb(&input.events, &mut self.keys);
+            self.focused = input.focused;
+        });
         let mut leaving = None;
         for event in &self.keys {
             if let Some(next) = self.round.key(self.session, event, now) {
@@ -119,9 +149,16 @@ impl eframe::App for Gui<'_, '_> {
         //    this is the same game at 60 Hz and at 144 Hz (§15.2 step 4).
         let leaving = leaving.or_else(|| self.round.advance(self.session, now));
         if let Some(next) = leaving {
-            self.leave(next, ctx, now);
+            self.leave(next, ctx, frame.is_web(), now);
         }
         self.state = self.round.frame(now);
+
+        // §16: anything the pass above had to warn about — a high-score table
+        // the store refused, say. Natively this does nothing and `main` prints
+        // them once the window has gone; a tab has no such moment (§G8.6).
+        let warnings = self.session.warnings();
+        host::report(&warnings[self.reported..]);
+        self.reported = warnings.len();
 
         // 6, 7. Ask to be woken in time for the next tick. `deadline` is
         //    advice (§15.2 step 6): the compositor may call back sooner, a key
@@ -143,6 +180,9 @@ impl eframe::App for Gui<'_, '_> {
                     &self.state.view,
                     self.state.overlay != Overlay::None,
                 );
+                if !self.focused {
+                    paint::unfocused(ui.painter(), ui.max_rect());
+                }
             });
     }
 }

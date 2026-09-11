@@ -61,6 +61,30 @@ pub fn playfield(painter: &egui::Painter, area: egui::Rect, view: &GameView, dim
     }
 }
 
+/// The notice that the keyboard is somewhere else (§G8.2).
+///
+/// Over everything, across the middle of `area`. In a tab it is the difference
+/// between a game that seems broken and one that says what to do: a canvas
+/// without focus hears no keys, and the page under it scrolls on the ones meant
+/// for the game. A click reaches the *browser*, which focuses the canvas —
+/// the game itself sees no pointer (§1.2). A window says the same thing for
+/// the same reason, and a click focuses it too.
+pub fn unfocused(painter: &egui::Painter, area: egui::Rect) {
+    let size = (area.width() / 16.0).clamp(12.0, 28.0);
+    let band = egui::Rect::from_center_size(area.center(), egui::vec2(area.width(), size * 3.0));
+    painter.rect_filled(band, 0.0, egui::Color32::from_black_alpha(0xD8));
+    painter.text(
+        band.center(),
+        egui::Align2::CENTER_CENTER,
+        UNFOCUSED,
+        egui::FontId::proportional(size),
+        egui::Color32::from_gray(0xE8),
+    );
+}
+
+/// What [`unfocused`] says.
+pub const UNFOCUSED: &str = "Click to play";
+
 /// One mino at visible-field coordinates `(col, row)`.
 ///
 /// [`OFF_SCREEN`] is how the view says a cell is above the field (§12.7);

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<!--
+    The web build's page (GUI.md §G8.1). `trunk serve` to play it locally,
+    `trunk build --release` for the artefact in `dist/`.
+
+    It is deliberately almost empty: a canvas the game draws into, a status line
+    that says "Loading" until it does (and why, if it cannot), and the one thing
+    the page has to say that the game cannot — that it needs a keyboard. Touch
+    input is not provided, and §1.2 makes that a decision rather than a gap.
+-->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!--
+        §1.3: the page title and the tab's icon are among the places the
+        trademark rules reach. The title is the game's own name, as the native
+        window's is, and the icon is empty rather than a borrowed shape.
+    -->
+    <title>Falling Tetromino Manager</title>
+    <link rel="icon" href="data:,">
+    <!-- `ftm-gui`, for wasm32, with the `gui` feature alone (Cargo.toml). -->
+    <link data-trunk rel="rust" data-bin="ftm-gui" data-cargo-no-default-features
+          data-cargo-features="gui" data-wasm-opt="z">
+    <style>
+        /* The ground is `gui/paint.rs`'s BACKGROUND, so the page and the
+           canvas are one surface. */
+        html, body {
+            margin: 0;
+            height: 100%;
+            overflow: hidden;
+            background: #121216;
+            color: #9a9aa6;
+            font: 14px/1.4 system-ui, sans-serif;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+        /* `eframe` sizes the drawing buffer to this box, device pixels and
+           all; the box is the page's to give. */
+        #ftm {
+            flex: 1;
+            min-height: 0;
+            width: 100%;
+            display: block;
+        }
+        #status {
+            position: absolute;
+            inset: 40% 0 auto 0;
+            margin: 0;
+            text-align: center;
+        }
+        footer {
+            padding: 0.4em 1em;
+            text-align: center;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="ftm"></canvas>
+    <p id="status">Loading…</p>
+    <noscript><p>Falling Tetromino Manager needs JavaScript and WebAssembly.</p></noscript>
+    <footer>Falling Tetromino Manager is played with a keyboard. There are no touch controls.</footer>
+</body>
+</html>

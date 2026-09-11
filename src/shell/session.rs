@@ -144,6 +144,17 @@ impl<'a> Session<'a> {
         }
     }
 
+    /// §16's warnings so far, oldest first.
+    ///
+    /// A front-end whose run has an end takes them from
+    /// [`finish`](Self::finish) and prints them after teardown. One whose run
+    /// has none — a browser tab is closed, not quit — reads them here as they
+    /// arise instead, and remembers how many it has already reported: the
+    /// list only grows, and [`warn`](Self::warn) never adds a line twice.
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
     /// Add a warning, once. A panel left twice over the same unwritable file
     /// should say so once, not twice.
     pub(crate) fn warn(&mut self, warning: String) {
@@ -157,5 +168,42 @@ impl<'a> Session<'a> {
         startup.file = self.config;
         startup.wrote_config = self.saved;
         startup.warnings.extend(self.warnings);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::storage::{Memory, Slot};
+
+    #[test]
+    fn warnings_can_be_read_as_they_arise_and_only_ever_grow() {
+        // §16, for a front-end with no exit to print them at (`GUI.md` §G8):
+        // it reports what is new since it last looked, which is only sound if
+        // the list keeps its order and never repeats a line.
+        let mut storage = Memory::holding(Slot::HighScores, "not a table");
+        let file = ConfigFile::default();
+        let startup = Startup {
+            on_disk: file.clone(),
+            file,
+            existed: false,
+            wrote_config: false,
+            seed: 42,
+            seeded: false,
+            warnings: Vec::new(),
+        };
+        let mut session = Session::new(
+            &startup,
+            InputMode::Enhanced,
+            Host::new(&mut storage, || 42, || "2026-09-11".to_string()),
+        );
+        // §14: a table that will not parse is a warning at start-up.
+        let first = session.warnings().to_vec();
+        assert_eq!(first.len(), 1, "{first:?}");
+
+        session.warn("later".to_string());
+        session.warn("later".to_string());
+        assert_eq!(session.warnings()[..1], first[..], "oldest first");
+        assert_eq!(&session.warnings()[1..], ["later".to_string()]);
     }
 }

@@ -26,7 +26,11 @@ same commit.
 > one high-score table between them. F6 and F7 are `shell::round::Round` and
 > `shell::attract::Attract` over the `shell::session::Session` they share:
 > §15.2's seven steps are methods, two front-ends call them from their own
-> loops, and `tests/pump.rs` calls them with no screen at all.
+> loops, and `tests/pump.rs` calls them with no screen at all. Since `EGUI.md`
+> G6, `gui/host_web.rs` is the *browser's* answer to F1–F4 — `performance.now()`,
+> `localStorage`, `Math.random()` and `Date` — in about two hundred lines, and
+> the same `gui/app.rs` runs over it unchanged, which is the checklist below
+> being true of a real second host.
 
 ---
 
@@ -314,9 +318,10 @@ advance and no way to end itself.
   nothing else. If an animation seems to need to ask the core something, the
   answer belongs in `GameView` or in the event.
 - **Add a pointer path.** §1.2 makes mouse input a non-goal in every front-end,
-  and it is a rule about the game rather than about terminals. Touch is an open
-  decision in `EGUI.md`; whichever way it goes it is a §1.2 amendment, not a
-  front-end's addition.
+  and it is a rule about the game rather than about terminals. Touch is settled
+  the same way (`EGUI.md` G6): the web build has none and its page says so, and
+  a front-end that wanted touch controls would need a §1.2 amendment, not a
+  change of its own.
 - **Merge `RulesConfig` into `PresentationConfig`** (§6.5), or let the Options
   panel apply a rules change to a running game (§13.5). A game keeps the rules it
   started under, everywhere.

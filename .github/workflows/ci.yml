@@ -32,9 +32,9 @@ jobs:
             libxkbcommon-dev libwayland-dev
       # One step, so that CI and a developer at a terminal run the same thing
       # by construction: `make check` is fmt, clippy, test, the two shell
-      # boundary checks and the release build, in that order, stopping at the
-      # first failure. Adding a step to the suite means editing the Makefile,
-      # and CI picks it up for free.
+      # boundary checks, the web front-end's lint for wasm32 and the release
+      # build, in that order, stopping at the first failure. Adding a step to
+      # the suite means editing the Makefile, and CI picks it up for free.
       #
       # `cargo test` is where `tests/scripted_game.rs` runs the
       # batch-invariance test of FTM.md §19.4. It has run here since Stage
@@ -42,6 +42,29 @@ jobs:
       # started depending on how the shell batched its calls. Find the desync;
       # do not skip the test.
       - run: make check
+
+  # The web build's artefact (EGUI.md G6, GUI.md §G8): `ftm-gui` for wasm32,
+  # through trunk, exactly as a player would be served it. `make check` above
+  # already compiles and lints the web front-end (`make web-check`); what this
+  # adds is wasm-bindgen, wasm-opt and index.html, which only trunk runs.
+  #
+  # trunk is pinned and fetched as a release binary rather than built, because
+  # building it is minutes of CI for a tool; it fetches the wasm-bindgen that
+  # matches Cargo.lock by itself. No apt-get: nothing here links against the
+  # host's windowing headers.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          curl -sSfL https://github.com/trunk-rs/trunk/releases/download/v0.21.14/trunk-x86_64-unknown-linux-gnu.tar.gz \
+            | tar -xz -C ~/.cargo/bin trunk
+          trunk --version
+      - run: make web
 
   # Not a Makefile target: it is the one command here that means nothing
   # without a pinned toolchain of its own. The version is `rust-version` in

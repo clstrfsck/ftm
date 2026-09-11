@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [PLAN.md](PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** G0–G4 complete (**MG2**); G5 next.
+**Status:** G0–G6 complete (**MG4**); G7 next.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -245,6 +245,7 @@ ftm/
         ├── cli.rs            # §6.4's grammar for this front-end (G5, G12)
         ├── host_native.rs    # the desktop's four, over native.rs (G5)
         ├── host_web.rs       # the four capabilities in a browser (G6)
+        ├── query.rs          # §6.4's flags as a URL query string (G6, G12)
         ├── layout.rs         # §G3: the integer-cell metric
         ├── paint.rs          # mino tiles, ghost, grid, boxes
         ├── playfield.rs      # §G4
@@ -292,6 +293,18 @@ required-features = ["gui"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # wasm-bindgen, web-sys (Storage, Location), console_error_panic_hook, web-time
 ```
+
+**As built at G6, this shape needed one correction.** A feature cannot say "on
+this target only", and `gui` is both the native window and the web build — so
+`gui` turning on `directories`, `clap`, `chrono` and `rand/thread_rng` would turn
+them on for wasm too, and `getrandom` does not compile there. The native crates
+are therefore optional dependencies of `cfg(not(target_arch = "wasm32"))` only,
+rand's `thread_rng` is switched on by that table for every native build, and the
+web crates are optional dependencies of wasm only; `gui` names both sets and each
+target builds its own half. The web set is `wasm-bindgen`, `wasm-bindgen-futures`,
+`web-sys` and `js-sys` — not `console_error_panic_hook`, because
+`eframe::WebRunner` installs a hook of its own, and not `web-time`, because F1 in
+a tab is `performance.now()` through `web-sys`.
 
 `ratatui`, `crossterm`, `eframe`, `egui`, `directories` and `clap` all become
 `optional = true`. `directories` and `clap` join the front-end features rather
@@ -997,6 +1010,48 @@ the player.
 
 **MG4.**
 
+### What G6 found
+
+All four criteria were checked in a real Chrome tab, and the first of them found
+a real defect rather than a toolchain one — which is what the stage was placed
+this early to do.
+
+- **The same seed was not the same game.** `wasm32-unknown-unknown` is a 32-bit
+  target, and `rand`'s `SmallRng` is a different generator on one: seed 42 dealt
+  J L S O Z I T in the tab against J T S I L Z O natively. §9.6 now names
+  `Xoshiro256PlusPlus`, which is the same stream `SmallRng` always was on a
+  64-bit host, so no recorded seed changed meaning and the I1 snapshot did not
+  move. It is a core change, and this plan reserves the core for G10; it went in
+  as a commit of its own, because it adds nothing to the core and makes §9.6 true
+  on a target it was already required to hold on. No test in the tree could have
+  caught it — they all run on a 64-bit host — so the guard is a `const`
+  assertion that `make portable` evaluates for wasm32. After the fix the tab
+  and `tools/drive.py`'s next queue agree piece for piece.
+- **A backgrounded tab is not "stopped".** `requestAnimationFrame` stops, but
+  `eframe` 0.36 then drives `App::logic` from a timer the browser throttles, and
+  §15.2 step 4's cap turns each call into at most a tenth of a second of play.
+  The game creeps: 36 s minimised advanced it about 9 s in Chrome, with no
+  burst on return. The criterion holds; the premise in item 2 above did not, and
+  `GUI.md` §G8.7 records what actually happens, as input for G7's focus-loss
+  rule.
+- **`eframe` never focuses the canvas**, though it gives it a `tabindex` and
+  keeps `Space`, `Tab`, `Backspace` and the arrows from the page while it has
+  focus. The entry point focuses it once `eframe` has started, and both builds
+  now draw **Click to play** when the keyboard is elsewhere (§G8.2). Checked:
+  focus on load, no scroll and no focus change on `Space` or `Tab`, and the
+  notice appearing on blur and clearing on a click.
+- **A tab's run has no end**, so it has no §6.2 first-clean-exit write, no
+  `Session::finish`, and no moment to print §16's warnings at. The session is
+  leaked once per page; `Session::warnings()` lets the front-end report each
+  warning on the console as it arises; and a game that hands back `Attract` or
+  `Quit` starts a fresh one, because a tab cannot close itself.
+- **Touch was decided, not deferred**: no touch controls, and the page says so
+  (§1.2, §G8.8).
+- Two crates the plan expected were not needed — see the Cargo.toml note under
+  [Target layout](#target-layout) — and one CI job and two Makefile targets were
+  added: `web-check` (clippy for wasm32, in `make check`), and `web` (`trunk
+  build --release`, in a CI job of its own with a pinned trunk).
+
 ---
 
 ## Stage G7 — The playing screen
@@ -1400,6 +1455,7 @@ clippy:  cargo clippy --all-features --all-targets -- -D warnings
 test:    cargo test --all-features
 shell:   cargo check --no-default-features                                  # G2
 wasm:    cargo check --no-default-features --target wasm32-unknown-unknown  # G3
+web-check: cargo clippy --no-default-features --features gui --target wasm32-unknown-unknown --lib --bins  # G6
 web:     trunk build --release                                              # G6
 build:   cargo build --release --features tui,gui
 ```
@@ -1581,6 +1637,9 @@ for no benefit.
 | `Stamp` arithmetic, `Storage` failure paths | G3 | New. §16's rules through the trait. |
 | `--target wasm32-unknown-unknown` | G3 | New. **The platform boundary, held by the compiler.** The highest-value step in this plan per second of CI time. |
 | `tests/pump.rs` | G4 | New. Cadence invariance, catch-up cap, phase transitions, deadlines. |
+| `gui/query.rs` | G6 | New. `?seed=` into the same `Overrides` as `--seed`; unknown parameters silent, bad values one warning each. |
+| The bag's generator size, on wasm32 | G6 | New, and a `const` assertion rather than a test, because tests run on a 64-bit host and cannot see it. `make portable` evaluates it. |
+| `make web-check` | G6 | New. The web front-end linted for its own target; `--all-features` on the host never compiles it. |
 | Config round-trip preservation | G12 | New. Every direction. The data-loss guard. |
 | Query-parameter precedence | G12 | New. §6.1, on the web build. |
 | `fall_progress` behaviour | G10 | New. Zero when landed, resets on the row change, well-defined above 1 G. |
@@ -1598,7 +1657,8 @@ for no benefit.
 | **The G3 abstractions are done half-way**, leaving `cfg(target_arch)` sprinkled through the shell. | G3, discovered in G6 as a slow, miserable stage. | The wasm CI check lands *in* G3 and is what defines the stage as finished. A `cfg` in `shell/` is a stage that is not done. |
 | **The loop inversion changes TUI behaviour subtly.** A reordered step, a lost `dt`, a pause that no longer zeroes the accumulator. | G4, discovered in G11. | G4 lands with no GUI at all, and is validated by the terminal front-end's existing pty acceptance suite plus cadence invariance. |
 | **Tick/frame coupling.** The easy GUI bug: advancing by frame time, or once per repaint. | G5 onward. | `ticks_due` is the only path; the invariance test runs at several cadences; B8 checks it on real hardware and in a real tab. |
-| **The browser swallows the game's keys.** `Space` scrolls, `Tab` moves focus, the canvas never had focus. | G6, and every web build after. | `GUI.md` §G8 makes canvas focus normative; B11 is a dedicated acceptance criterion, because this defect is invisible in every native test. |
+| **The browser swallows the game's keys.** `Space` scrolls, `Tab` moves focus, the canvas never had focus. | G6, and every web build after. | `GUI.md` §G8.2 makes canvas focus normative, and G6 found `eframe` does not focus the canvas itself; B11 is a dedicated acceptance criterion, because this defect is invisible in every native test. |
+| ~~**A 32-bit target plays a different game.**~~ **Found and retired at G6**: `SmallRng` is another generator on wasm32. | — | §9.6 names the generator; a `const` assertion in `make portable` holds it, because no test on a 64-bit host can. |
 | **Config data loss between binaries.** | G12, in the field. | Round-trip preservation tests in every direction, and `ConfigFile` keeping every table whichever binary is running. |
 | **CI grows new classes of failure.** `eframe` needs X11/Wayland headers and a GL stack; the web job needs `trunk` and a wasm target. | G13. | An `apt-get` step and a pinned `trunk`; the headless render test uses no GPU; image snapshots stay out of CI deliberately. |
 | **The one core change grows.** `fall_progress` is a foothold, and the next request will be a second field — piece opacity, a spawn animation, a lock-delay fraction. | G10, and every stage after it. | The field is presentation, derived, and read by no rule; G10 is the only stage licensed to touch `src/core/`, and the I1 snapshot going red is what catches a rule that started reading it. Anything further is a §12.7 amendment on its own merits, not a follow-on. |
@@ -1620,13 +1680,15 @@ not make on its own.
   1.88 means tracking a stale `egui` for the life of the project. `eframe` is
   taken with `default-features = false` and the `glow` backend rather than the
   default `wgpu`; `GUI.md` §G1.1 records why.
-- **Touch input for the web build.** §1.2 makes mouse input a non-goal, and this
-  plan keeps that. But a web build is a link someone opens on a phone, and with
-  no touch input it is a game that visibly does not work there. The options are
-  to accept that and say so on the page, or to add an on-screen control layer as
-  a deliberate, specified web-only feature — which is a §1.2 amendment and a real
-  piece of design, not a small addition. **Worth deciding before G6**, because it
-  changes what "the web build is done" means.
+- ~~**Touch input for the web build.**~~ **Settled before G6:** accepted, and
+  said on the page. There are no touch controls, and `index.html`'s footer tells
+  a visitor the game is played with a keyboard; §1.2 says so and `GUI.md` §G8.8
+  is normative. An on-screen control layer stays possible as a §1.2 amendment
+  and a piece of design in its own right, and is not planned.
+- **Does losing focus pause a game?** `GUI.md` §G2.3, written at G5, says it
+  does not; G7's work list and B10 say it does, by §8.4's path. G6 measured what
+  a hidden tab does in the meantime (§G8.7 — it creeps, at about a quarter of
+  its speed in Chrome) and left the rule alone. G7 picks one and amends the other.
 - **Sub-tick extrapolation on top of `fall_progress`.** The field itself is
   settled — it is [G10](#stage-g10--sub-cell-gravity). What is not settled is
   whether a front-end should also extrapolate *within* a tick for displays above

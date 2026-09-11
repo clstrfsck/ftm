@@ -25,14 +25,15 @@
 //! native front-ends answer `FRONTEND.md` F1-F4 with — a clock, a filesystem,
 //! an entropy source and a calendar — kept in one place because §6.2 and §14
 //! give `ftm` and `ftm-gui` one config file and one high-score table between
-//! them. The web build of `gui` takes nothing from it.
+//! them. The web build of `gui` takes nothing from it, and is not compiled
+//! with it: a browser tab has none of the four.
 
 #![forbid(unsafe_code)]
 
 pub mod core;
 pub mod shell;
 
-#[cfg(any(feature = "tui", feature = "gui"))]
+#[cfg(all(any(feature = "tui", feature = "gui"), not(target_arch = "wasm32")))]
 pub mod native;
 
 #[cfg(feature = "gui")]

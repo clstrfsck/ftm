@@ -7,17 +7,19 @@ documents — see **The four documents** below.
 
 It is no longer only a terminal game, and no longer a single binary: `EGUI.md`
 builds a second and third front-end (a native egui window, and the same code as
-wasm in a browser) and anticipates a fourth (Macroquad). As of G5 the tree is
+wasm in a browser) and anticipates a fourth (Macroquad). As of G6 the tree is
 `core/` + `shell/` + `native.rs` + `tui/` + `gui/`, with `src/bin/ftm.rs` and
-`src/bin/ftm-gui.rs` behind `--features gui`, and **the window opens and plays**
-— `make run-gui`. G0 changed no code; G1 moved the key vocabulary out of
-crossterm's hands; G2 was a move, a rename and a feature gate, with no logic
-changed; G3 took the platform out from under the shell; G4 turned §15.2's loop
-inside out, so the shell is now *pumped* by a front-end rather than owning a
-`while`; G5 hung an `eframe` application on the pump.
+`src/bin/ftm-gui.rs` behind `--features gui`; **the window opens and plays** —
+`make run-gui` — and **so does a browser tab** — `make run-web`. G0 changed no
+code; G1 moved the key vocabulary out of crossterm's hands; G2 was a move, a
+rename and a feature gate, with no logic changed; G3 took the platform out from
+under the shell; G4 turned §15.2's loop inside out, so the shell is now *pumped*
+by a front-end rather than owning a `while`; G5 hung an `eframe` application on
+the pump; G6 compiled the same application for wasm and gave it a browser's
+four capabilities.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0-G5 complete — milestone MG3. Start at G6.** All
+stages G0-G6 complete — milestone MG4. Start at G7.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -36,7 +38,10 @@ progress into `Paused` (§8.4).
 a falling piece and §10.1's keys — G5's vertical slice, which is the whole
 `eframe`/`winit`/GL stack retired as a risk and nothing beyond that: no hold
 box, no next queue, no stats, no ghost, no grid, no overlays and no attract
-screen. `GUI.md` §G1 and §G2 are written and normative; §G3-§G9 are still
+screen. `make run-web` serves the same slice in a browser tab through trunk
+(`index.html`, `Trunk.toml`), with `?seed=N` in the URL for `--seed N`, scores
+in `localStorage`, and §16's warnings on the console. `GUI.md` §G1, §G2 and the
+web build's half of §G8 are written and normative; §G3-§G7 and §G9 are still
 reserved.
 
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
@@ -56,13 +61,15 @@ crossterm adapter), `cli.rs` (§6.4's grammar), `term.rs` (§8.1-§8.3), `run.rs
 to the pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
 `overlays.rs` and `attract.rs` (§12, §13). `gui/` is the window: `app.rs`
 (`impl eframe::App`, the pump), `keys.rs` (the egui adapter), `paint.rs`,
-`cli.rs` and `host_native.rs`. T1-T17 all pass, plus I1-I4 and `tests/pump.rs`,
+`query.rs` (§6.4 as a URL query string), `cli.rs` and `host_native.rs` for the
+desktop, and `host_web.rs` for a tab — `gui::host` is whichever one the target
+has, so `app.rs` never asks. T1-T17 all pass, plus I1-I4 and `tests/pump.rs`,
 and the batch-invariance canary is in CI.
 
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
-Start at G6. §18 remains out of scope and §19 remains a list of constraints to
+Start at G7. §18 remains out of scope and §19 remains a list of constraints to
 honour rather than a work item — see **Scope discipline** below.
 
 ## The §17.3 sign-off
@@ -301,7 +308,8 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   `trait Frontend` — the front-ends share the shell by calling it.
 
 - **`src/native.rs` is a desktop, not a fourth layer** (§3.1, §4, `FRONTEND.md`).
-  It is behind `any(feature = "tui", feature = "gui")` and sits *beside* the
+  It is behind `any(feature = "tui", feature = "gui")` — and `not(target_arch =
+  "wasm32")`, since `gui` is also the web build — and sits *beside* the
   front-ends: both native binaries answer F1-F4 from it, because §6.2 and §14
   give `ftm` and `ftm-gui` one config file and one high-score table between them
   and §14's atomic write has one home. G5 moved it out of `tui/host.rs` rather
@@ -396,9 +404,9 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   its looks and the plan is finished either way.
 - **`EGUI.md`'s scope is its stages and nothing beside them.** A window, and
   especially a browser tab, makes sound, themes, mouse and touch input feel
-  newly reachable. §1.2 is unchanged: the game is keyboard-driven. Touch is the
-  one that deserves a real answer rather than a reflex, and it is an open
-  decision in that plan, to be settled before the web slice.
+  newly reachable. §1.2 is unchanged: the game is keyboard-driven. Touch got a
+  real answer rather than a reflex, before the web slice: **no touch controls**,
+  and the page says so (§1.2, `GUI.md` §G8.8). Adding them is a §1.2 amendment.
 - **Macroquad is `EGUI.md`'s §19**: a list of constraints so the front-end stays
   cheap later, not a thing to build. Do not write `MACROQUAD.md`, and do not add
   a `trait Frontend` — the front-ends share the shell by calling it, not by
@@ -592,9 +600,69 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **CI grew an `apt-get`.** `eframe` needs X11/Wayland/GL *headers* to compile,
   in both jobs. Nothing in `cargo test` opens a window.
 
+## What G6 settled
+
+- **The web build is `gui` on wasm32, and the difference is said by target,
+  not by feature.** A feature cannot tell a desktop from a tab, so `clap`,
+  `directories`, `chrono`, `anyhow` and rand's `thread_rng` are declared under
+  `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`, and
+  `wasm-bindgen`, `wasm-bindgen-futures`, `web-sys` and `js-sys` under the wasm
+  table; `gui` names both sets and each target builds its own half. One
+  consequence: a native `make shell` now compiles `getrandom`, so it no longer
+  proves the shell has no OS entropy source — `make portable` does, as it was
+  always the one that could.
+- **A 32-bit target found a determinism bug the whole test suite could not.**
+  `SmallRng` is a different generator on wasm32, so seed 42 dealt a different
+  game in a tab. The fix is its own commit, and the one core change outside
+  G10: see the §9.6 invariant above. **A difference only a 32-bit target has is
+  invisible to every test in the tree**, because they all run on a 64-bit host;
+  a `const` assertion evaluated by `make portable` is where such a guard has to
+  live. It was checked in a real tab against `tools/drive.py`'s next queue, and
+  under Node against a throwaway wasm32 build of the core.
+- **`gui::host` is whichever of `host_native` and `host_web` the target has**,
+  so `app.rs` names neither. The one platform difference `app.rs` does see is a
+  fact rather than a choice, and it asks `eframe::Frame::is_web()` for it: a
+  tab cannot close itself, so leaving a game there starts a fresh one.
+- **A tab's run has no end.** No `finish`, no §6.2 default write, nothing handed
+  back: the store and the session are leaked once per page load. §16's warnings
+  therefore go to the console *as they arise* — `Session::warnings()` is the
+  read-only list `gui/app.rs` reports from, through `host::report` (a no-op
+  natively, where `main` still prints them at exit).
+- **Two crates the plan named are not taken.** `console_error_panic_hook`,
+  because `eframe::WebRunner::new` installs a hook that logs message and stack —
+  the runner is made *first* in the wasm `main` for that reason. And `web-time`,
+  because F1 is `performance.now()` through `web-sys` directly.
+- **The canvas takes the keyboard on load, and says so when it has not.**
+  `eframe` gives it a `tabindex` but never focuses it, and it only calls
+  `preventDefault` on `Space`, `Tab` and the arrows while it has focus. "Click
+  to play" is drawn in both builds when `egui` reports no focus; it pauses
+  nothing.
+- **A hidden tab creeps; it does not stop.** The plan expected
+  `requestAnimationFrame` to stop, and it does, but `eframe` then drives
+  `logic` from a throttled timer, so each call plays `MAX_CATCH_UP_TICKS` and
+  discards the rest. Measured: 36 s hidden advanced a level-1 game ~9 s, with
+  no burst on return. `GUI.md` §G8.7 records it as input for G7.
+- **Checking the web build needs a visible browser window.** A tab behind other
+  windows reports `document.hidden` and is never painted, whatever a screenshot
+  shows. Two more traps from the same session: a scripted key press is a
+  key-down and key-up inside one frame, so a movement tap is lost exactly as
+  G5 recorded — send held keys as `KeyboardEvent`s with a real gap (80 ms
+  moves one cell); and **`trunk serve` kept the same hashed file name across
+  rebuilds** and serves no `Cache-Control`, so after it rebuilds a plain reload
+  can run the old wasm. Hard-reload.
+- **CI builds the artefact in a job of its own**, with trunk 0.21.14 fetched as
+  a release binary. `make check` gained `web-check` — clippy for the web
+  front-end on wasm32, because `--all-features` on the host never compiles
+  `host_web.rs` — and does not run trunk, so a developer needs only the target.
+
 ---
 
 ## Open decisions
+
+- **Does losing focus pause a game?** `GUI.md` §G2.3 (written at G5) says no,
+  and `EGUI.md` G7 and B10 say yes, by §8.4's path. G6 left it alone and
+  measured what a hidden tab does meanwhile (§G8.7). G7 has to pick one and
+  amend the other.
 
 - **The legacy key path's feel (§8.2).** Measured over two seconds of holding
   left: enhanced moves at 0 ms then every 33 ms from 166 ms; legacy moves at
@@ -611,7 +679,8 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 ## Commands
 
 ```
-make check           # everything CI runs: fmt, clippy, test, shell, release build
+make check           # everything CI runs but trunk: fmt, clippy, test, shell,
+                     # portable, web-check, release build
 cargo check          # fast feedback
 cargo test --all-features      # unit + integration
 cargo test --all-features --test pump   # the shell, pumped headlessly (G4)
@@ -622,6 +691,9 @@ cargo clippy --all-features --all-targets -- -D warnings
 cargo fmt --check
 cargo run --release  # play it (`default-run` picks `ftm` of the two bins)
 make run-gui         # the window (`cargo run --release --features gui --bin ftm-gui`)
+make run-web         # the same in a tab: `trunk serve`, http://127.0.0.1:8080/?seed=42
+make web             # the web artefact, `trunk build --release` into dist/ (G6)
+make web-check       # clippy for the web front-end on wasm32 (G6)
 cargo run -- --print-config    # effective config
 cargo run -- --seed 42         # deterministic run, not recorded to high scores
 tools/drive.py c c             # drive the release binary on a pty

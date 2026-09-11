@@ -89,11 +89,13 @@ Where this specification and those pages disagree, **this specification wins**.
   the menus look like a small addition. It is not one; it is a second way to
   reach every state, and every state would have to answer for it.
 
-  Touch is the case that is not settled by reflex, because a web build is a link
-  someone opens on a phone and with no touch input it is a game that visibly does
-  not work there. It is an open decision in `EGUI.md`, to be settled before the
-  web build is called done; whichever way it goes it is an amendment to this
-  section rather than a quiet addition to a front-end.
+  **Touch too, and that is a decision rather than an omission.** A web build is
+  a link someone opens on a phone, and with no touch input it is a game that
+  visibly does not work there. `EGUI.md` G6 settled it: there are no touch
+  controls, and the web build's page says so plainly, so that a visitor on a
+  phone is told why nothing responds rather than left to find out (`GUI.md`
+  §G8.8). An on-screen control layer would be an amendment to this section and a
+  piece of design in its own right, not a quiet addition to a front-end.
 
 ### 1.3 Naming and trademark
 
@@ -172,7 +174,7 @@ are visible to another.
 
 | Crate | Version | Purpose |
 |---|---|---|
-| `rand` | 0.10 | `Xoshiro256PlusPlus`, named rather than taken as `SmallRng`, as the bag's bit source on every target. Its seeding and its range draw are §9.6's, not `rand`'s. **`default-features = false`**: an OS entropy source is a front-end capability (§3.1), the front-end features turn it back on, and without that `getrandom` will not compile for `wasm32-unknown-unknown` at all. |
+| `rand` | 0.10 | `Xoshiro256PlusPlus`, named rather than taken as `SmallRng`, as the bag's bit source on every target. Its seeding and its range draw are §9.6's, not `rand`'s. **`default-features = false`**: an OS entropy source is a front-end capability (§3.1) and a *desktop's* — `Cargo.toml` turns it back on for every non-wasm target and for none other — and without that `getrandom` will not compile for `wasm32-unknown-unknown` at all. |
 | `serde` + `serde_derive` | 1 | Config and high-score (de)serialisation. |
 | `toml` | 1 | Config file format. |
 | `serde_json` | 1 | High-score file format. |
@@ -203,10 +205,17 @@ pinned together in `GUI.md` §G1 and in `Cargo.toml`, because `egui` moves its A
 across minor versions more freely than the others do, and `eframe`, `egui_kittest`
 and `web-sys` have to move with it.
 
-**egui front-end on wasm**: `wasm-bindgen`, `web-sys`, `js-sys`, `web-time` and
-`console_error_panic_hook`, replacing the four native crates above — a browser
-tab has no argv, no filesystem, no `Instant` and no `chrono` clock. `GUI.md` §G8
-is normative for what each becomes.
+**egui front-end on wasm**: `wasm-bindgen`, `wasm-bindgen-futures`, `web-sys`
+and `js-sys`, replacing the four native crates above — a browser tab has no argv,
+no filesystem, no `Instant` and no `chrono` clock. All four are already in the
+tree under `eframe`'s web build and move with its pin; they are declared so that
+the web host asks for the `web-sys` interfaces it uses by name. The native crates
+and the web ones are declared per target in `Cargo.toml`, not per feature,
+because `gui` is both builds and a feature cannot tell them apart. `GUI.md` §G8
+is normative for what each becomes. Two crates `EGUI.md` expected are not taken:
+`web-time`, because F1 in a tab is `performance.now()` through `web-sys`
+directly, and `console_error_panic_hook`, because `eframe::WebRunner` installs a
+hook that does the same (§G8.5).
 
 `eframe` brings a windowing and rendering stack — `winit`, `glow`, and their
 platform dependencies — that is not enumerable crate by crate. **The rule above
@@ -218,8 +227,8 @@ because this is the first front-end for which the distinction matters.
 > The **Shared** and **Terminal front-end** halves of the split are real as of
 > `EGUI.md` stage G3, and the compiler holds them: `cargo check
 > --no-default-features --target wasm32-unknown-unknown` builds the first list
-> and nothing else. The **egui front-end** row is real as of G5; the wasm row
-> lands at G6.
+> and nothing else. The **egui front-end** row is real as of G5, and the wasm
+> row as of G6.
 
 ### 3.1 Layering rule
 
@@ -335,6 +344,7 @@ ftm/
         ├── cli.rs            # §6.4's grammar for this front-end
         ├── host_native.rs    # the four capabilities on a desktop (over native.rs)
         ├── host_web.rs       # the four capabilities in a browser
+        ├── query.rs          # §6.4's flags as a URL query string (§G8.4)
         ├── layout.rs         # §G3: the integer-cell metric
         ├── paint.rs          # mino tiles, ghost, grid, boxes
         ├── playfield.rs      # §G4
@@ -355,7 +365,8 @@ calling it, not by satisfying an interface designed before the third one existed
 
 **`src/native.rs` is not a fourth layer.** It is a *desktop*, and it sits beside
 the front-ends rather than under the shell: a clock, a filesystem, an entropy
-source and a calendar, behind `any(feature = "tui", feature = "gui")`. Both
+source and a calendar, behind `any(feature = "tui", feature = "gui")` on any
+target but wasm. Both
 native binaries take §3.1's four capabilities from it, because §6.2 and §14 give
 them one config file and one high-score table between them and §14's atomic write
 should have one home. Each front-end still decides *whether* to use it — the web
@@ -365,9 +376,8 @@ Nothing in `shell/` or `core/` may name it, which is what the two
 
 > `src/shell/`, `src/tui/`, `src/gui/` and `src/bin/` are `EGUI.md`'s work,
 > stages G1–G6. `src/ui/`, `src/main.rs` and the four modules beside them are
-> gone as of G2. As of G5 what is left to arrive is the rest of `src/gui/`:
-> `host_web.rs` (G6), `layout.rs`, `playfield.rs`, `overlays.rs` and
-> `attract.rs` (G7–G11).
+> gone as of G2. As of G6 what is left to arrive is the rest of `src/gui/`:
+> `layout.rs`, `playfield.rs`, `overlays.rs` and `attract.rs` (G7–G11).
 
 ---
 
@@ -418,7 +428,9 @@ file immediately on leaving that screen.
   one file, and a setting written by either is read by the other. The web build
   has no filesystem and uses `localStorage`; `GUI.md` §G8 names the key.
 - If the file is absent, defaults are used and a fully-commented file with the
-  default values is written on first clean exit.
+  default values is written on first clean exit. A browser tab is closed rather
+  than quit and has no clean exit, so the web build never writes it (`GUI.md`
+  §G8.3).
 - If the file is present but malformed, the game **must not** crash: it logs a
   one-line warning by whatever means the front-end has (§16), uses defaults for
   the unreadable keys, and leaves the file untouched.
@@ -1738,7 +1750,8 @@ a modern machine.
   front-end's panic hook restores the terminal before the default handler runs
   (§8.3), so a bug produces a readable backtrace rather than a wrecked terminal;
   a windowed front-end has nothing to restore, and the web build installs a hook
-  that puts the panic in the console.
+  that puts the panic in the console — `eframe::WebRunner`'s own, installed
+  before anything else runs (`GUI.md` §G8.5).
 - `SIGINT` (Ctrl-C) is not trapped where it arrives as a key: crossterm in raw
   mode delivers it as a key event, which is mapped to "quit to menu" from
   `Playing` and "quit" from `Attract`.

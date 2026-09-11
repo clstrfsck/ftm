@@ -1156,12 +1156,16 @@ dependencies = [
  "directories",
  "eframe",
  "egui",
+ "js-sys",
  "rand 0.10.2",
  "ratatui",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
  "toml",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

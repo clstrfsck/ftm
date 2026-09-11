@@ -8,9 +8,9 @@
 # half. The failure mode is silent -- the other front-end simply stops being
 # compiled -- so the flag is on every command that compiles anything.
 
-.PHONY: check fmt clippy test shell portable build run run-gui
+.PHONY: check fmt clippy test shell portable web-check build web run run-gui run-web
 
-check: fmt clippy test shell portable build
+check: fmt clippy test shell portable web-check build
 
 fmt:
 	cargo fmt --check
@@ -39,8 +39,25 @@ shell:
 portable:
 	cargo check --no-default-features --target wasm32-unknown-unknown
 
+# The web front-end, linted for the only target it exists on (EGUI.md G6,
+# GUI.md §G8). `clippy` above lints `--all-features` for the host, which
+# compiles `gui/host_native.rs` and never `gui/host_web.rs` or the web `main`,
+# so without this the half of the window front-end that lives in a browser tab
+# is compiled by nobody until trunk runs. `portable` holds the shell with no
+# platform under it; this holds the web front-end with only a browser under
+# it. Needs the target, not trunk.
+web-check:
+	cargo clippy --no-default-features --features gui --target wasm32-unknown-unknown --lib --bins -- -D warnings
+
 build:
 	cargo build --release --all-features
+
+# The web build's artefact, in dist/ (Trunk.toml, index.html). Not part of
+# `check`, because it needs trunk, which is not a cargo component and fetches
+# `wasm-bindgen` and `wasm-opt` on first use; CI's `web` job runs it with a
+# pinned trunk. Locally: `cargo install trunk --locked`.
+web:
+	trunk build --release
 
 run:
 	cargo run --release
@@ -49,3 +66,8 @@ run:
 # two binaries, so this one has to be named.
 run-gui:
 	cargo run --release --features gui --bin ftm-gui
+
+# The same front-end in a browser tab, at http://127.0.0.1:8080, rebuilt on
+# save. `?seed=42` in the URL is `--seed 42` (GUI.md §G8.4).
+run-web:
+	trunk serve
