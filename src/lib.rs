@@ -13,17 +13,30 @@
 //!   animation timers. It sees the core only through `core::GameView` (§12.7)
 //!   and `core::GameEvent` (§12.8), and it names no front-end's toolkit:
 //!   `cargo check --no-default-features` builds `core` and `shell` alone.
-//! * [`tui`] is the terminal front-end, behind `feature = "tui"`. `TUI.md` is
-//!   normative for it, as `GUI.md` will be for the window `EGUI.md` adds next.
+//! * [`tui`] is the terminal front-end, behind `feature = "tui"`, and [`gui`]
+//!   is the window one, behind `feature = "gui"`. `TUI.md` and `GUI.md` are
+//!   normative for them.
 //!
-//! A fourth front-end is a fifth directory, a feature and a `[[bin]]` —
+//! A third front-end is a fourth directory, a feature and a `[[bin]]` —
 //! deliberately not a `trait Frontend`. `FRONTEND.md` is the contract they
 //! share, written down instead of typed.
+//!
+//! [`native`] is the odd one out and is not a layer: it is the desktop both
+//! native front-ends answer `FRONTEND.md` F1-F4 with — a clock, a filesystem,
+//! an entropy source and a calendar — kept in one place because §6.2 and §14
+//! give `ftm` and `ftm-gui` one config file and one high-score table between
+//! them. The web build of `gui` takes nothing from it.
 
 #![forbid(unsafe_code)]
 
 pub mod core;
 pub mod shell;
+
+#[cfg(any(feature = "tui", feature = "gui"))]
+pub mod native;
+
+#[cfg(feature = "gui")]
+pub mod gui;
 
 #[cfg(feature = "tui")]
 pub mod tui;

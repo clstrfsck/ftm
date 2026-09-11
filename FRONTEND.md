@@ -20,11 +20,13 @@ same commit.
 > **Status.** F1–F7 are built and are the code's own shapes as of `EGUI.md`
 > stage G4: `shell::keys` (F5), `shell::time::Stamp` (F1), `shell::storage`
 > (F2) and `shell::host::Host`, which carries F2's store beside F3's seed and
-> F4's date. `tui::host` is the terminal front-end's answer to all four, in
-> about a hundred and fifty lines. F6 and F7 are `shell::round::Round` and
+> F4's date. `crate::native` is the *desktop's* answer to all four, in about a
+> hundred and fifty lines, and both native front-ends take it — one file, not a
+> copy each, because §6.2 and §14 give `ftm` and `ftm-gui` one config file and
+> one high-score table between them. F6 and F7 are `shell::round::Round` and
 > `shell::attract::Attract` over the `shell::session::Session` they share:
-> §15.2's seven steps are methods, the terminal front-end calls them from its
-> poll loop, and `tests/pump.rs` calls them with no screen at all.
+> §15.2's seven steps are methods, two front-ends call them from their own
+> loops, and `tests/pump.rs` calls them with no screen at all.
 
 ---
 
@@ -111,7 +113,7 @@ rests on them:
 A stamp is what makes the whole shell testable without a clock — construct them
 arithmetically and the property §17.1 gives the core extends one layer out.
 
-Natively this is an `Instant` captured at start-up (`tui::host::Clock`); in a
+Natively this is an `Instant` captured at start-up (`native::Clock`); in a
 browser it is `performance.now()`; in a frame-based game framework it is
 `get_time()` in seconds, converted to microseconds **once, at the boundary, and
 never in the rules** — which is what keeps §9.9's and §6.6's "no floating point"

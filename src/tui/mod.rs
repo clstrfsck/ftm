@@ -9,15 +9,15 @@
 //! event stream and a clock — so the core never knows one is in progress and
 //! dropping every event costs nothing but the decoration (§12.8).
 //!
-//! The clock is one of four things the shell has none of (§3.1): `host` is
-//! where all four come from here, `cli` is §6.4's grammar, and between them
-//! they are the only modules in the tree below `main` that name `std::fs`,
-//! `chrono`, `clap` or `Instant`.
+//! The clock is one of four things the shell has none of (§3.1), and none of
+//! them is a *terminal's* question: all four come from
+//! [`crate::native`](crate::native), which the window front-end shares
+//! (`EGUI.md` G5). What stays here is `cli`, §6.4's grammar, which is the one
+//! module below `main` in this directory that names `clap`.
 
 pub mod attract;
 pub mod cells;
 pub mod cli;
-pub mod host;
 pub mod keys;
 pub mod overlays;
 pub mod playfield;

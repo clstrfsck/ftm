@@ -10,11 +10,11 @@
 
 use anyhow::Result;
 use clap::Parser;
+use ftm::native::{self, Files};
 use ftm::shell::config::{self, Startup};
 use ftm::shell::host::Host;
 use ftm::shell::input::InputMode;
 use ftm::tui::cli::Cli;
-use ftm::tui::host::{self, Files};
 use ftm::tui::{run, term};
 
 fn main() -> Result<()> {
@@ -24,7 +24,7 @@ fn main() -> Result<()> {
     // what the shell is handed is a `Storage` and §6.4's flags, decoded.
     let cli = Cli::parse();
     let mut files = Files::new(cli.config.clone());
-    let mut startup = Startup::resolve(&cli.overrides(), &files, host::seed);
+    let mut startup = Startup::resolve(&cli.overrides(), &files, native::seed);
 
     // §8.1 step 2: the panic hook goes in *before* raw mode, so that a crash
     // between here and the first frame still leaves a usable shell. It is also
@@ -64,7 +64,7 @@ fn main() -> Result<()> {
         &mut terminal,
         &mut startup,
         mode,
-        Host::new(&mut files, host::seed, host::today),
+        Host::new(&mut files, native::seed, native::today),
     );
 
     term::restore();

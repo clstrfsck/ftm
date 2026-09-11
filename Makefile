@@ -8,7 +8,7 @@
 # half. The failure mode is silent -- the other front-end simply stops being
 # compiled -- so the flag is on every command that compiles anything.
 
-.PHONY: check fmt clippy test shell portable build run
+.PHONY: check fmt clippy test shell portable build run run-gui
 
 check: fmt clippy test shell portable build
 
@@ -44,3 +44,8 @@ build:
 
 run:
 	cargo run --release
+
+# The window front-end (GUI.md, EGUI.md G5). `default-run` picks `ftm` of the
+# two binaries, so this one has to be named.
+run-gui:
+	cargo run --release --features gui --bin ftm-gui

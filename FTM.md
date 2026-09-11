@@ -2,7 +2,7 @@
 
 **Version:** 1.0
 **Date:** 2026-09-05 (split into four documents 2026-09-10)
-**Target language:** Rust (edition 2024, MSRV 1.88)
+**Target language:** Rust (edition 2024, MSRV 1.95)
 **Name:** Falling Tetromino Manager (a tetromino game; binary name `ftm`)
 
 **Companion documents:** [FRONTEND.md](FRONTEND.md) (the contract every
@@ -150,10 +150,18 @@ well-known public rules.
 ## 3. Technology and dependencies
 
 The implementation is a single Rust crate, **edition 2024**, with one binary per
-front-end behind a cargo feature. The MSRV is **1.88**, which is `ratatui`'s;
-edition 2024 itself needs only 1.85, so the floor is set by a dependency rather
-than by the language and moves when one of them moves. The toolchain is pinned no
+front-end behind a cargo feature. The MSRV is **1.95**, which is `egui`'s and
+`eframe`'s; edition 2024 itself needs only 1.85, so the floor is set by a
+dependency rather than by the language and moves when one of them moves — as it
+did at `EGUI.md` stage G5, from `ratatui`'s 1.88. The toolchain is pinned no
 further than that.
+
+> The alternative at G5 was `eframe` 0.33, whose floor is 1.88 exactly. It was
+> declined: pinning to a version to preserve a number means tracking a stale
+> `egui` for the life of the project, and the sentence above already says the
+> floor moves with a dependency. The MSRV lives in three places that must change
+> together — `rust-version` in `Cargo.toml`, this paragraph, and the `msrv` job
+> in CI.
 
 The dependencies are in four classes. The rule "no other runtime dependencies" is
 per-class: a front-end may not add to the shared row, and no front-end's crates
@@ -181,11 +189,19 @@ are visible to another.
 | `anyhow` | 1 | Error propagation in `main` and I/O paths. |
 | `chrono` | 0.4 | Date stamps on high-score entries (§14). |
 
-**egui front-end** (`gui`): `eframe` and `egui`, plus `clap`, `directories`,
-`anyhow` and `chrono` in its native build, which shares the terminal
-front-end's answers to §6.2, §6.4 and §14. Versions are pinned in `GUI.md` §G1
-and in `Cargo.toml` together, because `egui` moves its API across minor versions
-more freely than the others do.
+**egui front-end** (`gui`):
+
+| Crate | Version | Purpose |
+|---|---|---|
+| `eframe` | 0.36 | The application shell: a window natively, a canvas on the web. `default-features = false` with `glow`, because what this front-end draws is rectangles and OpenGL/WebGL2 is the smaller and more widely available of its two backends. |
+| `egui` | 0.36 | Immediate-mode drawing and the key event stream (§G1, §G2). |
+
+Plus `clap`, `directories`, `anyhow` and `chrono` in its **native** build, which
+shares the terminal front-end's answers to §6.2, §6.4 and §14 — one `src/native.rs`
+between the two binaries, not a copy each. `egui`'s and `eframe`'s versions are
+pinned together in `GUI.md` §G1 and in `Cargo.toml`, because `egui` moves its API
+across minor versions more freely than the others do, and `eframe`, `egui_kittest`
+and `web-sys` have to move with it.
 
 **egui front-end on wasm**: `wasm-bindgen`, `web-sys`, `js-sys`, `web-time` and
 `console_error_panic_hook`, replacing the four native crates above — a browser
@@ -202,8 +218,8 @@ because this is the first front-end for which the distinction matters.
 > The **Shared** and **Terminal front-end** halves of the split are real as of
 > `EGUI.md` stage G3, and the compiler holds them: `cargo check
 > --no-default-features --target wasm32-unknown-unknown` builds the first list
-> and nothing else. The two `gui` rows are still a classification, and land at
-> G5 and G6.
+> and nothing else. The **egui front-end** row is real as of G5; the wasm row
+> lands at G6.
 
 ### 3.1 Layering rule
 
@@ -268,6 +284,8 @@ ftm/
 ├── tests/                # integration tests (§17.2), driven through lib.rs
 └── src/
     ├── lib.rs
+    ├── native.rs             # the desktop: §3.1's four capabilities, for both
+    │                         #   native binaries. Not a layer — see below.
     ├── bin/
     │   ├── ftm.rs            # terminal entry point; required-features = ["tui"]
     │   └── ftm-gui.rs        # window entry point;   required-features = ["gui"]
@@ -302,7 +320,7 @@ ftm/
     ├── tui/                  # #[cfg(feature = "tui")]. TUI.md is normative.
     │   ├── mod.rs            # screen dispatch, terminal-too-small screen
     │   ├── keys.rs           # crossterm -> shell::keys adapter
-    │   ├── host.rs           # the four capabilities of §3.1, natively
+    │   ├── cli.rs            # §6.4's grammar, as clap sees it
     │   ├── term.rs           # §8.1–§8.3: raw mode, alt screen, panic hook
     │   ├── run.rs            # the poll loop; pumps the shell
     │   ├── theme.rs          # colour depth, Glyphs (§12.3)
@@ -314,7 +332,8 @@ ftm/
         ├── mod.rs
         ├── app.rs            # impl eframe::App; pumps the same shell objects
         ├── keys.rs           # egui -> shell::keys adapter
-        ├── host_native.rs    # the four capabilities on a desktop
+        ├── cli.rs            # §6.4's grammar for this front-end
+        ├── host_native.rs    # the four capabilities on a desktop (over native.rs)
         ├── host_web.rs       # the four capabilities in a browser
         ├── layout.rs         # §G3: the integer-cell metric
         ├── paint.rs          # mino tiles, ghost, grid, boxes
@@ -334,12 +353,21 @@ deliberately **not** a `trait Frontend`: the front-ends share the shell by
 calling it, not by satisfying an interface designed before the third one existed.
 `FRONTEND.md` is that shared understanding, written down instead of typed.
 
+**`src/native.rs` is not a fourth layer.** It is a *desktop*, and it sits beside
+the front-ends rather than under the shell: a clock, a filesystem, an entropy
+source and a calendar, behind `any(feature = "tui", feature = "gui")`. Both
+native binaries take §3.1's four capabilities from it, because §6.2 and §14 give
+them one config file and one high-score table between them and §14's atomic write
+should have one home. Each front-end still decides *whether* to use it — the web
+build of `gui` answers the same four with `web_sys` and takes nothing from here.
+Nothing in `shell/` or `core/` may name it, which is what the two
+`--no-default-features` checks keep true.
+
 > `src/shell/`, `src/tui/`, `src/gui/` and `src/bin/` are `EGUI.md`'s work,
 > stages G1–G6. `src/ui/`, `src/main.rs` and the four modules beside them are
-> gone as of G2: what is left to arrive is `shell/time.rs` and `shell/storage.rs`
-> (G3), the split of the loop into `shell/session.rs`, `shell/round.rs` and
-> `tui/host.rs` (G4) — until then the whole of it lives in `tui/run.rs` — and
-> `src/gui/` (G5–G6).
+> gone as of G2. As of G5 what is left to arrive is the rest of `src/gui/`:
+> `host_web.rs` (G6), `layout.rs`, `playfield.rs`, `overlays.rs` and
+> `attract.rs` (G7–G11).
 
 ---
 

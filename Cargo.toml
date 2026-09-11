@@ -2,7 +2,7 @@
 name = "ftm"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 description = "A guideline-conformant falling-block game"
 license = "MIT"
 publish = false
@@ -13,9 +13,14 @@ default-run = "ftm"
 # `default` is the terminal front-end, so `cargo build` and `cargo run` are
 # what they always were. `--no-default-features` builds `core` and `shell`
 # alone, which is the compiler holding the shell boundary the way §17.3's A10
-# holds the core's (EGUI.md G2). `gui` is wired here before there is anything
-# behind it, so the target and its feature gate exist from the stage that
-# created them; EGUI.md G5 fills it in.
+# holds the core's (EGUI.md G2). `gui` is the window front-end of GUI.md, and
+# since EGUI.md G5 it has something behind it.
+#
+# The two front-end features overlap in four crates, and that is not an
+# accident: `directories`, `clap`, `chrono` and an OS entropy source are the
+# *native* platform's answers to FRONTEND.md F1-F4 and §6.4, and `src/native.rs`
+# is where both native binaries get them. The web build of G6 answers the same
+# four with `web-sys` and friends and takes none of these.
 #
 # Consequence to plan for: a bare `cargo test` builds only the `tui` half, so
 # every Makefile command passes `--all-features`.
@@ -30,7 +35,15 @@ tui = [
     "dep:anyhow",
     "rand/thread_rng",
 ]
-gui = []
+gui = [
+    "dep:eframe",
+    "dep:egui",
+    "dep:directories",
+    "dep:clap",
+    "dep:chrono",
+    "dep:anyhow",
+    "rand/thread_rng",
+]
 
 [[bin]]
 name = "ftm"
@@ -58,6 +71,18 @@ required-features = ["gui"]
 [dependencies]
 ratatui = { version = "0.30", optional = true }
 crossterm = { version = "0.29", optional = true }
+# GUI.md §G1 pins these two together, and FTM.md §3 records the MSRV they set:
+# 1.95, which is `egui`'s and is now the floor. `glow` rather than the default
+# `wgpu` backend, because what this front-end draws is rectangles and OpenGL is
+# the smaller and more widely available of the two -- and because the web build
+# of EGUI.md G6 reaches WebGL2 through it without a WebGPU fallback path.
+eframe = { version = "0.36", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+], optional = true }
+egui = { version = "0.36", optional = true }
 rand = { version = "0.10", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 toml = "1.1"

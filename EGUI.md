@@ -208,6 +208,7 @@ ftm/
 │   └── drive.py              # the TUI pty harness — unchanged
 └── src/
     ├── lib.rs
+    ├── native.rs             # the desktop: F1-F4 for *both* native binaries (G5)
     ├── bin/
     │   ├── ftm.rs            # required-features = ["tui"]
     │   └── ftm-gui.rs        # required-features = ["gui"]
@@ -229,7 +230,7 @@ ftm/
     ├── tui/                  # #[cfg(feature = "tui")]
     │   ├── mod.rs            # Tui, fits, too_small, draw dispatch
     │   ├── keys.rs           # crossterm -> shell::keys adapter
-    │   ├── host.rs           # the four capabilities, natively (G3)
+    │   ├── cli.rs            # §6.4's grammar, as clap sees it
     │   ├── term.rs           # §8.1–§8.3: raw mode, alt screen, panic hook
     │   ├── run.rs            # the poll loop; pumps shell::round / shell::attract
     │   ├── theme.rs          # §12.3 colour depth, Glyphs
@@ -241,7 +242,8 @@ ftm/
         ├── mod.rs
         ├── app.rs            # impl eframe::App; pumps the same shell objects
         ├── keys.rs           # egui -> shell::keys adapter
-        ├── host_native.rs    # the four capabilities on a desktop (G5)
+        ├── cli.rs            # §6.4's grammar for this front-end (G5, G12)
+        ├── host_native.rs    # the desktop's four, over native.rs (G5)
         ├── host_web.rs       # the four capabilities in a browser (G6)
         ├── layout.rs         # §G3: the integer-cell metric
         ├── paint.rs          # mino tiles, ghost, grid, boxes
@@ -254,6 +256,16 @@ ftm/
 `src/highscore.rs` move under `src/shell/`. `src/main.rs` becomes
 `src/bin/ftm.rs` and keeps only what §8.1 puts before the loop.
 
+**`src/native.rs` is an amendment this plan did not originally have.** It was
+`tui/host.rs` from G3, and G5 moved it out rather than writing a second copy
+under `gui/`: §6.2 and §14 give `ftm` and `ftm-gui` one config file and one
+high-score table between them, so the paths, the clock, the seed, the date and
+§14's atomic write are a *desktop's* answers and not a terminal's. It is not a
+fourth layer — it is behind `any(feature = "tui", feature = "gui")`, it sits
+beside the front-ends, and nothing in `shell/` or `core/` may name it.
+`gui/host_native.rs` is what remains of the plan's file: the native arm of this
+front-end's own split, which G6 pairs with `host_web.rs`.
+
 ### Cargo.toml shape
 
 ```toml
@@ -263,7 +275,10 @@ tui = [
     "dep:ratatui", "dep:crossterm", "dep:directories", "dep:clap",
     "dep:chrono", "dep:anyhow", "rand/thread_rng",
 ]
-gui = ["dep:eframe", "dep:egui"]
+gui = [
+    "dep:eframe", "dep:egui", "dep:directories", "dep:clap",
+    "dep:chrono", "dep:anyhow", "rand/thread_rng",
+]
 
 [[bin]]
 name = "ftm"
@@ -612,8 +627,9 @@ Every `Instant` in `Cosmetics`, `Attract`, `Confirm`, `Fps` and `App` becomes a
 `Stamp`. `Duration` stays — it is `core::time::Duration`, has no platform
 dependency, and is what all the arithmetic is already in.
 
-The front-end produces stamps: `tui/host.rs` and `gui/host_native.rs` from an
-`Instant` captured at start-up, `gui/host_web.rs` from `performance.now()` (via
+The front-end produces stamps: `tui/host.rs` and `gui/host_native.rs` (one
+`src/native.rs` between them since G5) from an `Instant` captured at start-up,
+`gui/host_web.rs` from `performance.now()` (via
 `web-time`, or `eframe`'s own frame time), a future macroquad host from
 `get_time()`.
 
@@ -649,10 +665,11 @@ a temp file, rename) is a filesystem technique and moves into the native
 `Storage` implementation, where it belongs; the trait promises durability, not a
 technique.
 
-`tui/host.rs` implements it over `directories` + `std::fs`, preserving §6.2's
-path, §14's atomic write, and §16's "an unwritable file is a warning, never an
-abort". `gui/host_native.rs` uses the same implementation — the two native
-binaries share a config file, which is the point of G12.
+`tui/host.rs` — `src/native.rs` since G5 — implements it over `directories` +
+`std::fs`, preserving §6.2's path, §14's atomic write, and §16's "an unwritable
+file is a warning, never an abort". `gui/host_native.rs` uses the same
+implementation — the two native binaries share a config file, which is the point
+of G12.
 
 Two details the trait's two methods do not carry, and that turned out to matter:
 
@@ -725,7 +742,8 @@ in the same commit.
   non-monotonic pair yields zero rather than panicking.
 - New: §16's failure paths through the trait — a `Storage` that always fails to
   write produces exactly the warnings §16 requires, and never an abort.
-- New, in `tui/host.rs`: §14's temp file is renamed rather than left behind, a
+- New, in `tui/host.rs` (`src/native.rs` since G5): §14's temp file is renamed
+  rather than left behind, a
   read-only config is refused rather than replaced, and a failed write names the
   *target* in §16's line and never the temp file.
 - Moved, to `tui/cli.rs`: §6.4's synopsis, flag by flag, plus a value-by-value
@@ -1576,7 +1594,7 @@ for no benefit.
 
 | Risk | Where it bites | Mitigation |
 |---|---|---|
-| **MSRV conflict.** `eframe` 0.36 requires Rust 1.95; 0.33 requires 1.88, the current floor. | G5, and the CI `msrv` job. | Decide in G5, in one commit across `Cargo.toml`, §3 and the workflow. Recommendation: take 0.36 and raise the floor — §3 already states the floor moves with a dependency, and pinning to 0.33 to preserve a number means tracking a stale egui for the life of the project. |
+| ~~**MSRV conflict.**~~ **Retired at G5**: 0.36 taken, floor raised to 1.95 in one commit across `Cargo.toml`, §3 and the workflow. The three places still have to move together, and the `msrv` job is what catches it if they do not. | — | — |
 | **The G3 abstractions are done half-way**, leaving `cfg(target_arch)` sprinkled through the shell. | G3, discovered in G6 as a slow, miserable stage. | The wasm CI check lands *in* G3 and is what defines the stage as finished. A `cfg` in `shell/` is a stage that is not done. |
 | **The loop inversion changes TUI behaviour subtly.** A reordered step, a lost `dt`, a pause that no longer zeroes the accumulator. | G4, discovered in G11. | G4 lands with no GUI at all, and is validated by the terminal front-end's existing pty acceptance suite plus cadence invariance. |
 | **Tick/frame coupling.** The easy GUI bug: advancing by frame time, or once per repaint. | G5 onward. | `ticks_due` is the only path; the invariance test runs at several cadences; B8 checks it on real hardware and in a real tab. |
@@ -1595,8 +1613,13 @@ for no benefit.
 Recorded here rather than settled, because each is a judgement the plan should
 not make on its own.
 
-- **`eframe` 0.33 versus 0.36**, and with it the MSRV. See the risk register for
-  the recommendation. Must be settled at G5.
+- ~~**`eframe` 0.33 versus 0.36**, and with it the MSRV.~~ **Settled at G5:**
+  0.36, and the MSRV raised to **1.95**, which is `egui`'s own floor. The
+  recommendation in the risk register was taken — §3 already says the floor is
+  set by a dependency and moves when one moves, and pinning to 0.33 to preserve
+  1.88 means tracking a stale `egui` for the life of the project. `eframe` is
+  taken with `default-features = false` and the `glow` backend rather than the
+  default `wgpu`; `GUI.md` §G1.1 records why.
 - **Touch input for the web build.** §1.2 makes mouse input a non-goal, and this
   plan keeps that. But a web build is a link someone opens on a phone, and with
   no touch input it is a game that visibly does not work there. The options are

@@ -5,18 +5,19 @@ name is the joke; `ftm` is the binary, the crate, and the config and data
 directories. The specification is `FTM.md`, and since G0 it has three companion
 documents — see **The four documents** below.
 
-It is a terminal game today. It is no longer a single binary: `EGUI.md` plans a
-second and third front-end (a native egui window, and the same code as wasm in
-a browser) and anticipates a fourth (Macroquad), and as of G2 the tree is
-`core/` + `shell/` + `tui/` with `src/bin/ftm.rs` and a stub `src/bin/ftm-gui.rs`
-behind `--features gui`. None of the window is built yet. G0 changed no code;
-G1 moved the key vocabulary out of crossterm's hands; G2 was a move, a rename
-and a feature gate, with no logic changed; G3 took the platform out from under
-the shell; G4 turned §15.2's loop inside out, so the shell is now *pumped* by a
-front-end rather than owning a `while`.
+It is no longer only a terminal game, and no longer a single binary: `EGUI.md`
+builds a second and third front-end (a native egui window, and the same code as
+wasm in a browser) and anticipates a fourth (Macroquad). As of G5 the tree is
+`core/` + `shell/` + `native.rs` + `tui/` + `gui/`, with `src/bin/ftm.rs` and
+`src/bin/ftm-gui.rs` behind `--features gui`, and **the window opens and plays**
+— `make run-gui`. G0 changed no code; G1 moved the key vocabulary out of
+crossterm's hands; G2 was a move, a rename and a feature gate, with no logic
+changed; G3 took the platform out from under the shell; G4 turned §15.2's loop
+inside out, so the shell is now *pumped* by a front-end rather than owning a
+`while`; G5 hung an `eframe` application on the pump.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0-G4 complete — milestone MG2. Start at G5.** All
+stages G0-G5 complete — milestone MG3. Start at G6.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -31,6 +32,13 @@ the §6.2 and §14 warnings reach stderr after teardown. Below §12.1's 60 x 24 
 resize replaces every screen with the too-small message and forces a game in
 progress into `Paused` (§8.4).
 
+`cargo run --release --features gui --bin ftm-gui` opens a window with a well,
+a falling piece and §10.1's keys — G5's vertical slice, which is the whole
+`eframe`/`winit`/GL stack retired as a risk and nothing beyond that: no hold
+box, no next queue, no stats, no ghost, no grid, no overlays and no attract
+screen. `GUI.md` §G1 and §G2 are written and normative; §G3-§G9 are still
+reserved.
+
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
 and `Game::view()` still the only way to see the result — with `Game::debug()`
 beside it for the strip. Above it, `shell/` is what no front-end owns *and no
@@ -40,18 +48,21 @@ platform reaches* — `config.rs` (§6), `input.rs` (§10), `highscore.rs` (§14
 `cosmetics.rs` (§12.5's timers), `palette.rs` (§9.2 levelled), `time.rs` (F1's
 `Stamp`), `storage.rs` (F2's `Slot`/`Storage`), `host.rs` (F2-F4 as one
 borrowed bundle), and since G4 `session.rs` (`Session`, `Next`) and `round.rs`
-(`Round`, `FrameState`, `Debug`, and the `App` inside them) — and `tui/` is the
-terminal front-end: `keys.rs` (the crossterm adapter), `host.rs` (F1-F4,
-natively), `cli.rs` (§6.4's grammar), `term.rs` (§8.1-§8.3), `run.rs` (§7's
-state machine and both loops of §15, which is now what a *terminal* adds to the
-pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
-`overlays.rs` and `attract.rs` (§12, §13). T1-T17 all pass, plus I1-I4 and
-`tests/pump.rs`, and the batch-invariance canary is in CI.
+(`Round`, `FrameState`, `Debug`, and the `App` inside them). `src/native.rs` is
+the *desktop* — F1-F4 over `std::fs`, `directories`, `chrono` and `rand` — and
+both native front-ends take it. `tui/` is the terminal front-end: `keys.rs` (the
+crossterm adapter), `cli.rs` (§6.4's grammar), `term.rs` (§8.1-§8.3), `run.rs`
+(§7's state machine and both loops of §15, which is now what a *terminal* adds
+to the pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
+`overlays.rs` and `attract.rs` (§12, §13). `gui/` is the window: `app.rs`
+(`impl eframe::App`, the pump), `keys.rs` (the egui adapter), `paint.rs`,
+`cli.rs` and `host_native.rs`. T1-T17 all pass, plus I1-I4 and `tests/pump.rs`,
+and the batch-invariance canary is in CI.
 
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
-Start at G4. §18 remains out of scope and §19 remains a list of constraints to
+Start at G6. §18 remains out of scope and §19 remains a list of constraints to
 honour rather than a work item — see **Scope discipline** below.
 
 ## The §17.3 sign-off
@@ -115,7 +126,7 @@ several hundred doc comments, and each one would still *read* fine.
 | **`FTM.md`** | §1-§7, §9-§11, §12.7, §12.8, §14-§19 | The front-end-agnostic specification: rules, config, states, controls, the view model and the event stream, high scores, timing, errors, testing, §19. |
 | **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
 | **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
-| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. A reserved namespace today; G5-G13 fill it stage by stage. |
+| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; G6-G13 fill the rest stage by stage. |
 
 An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
 owns. `§Gn` means `GUI.md`; a future `MACROQUAD.md` would take `§M`.
@@ -289,6 +300,15 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   called at. `Host` is a struct of *values* and must not become a
   `trait Frontend` — the front-ends share the shell by calling it.
 
+- **`src/native.rs` is a desktop, not a fourth layer** (§3.1, §4, `FRONTEND.md`).
+  It is behind `any(feature = "tui", feature = "gui")` and sits *beside* the
+  front-ends: both native binaries answer F1-F4 from it, because §6.2 and §14
+  give `ftm` and `ftm-gui` one config file and one high-score table between them
+  and §14's atomic write has one home. G5 moved it out of `tui/host.rs` rather
+  than copying it under `gui/`. Nothing in `shell/` or `core/` may name it, which
+  is what `make shell` and `make portable` keep true; a third *native* front-end
+  adds nothing here, and the web build takes nothing from it.
+
 - **`Ok(None)` and `StorageError::Unavailable` are different answers** (§6.2,
   §14, §16). Nothing stored yet is the ordinary first run and is never a
   warning; nowhere to store it warns **once, on the read**, and
@@ -296,7 +316,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   same way a moment later stays quiet. Getting this wrong changes I3's warning
   count without changing any test.
 
-- **§14's atomic write is §14's alone** (§6.2, §14). `tui::host::Files` renames
+- **§14's atomic write is §14's alone** (§6.2, §14). `native::Files` renames
   a temp file into place for the high-score table and does a plain `fs::write`
   for the config, deliberately: a rename goes straight over a read-only file
   where a write is refused by one, and §17.3 checked the Options panel over a
@@ -519,6 +539,54 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   teardown bytes in order. §8.4's forced pause and §12.1's message were checked
   with `resize:`.
 
+## What G5 settled
+
+- **`eframe` 0.36, and the MSRV is 1.95.** The plan's open decision, taken as
+  recommended: pinning to 0.33 to keep 1.88 means tracking a stale `egui` for
+  the life of the project, and §3 already says the floor moves with a
+  dependency. **The number lives in three places** — `rust-version` in
+  `Cargo.toml`, §3, and the `msrv` job in `.github/workflows/ci.yml` — and they
+  move together or that job stops checking what it claims to. `eframe` is taken
+  with `default-features = false` and `glow`, not the default `wgpu`: the
+  front-end draws rectangles, and OpenGL reaches a browser as WebGL2 without a
+  WebGPU fallback path.
+- **`tui/host.rs` became `src/native.rs`**, and that is a deliberate amendment
+  to `EGUI.md`'s target layout, which had a copy under `gui/`. See the
+  invariant above.
+- **`eframe` 0.36 splits its callback in two, and the split is §15.2's.**
+  `App::logic` is steps 1-4 and 6-7; `App::ui` is step 5. `logic` is called
+  while the window is *hidden* and `ui` is not, so a hidden window keeps playing
+  and simply is not drawn — G6's backgrounded tab, arriving three stages early,
+  and §15.2 step 4's catch-up cap is what makes that safe. A `FrameState` is
+  carried between the two halves so they agree about the moment.
+- **The GUI is unconditionally §8.2's enhanced case**, so `HOLD_TIMEOUT` and
+  `RESTART_QUIET` are unreachable from it and `--legacy` has no meaning there.
+- **Focus loss synthesises releases**, because the release of a key let go
+  outside the window never arrives and a held direction would keep charging DAS.
+  `gui::keys::Keyboard` remembers what it reported as held; F5 makes the stream
+  synthesisable precisely so a front-end may do this. It does **not** pause the
+  game: §8.4's forced pause is about a viewport that cannot host the screen, and
+  a window behind another one still can.
+- **A tap shorter than a frame is lost, in both front-ends.** Press and release
+  of a movement key inside one pump cancel before any tick consumes the pending
+  cell (`KeyTimer::release` resets `initial`). This is pre-existing and shared —
+  the terminal loop drains every waiting event before `advance` too — and it is
+  why §17.3's A4 measures a *50 ms* tap. A synthetic instantaneous key-down/up
+  is not a human tap, and a test that sends one will conclude movement is
+  broken when it is not.
+- **`egui` reports a key, not a character**, so the adapter decides a *letter's*
+  case from the shift modifier — and the **punctuation needs an explicit
+  table**, because `egui::Key::name` spells those out (`"Minus"`, not `"-"`)
+  where it gives the letters and digits a single character. §10.1 lets a player
+  bind any single character and §6.2 gives the two binaries one file, so the
+  invariant is: every `Char(c)` the adapter can produce must be the key
+  `parse_key` resolves `c` to. That is a test, and it is what caught this. The
+  one gap left is the shifted digits — `egui` has a variant for `?` and `|` but
+  none for `!` — recorded in `GUI.md` §G2.1 as accepted. `Event::Text` is
+  deliberately unused: §12.6's name-entry rules are `shell::menus`'s.
+- **CI grew an `apt-get`.** `eframe` needs X11/Wayland/GL *headers* to compile,
+  in both jobs. Nothing in `cargo test` opens a window.
+
 ---
 
 ## Open decisions
@@ -548,7 +616,7 @@ make portable        # ...and with no platform under them: the G3 boundary
 cargo clippy --all-features --all-targets -- -D warnings
 cargo fmt --check
 cargo run --release  # play it (`default-run` picks `ftm` of the two bins)
-cargo run --release --features gui --bin ftm-gui   # the G5 stub, for now
+make run-gui         # the window (`cargo run --release --features gui --bin ftm-gui`)
 cargo run -- --print-config    # effective config
 cargo run -- --seed 42         # deterministic run, not recorded to high scores
 tools/drive.py c c             # drive the release binary on a pty

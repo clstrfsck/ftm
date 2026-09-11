@@ -23,6 +23,7 @@ use anyhow::Result;
 use crossterm::event::{self, Event};
 use ratatui::layout::Size;
 
+use crate::native::Clock;
 use crate::shell::attract::Attract;
 use crate::shell::config::{DisplaySettings, Startup};
 use crate::shell::host::Host;
@@ -31,7 +32,6 @@ use crate::shell::round::{FrameState, Round};
 use crate::shell::session::{Next, Session};
 use crate::shell::time::Stamp;
 use crate::tui::attract::{self, Background};
-use crate::tui::host::Clock;
 use crate::tui::keys::neutral;
 use crate::tui::theme::{Glyphs, Theme};
 use crate::tui::{self, Chrome, Hud, Tui};

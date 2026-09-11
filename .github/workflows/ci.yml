@@ -20,6 +20,16 @@ jobs:
           # G6 a capability provider rather than a port (FTM.md §3.1).
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      # `make check` builds the `gui` front-end too since EGUI.md G5, and
+      # `eframe` brings a windowing and rendering stack with it (GUI.md §G1.1:
+      # glow + x11 + wayland). None of this is needed to *run* the tests --
+      # nothing in `cargo test` opens a window -- only to compile winit and
+      # glutin against the platform's headers.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev \
+            libxkbcommon-dev libwayland-dev
       # One step, so that CI and a developer at a terminal run the same thing
       # by construction: `make check` is fmt, clippy, test, the two shell
       # boundary checks and the release build, in that order, stopping at the
@@ -35,12 +45,18 @@ jobs:
 
   # Not a Makefile target: it is the one command here that means nothing
   # without a pinned toolchain of its own. The version is `rust-version` in
-  # Cargo.toml and the MSRV of FTM.md §3 -- currently `ratatui`'s floor, not
-  # the language's -- and it moves when a dependency moves it. Change it in
-  # all three places or this job stops checking what it claims to.
+  # Cargo.toml and the MSRV of FTM.md §3 -- `egui`'s floor since EGUI.md G5,
+  # `ratatui`'s before that, and never the language's -- and it moves when a
+  # dependency moves it. Change it in all three places or this job stops
+  # checking what it claims to.
   msrv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev \
+            libxkbcommon-dev libwayland-dev
       - run: cargo check --all-features --all-targets

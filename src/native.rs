@@ -1,10 +1,19 @@
 //! The four capabilities of `FRONTEND.md` F1-F4, on a machine with a
 //! filesystem, a clock, a calendar and an entropy source.
 //!
-//! §3.1 gives the shell none of the four, so this is where they come from for
-//! the terminal front-end — and it is deliberately the *whole* of the platform
-//! the shell sees: `std::fs`, `directories`, `chrono` and `rand::random` are
-//! named here and nowhere above the front-end.
+//! §3.1 gives the shell none of the four, so this is where they come from —
+//! and it is deliberately the *whole* of the platform the shell sees:
+//! `std::fs`, `directories`, `chrono` and `rand::random` are named here and
+//! nowhere above a front-end.
+//!
+//! **This is not a layer.** It is a desktop, and it sits beside the front-ends
+//! rather than under the shell: `ftm` and `ftm-gui` both run on one, and §6.2
+//! and §14 say they share one config file and one high-score table, so a
+//! setting written by either is read by the other. `EGUI.md` G5 moved it here
+//! from `tui/host.rs` for that reason — two copies of §14's atomic write is
+//! two places for it to drift, and `CLAUDE.md` says that write has one home.
+//! Each front-end still decides *whether* to use it: the browser tab of G6
+//! answers the same four with `web_sys`, and takes nothing from here.
 //!
 //! It is about a hundred and fifty lines, most of them §6.2's and §14's paths
 //! and §14's atomic write. That is the number `EGUI.md` G6 is betting on when
