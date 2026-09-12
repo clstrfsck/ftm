@@ -377,13 +377,49 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
   they already have to get right are tested: a clean stack beats the same stack
   with a hole in it, and no board is worth a top out.
 
-### P3 — Placements, one ply
+### P3 — Placements, one ply ✅
 
 - Hard-drop placement generation: rotate at spawn, shift, drop — the simple
   generator `PILOT.md` recommends starting from, honouring the one-action,
   one-cell-per-tick cap.
 - One-ply choice with canonical ordering and the tie-breakers.
 - Plan replay verification as a debug assertion.
+
+**What it settled.**
+
+- **A placement is played, not predicted.** Every candidate is replayed through
+  the real rules on a fork and measured from the board it leaves behind, so
+  there is no arithmetic anywhere about where a piece lands. That is what makes
+  a rotation that kicks at a high stack, a shift that runs into a wall and a
+  piece that gravity locks early all ordinary rather than special cases — and
+  it is why `SearchGame` gained nothing this stage. §P2.3 expected the pose and
+  the hold state here; a generator that replays reads the position from
+  `view()` and wants neither. Both sections are amended.
+- **The plan is truncated at the tick that locks the piece**, whichever tick
+  that is. An input after the lock is one the *next* piece receives, which is
+  the divergence §P3.1 forbids rather than a plan. The fork is what knows.
+- **The divergence assertion found the one thing it could not compare, on its
+  first run.** A hold at a `preview_count` of 1 uses the fork's queue up, so the
+  tick that locks the piece cannot say what spawns after it — the live game
+  deals a piece that was hidden when the plan was made. The prediction carries
+  whether the fork still knew, and the comparison stops exactly there: the
+  board, the figures and the hold slot always, the next piece only when it was
+  not past the horizon. The assertion is worth its keep already.
+- **It does not play badly.** P4 says to expect that, and it was wrong: one ply
+  over §P5's starting weights plays **20,000 pieces on each of five seeds
+  without a top out**, ~8,000 lines and level 800 each. So the lookahead of P6
+  has a harder baseline to beat than the plan assumed, and P5's benchmark is
+  what will say whether it beats it at all.
+- **The cost, measured, and it is P5's starting figure.** ~104 candidates per
+  piece — two hold choices × four orientations × thirteen columns — at about
+  155 µs a piece in release, or **~6,500 placements a second** on this machine.
+  A frame is 16 ms, so a full `MAX_CATCH_UP_TICKS` batch is nowhere near it
+  even at one search per tick; the number to check in P5 is the one after P6's
+  second ply, not this one.
+- **`Settings` is landed unread.** `Pilot::new`'s signature is §P3.4's, and a
+  settings-shaped argument that arrives two stages later is a signature that
+  changes under its callers. `settings()` is what reads the field — §P8's
+  report header is who will want it.
 
 ### P4 — It plays
 

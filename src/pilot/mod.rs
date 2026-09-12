@@ -19,17 +19,28 @@
 //! identical on every target and in every build profile — §9.9's reason, one
 //! layer up again.
 //!
-//! What is here so far (`PILOT-PLAN.md` P2):
+//! What is here (`PILOT-PLAN.md` P2 and P3):
 //!
+//! * [`Pilot`] and [`Settings`] — §P3.4's controller, which is the whole of the
+//!   player seen from outside: fed a tick's events, asked for a tick's input.
 //! * [`knowledge`] — what the planner is allowed to know (§P2.1), folded out of
 //!   the event stream and inferred from §9.6's bag arithmetic.
 //! * [`fork`] — the object a search runs on: the fair fork of §P2.3.
 //! * [`eval`] — §P5's board features and the integer evaluator over them.
 //!
-//! §P3.4's `Pilot` and `Settings` — the controller that turns these into a
-//! `TickInput` — arrive with the stages that can fill them in: placements and a
-//! one-ply choice in P3, the menu item and the two front-ends in P4.
+//! Those three are public because §P8's runner and §P9's acceptance checks are
+//! written against them from outside the crate. The two modules under the
+//! controller are not: `placement` is §P4.1's generator and `controller` is the
+//! plan it feeds, and both are reached through [`Pilot`] alone.
+//!
+//! **Nothing plays by itself yet.** P3 chooses one ply ahead and P4 is where a
+//! front-end offers the mode; the search of §P6 and the exact placements of
+//! §P4.2 are the two stages after that.
 
+mod controller;
 pub mod eval;
 pub mod fork;
 pub mod knowledge;
+mod placement;
+
+pub use controller::{Pilot, Settings};

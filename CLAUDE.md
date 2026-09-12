@@ -95,7 +95,9 @@ has, so `app.rs` never asks. `pilot/` is the automated player and is none of
 the above — not a front-end, not a layer, and a sibling of `core/` and
 `shell/`: `knowledge.rs` (§P2.4's bag counting), `fork.rs` (§P2.3's seam from
 above) and `eval.rs` (§P5's features and weights), with `core/search.rs`
-underneath it. T1-T17 all pass, plus I1-I4, `tests/pump.rs` and
+underneath it, and — since P3 — `placement.rs` (§P4.1's generator) and
+`controller.rs` (§P3.4's `Pilot`, the plan and §P6.4's choice), which are the
+two private modules in a directory that is otherwise public. T1-T17 all pass, plus I1-I4, `tests/pump.rs` and
 `tests/gui_render.rs` — the window's I4, which is `tests/render_sizes.rs`'s
 counterpart in pixels (§G9.1) — and the batch-invariance canary is in CI.
 
@@ -110,15 +112,18 @@ is.
 **There is a live plan again: `PILOT-PLAN.md`, stages P0-P8**, which builds the
 automated player of `PILOT.md` §P1-§P9 — a **PILOT** row on §13.3's menu that
 plays the game while the player watches. It is a deliberate amendment to the
-scope rule below: it promotes §18's first bullet and no other. Stages P1 and P2
-are complete. P1 was the specification and the amendments to `FTM.md`, `TUI.md`
-and `GUI.md`; P2 is the first code — §P2.3's fork in `core/search.rs`, and
-**`src/pilot/`, a fourth directory beside `core/`, `shell/` and the two
+scope rule below: it promotes §18's first bullet and no other. Stages P1, P2
+and P3 are complete. P1 was the specification and the amendments to `FTM.md`,
+`TUI.md` and `GUI.md`; P2 is the first code — §P2.3's fork in `core/search.rs`,
+and **`src/pilot/`, a fourth directory beside `core/`, `shell/` and the two
 front-ends**, holding §P2.4's bag observation, §P2.3's `Fork` and §P5's
 features and weights. It is in `make shell` and `make portable` for exactly the
-reason `shell/` is. **Nothing plays yet**: P3 is placements and a one-ply
-choice, P4 is the menu item and the two front-ends. See **Scope discipline**,
-which says what is still out.
+reason `shell/` is. **P3 is a player**: `pilot::Pilot` and `Settings` (§P3.4),
+`placement.rs`'s §P4.1 generator and the one-ply choice with §P6.4's
+tie-breaks. It plays a full game headlessly and plays it *well* — 20,000 pieces
+on each of five seeds with no top out — but **nothing offers it yet**: P4 is
+the menu item, the controller inside `App` and the two front-ends. See **Scope
+discipline**, which says what is still out.
 
 ## The §17.3 sign-off
 
@@ -552,9 +557,11 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   mechanic are both `hold: None` — so it travels with the theme and `show_grid`
   rather than being smuggled into the view (§12.4, §12.7).
 
-These four are `PILOT.md`'s. The first two have code behind them since P2 and
-are held the way the rest of this list is — by a type and by `make portable`.
-The third and fourth are still written-down-only: P3 and P4 have to keep them.
+These five are `PILOT.md`'s. The first three have code behind them — the first
+two since P2, the third since P3 — and are held the way the rest of this list is:
+by a type, by `make portable`, and now by a debug assertion that runs on every
+tick of every planned game in the test suite. The fourth and fifth are still
+written-down-only: P4 has to keep them.
 
 - **The planner never holds a `Game`** (`PILOT.md` §P2). A clone carries the
   real bag and the real generator, and `Game::bag_remaining` is an accessor onto
@@ -584,13 +591,29 @@ The third and fourth are still written-down-only: P3 and P4 have to keep them.
   round, which is §19.4's canary one layer up and is asserted in
   `tests/pump.rs`.
 - **The planner thinks once per piece, on the tick it spawns** (`PILOT.md`
-  §P3.1), and emits one `TickInput` per tick until it locks. Two things follow.
-  `App::advance` gives a batch's edge actions to its *first* tick only, because
-  a human produces input per frame; a planned round needs the batch's *n*th
-  input on its *n*th tick, so that is a branch inside `advance` and the human
-  path must stay byte-identical. And a plan is never recomputed from a partly
-  executed state — a plan that diverges from what the search predicted is a bug,
-  not a resync.
+  §P3.1), and emits one `TickInput` per tick until it locks. Since P3 that is
+  `Pilot::input`: the plan is made on the first tick at which a piece is in play
+  and no plan is running, which is exactly once per piece — a hold raises
+  `PieceSpawned` too, and a planner that re-planned on the event would tear up a
+  plan it was halfway through. Two things follow. `App::advance` gives a batch's
+  edge actions to its *first* tick only, because a human produces input per
+  frame; a planned round needs the batch's *n*th input on its *n*th tick, so
+  that is a branch inside `advance` (P4's) and the human path must stay
+  byte-identical. And a plan is never recomputed from a partly executed state —
+  a plan that diverges from what the search predicted is a bug, not a resync,
+  and `Pilot::verify` is the debug assertion that says so tick by tick.
+- **A plan ends at the tick that locks the piece, and the fork is what knows
+  which tick that is** (`PILOT.md` §P3.1, §P4.1). The generator replays every
+  candidate through the real rules rather than computing where a piece would
+  land, so a kick, a wall and a gravity lock that beats the hard drop are all
+  ordinary. The sequence is **truncated** at the lock: an input after it is one
+  the next piece would receive. Two things the replay bought, which is why it is
+  not a detail — the features are measured after §9.12's clear delay, because a
+  board measured during it still holds the rows it is about to lose and a
+  planner that scored it would never clear a line; and the divergence assertion
+  can only compare as far as the fork's queue reached, because a hold at a
+  `preview_count` of 1 uses it up and what the live game deals next was hidden
+  when the plan was made.
 - **A screen offers what its front-end can do, now for a third list**
   (`PILOT.md` §P1, §P7.1). `MenuChoice::ALL` is six items with PILOT;
   `MenuChoice::CANVAS` — renamed from `NO_QUIT` — is a tab's four, short of QUIT
@@ -1184,6 +1207,46 @@ The third and fourth are still written-down-only: P3 and P4 have to keep them.
   rather than through `from_settings`, because the planner may name the one and
   not the other two. A test that reaches past the boundary is testing a module
   allowed to do something the module under test is not.
+
+---
+
+## What P3 settled
+
+- **A placement is played, not predicted**, and that one decision is why the
+  generator is ninety lines. Every candidate — hold or not, four orientations,
+  thirteen columns — is replayed on a fork through the real rules and measured
+  from the board it leaves behind. There is no arithmetic anywhere about where a
+  piece lands, so a rotation that kicks at a high stack, a shift that runs into
+  a wall and a piece that gravity locks early are all ordinary rather than
+  special cases. `PILOT.md`'s "both generators produce input sequences, never
+  board positions" is the reason this is the cheap way round and not the
+  expensive one.
+- **`SearchGame` gained nothing this stage, against the plan's expectation.**
+  §P2.3 had the pose and the hold state arriving with P3's generator; a
+  generator that replays reads the position from `view()` and wants neither.
+  They are §P4.2's — P7 — which will also have to answer how a pose crosses the
+  boundary at all, since `ActivePiece` is not in the core's façade and may not
+  join it. §P2.3 and the plan are amended.
+- **The divergence assertion earned its keep on its first run.** It caught a
+  case the design had not: a hold at a `preview_count` of 1 uses the fork's
+  queue up, so the tick that locks the piece cannot say what spawns after it —
+  the live game deals a piece that was hidden information when the plan was
+  made. The prediction now carries whether the fork still knew, and the
+  comparison stops exactly there. This is the shape of every fairness question
+  in this plan: the answer was to compare *less*, not to give the fork more.
+- **It does not play badly, which `PILOT-PLAN.md` P4 says to expect.** One ply
+  over §P5's starting weights plays 20,000 pieces on each of five seeds with no
+  top out — ~8,000 lines and level 800 apiece. P6's lookahead therefore has a
+  harder baseline to beat than the plan assumed, and P5's benchmark is what will
+  say whether it beats it.
+- **The cost is ~155 µs a piece in release**, about 6,500 placements a second,
+  for the 104 candidates one ply generates. A frame is 16 ms, so even a full
+  `MAX_CATCH_UP_TICKS` batch of searches is nowhere near it; the number worth
+  measuring in P5 is the one after P6's second ply.
+- **`cargo test` runs the assertion, and that is the point of it.** Every
+  planned game in the suite checks the plan against the fork tick by tick,
+  because `cargo test` is a debug build. A release round pays nothing: the
+  predictions are not even recorded.
 
 ---
 

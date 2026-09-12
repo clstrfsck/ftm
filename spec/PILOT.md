@@ -114,9 +114,16 @@ impl SearchGame {
   or a list — so a fork does not hold a randomiser it has promised not to ask.
 - That list above is an **upper bound on this surface, not a shopping list**.
   Each accessor lands with the stage that reads it, and nothing here may ever be
-  wider: `tick`, `state`, `view`, `scripted` and `exhausted` are P2's, and the
-  pose and hold state arrive with P3's placement generator, which is the first
-  thing that has a use for them.
+  wider: `tick`, `state`, `view`, `scripted` and `exhausted` are P2's, and
+  **that is still the whole of it after P3**. The pose and the hold state were
+  expected with P3's placement generator and were not needed by it: §P4.1
+  produces input sequences and *replays* them, so what it wants to know about
+  the position it reads from `view()` — the board, the piece in play, the hold
+  slot and whether hold is spent are all on a `GameView` (§12.7). They are
+  §P4.2's, in the stage that deduplicates states by pose and rotation metadata,
+  and that stage has a second problem to solve first: `ActivePiece` is not in
+  the core's façade and may not become part of it (§17.3 A10), so a pose
+  crossing this boundary has to be one `src/pilot/` can name.
 - When the scripted queue runs out the fork **refuses to spawn** and reports
   `exhausted()`. A search cannot run past its own horizon, because the object it
   runs on cannot. It waits in §9.12's entry delay: a fork that has run out is
@@ -169,8 +176,21 @@ The queue a fork is given is built from observation, not from the live game:
 - Nothing else re-plans. A hold is part of a plan, not a reason to make a new
   one, and the plan is never recomputed from a partly executed state, so the
   live game replays exactly what the search simulated.
+- **"Until the piece locks" is whichever tick that turns out to be.** A plan's
+  last input is normally the hard drop it ends with, but gravity may lock the
+  piece first — §9.11's lock delay running out while it is still being shifted,
+  which is ordinary at a high level and is everything §P4.2 exists for. The
+  search sees that happen on the fork, so the plan is **truncated** there: an
+  input after the lock would be one the *next* piece received, which is a
+  divergence rather than a plan.
 - A plan that diverges from the outcome the search predicted is a **bug**, and
-  is caught by a debug assertion as the plan is consumed (§P9 C5).
+  is caught by a debug assertion as the plan is consumed (§P9 C5). What the
+  assertion may compare is bounded by what the fork was told: the board, the
+  figures, the hold slot and the piece the plan controls, always — and the
+  piece that spawns *after* the lock only when the fork's queue outlasted it. A
+  hold at a `preview_count` of 1 uses the queue up, and what the live game
+  deals next was hidden information at the moment the plan was made (§P2.1). A
+  fork that cannot say is §P2.3 working rather than failing.
 - A batch of ticks (§15.2 step 4) may contain more than one spawn, and may be up
   to `MAX_CATCH_UP_TICKS` long. The node budget is sized so a full catch-up
   batch still fits in a frame (§P6.4).
@@ -219,12 +239,20 @@ pub struct Pilot { /* … */ }
 
 impl Pilot {
     pub fn new(rules: &RulesConfig, settings: Settings) -> Self;
+    pub fn settings(&self) -> Settings;
     /// Fold in one tick's events: deals, holds, locks (§P2.4).
     pub fn observe(&mut self, events: &[GameEvent]);
     /// The input for this tick, planning first if a piece has just spawned.
     pub fn input(&mut self, game: &Game) -> TickInput;
 }
 ```
+
+**The order those are called in is §15.2's**: `input` for a tick, then
+`Game::tick`, then `observe` of what that tick raised. A tick's input is
+decided before the tick happens and its events exist only after it, so there is
+no other order to call them in — and a `Pilot` therefore belongs to its game
+from that game's first tick, because the first piece is a deal no event mentions
+(§P2.4) and the view is the only place it can be read.
 
 `src/pilot/` may name the core's façade and §P2.3's seam, and
 `shell::config::RulesConfig`, and nothing else in either layer. It must not
