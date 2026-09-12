@@ -3,7 +3,8 @@
 A guideline-conformant falling-block game in Rust. No server, no unsafe. The
 name is the joke; `ftm` is the binary, the crate, and the config and data
 directories. The specification is `FTM.md`, and since G0 it has three companion
-documents — see **The four documents** below.
+documents — see **The four documents** below. All six documents, the two plans
+included, live in **`spec/`**.
 
 It is no longer only a terminal game, and no longer a single binary: `EGUI.md`
 builds a second and third front-end (a native egui window, and the same code as
@@ -127,6 +128,11 @@ readable backtrace and exited 101.
 
 ## Read these first
 
+They are all in `spec/`, and everything below names them the way the source
+does — `GUI.md §G7`, not `spec/GUI.md §G7`. A document is referred to by its
+name because that is what several hundred doc comments say; the directory is
+where it is kept, not what it is called.
+
 1. **`EGUI.md`** — the live plan, stages G0-G13. Find the current stage; it
    names the spec sections it depends on and the tests that close it. Read that
    stage, plus "The decisions this plan rests on" and "The central idea", which
@@ -154,7 +160,7 @@ several hundred doc comments, and each one would still *read* fine.
 | **`FTM.md`** | §1-§7, §9-§11, §12.7, §12.8, §14-§19 | The front-end-agnostic specification: rules, config, states, controls, the view model and the event stream, high scores, timing, errors, testing, §19. |
 | **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
 | **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
-| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9 and §G6.5-§G6.6 by G10; G11-G13 fill the rest stage by stage. |
+| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9, §G6.5-§G6.6 by G10 and §G7 by G11; G12 and G13 fill §G8's remainder and §G9. |
 
 An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
 owns. `§Gn` means `GUI.md`; a future `MACROQUAD.md` would take `§M`.
