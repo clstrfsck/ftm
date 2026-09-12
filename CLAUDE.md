@@ -18,7 +18,8 @@ by a front-end rather than owning a `while`; G5 hung an `eframe` application on
 the pump; G6 compiled the same application for wasm and gave it a browser's
 four capabilities; G7 gave it the playing screen, G8 the boxes over it, G9
 §12.5's animations under them and G10 the one core change the whole plan has:
-a falling piece is drawn between two rows.
+a falling piece is drawn between two rows, and enters the well rather than
+appearing in it.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
 stages G0-G10 complete — milestone MG5. Start at G11.** All
@@ -147,7 +148,7 @@ several hundred doc comments, and each one would still *read* fine.
 | **`FTM.md`** | §1-§7, §9-§11, §12.7, §12.8, §14-§19 | The front-end-agnostic specification: rules, config, states, controls, the view model and the event stream, high scores, timing, errors, testing, §19. |
 | **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
 | **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
-| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9 and §G6.5 by G10; G11-G13 fill the rest stage by stage. |
+| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9 and §G6.5-§G6.6 by G10; G11-G13 fill the rest stage by stage. |
 
 An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
 owns. `§Gn` means `GUI.md`; a future `MACROQUAD.md` would take `§M`.
@@ -185,9 +186,19 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   nothing about the game. The core appends to the caller's event buffer and
   never reads it back.
 - **View and event coordinates are visible-field coordinates** — `(col, row)`
-  with row 0 the topmost *visible* row, matrix row 20. Clipping happens in
-  `core/view.rs`, never in the renderer; a cell above the field is omitted,
-  encoded as `(255, 255)`.
+  with row 0 the topmost *visible* row, matrix row 20. **`PieceView::cells` is
+  the one signed pair**, and the one thing not clipped: a negative row is a mino
+  of the falling piece above the field, all four minos are always present, and
+  there is no sentinel in the array. Everything else is unsigned and clipped in
+  `core/view.rs` — `GameView::rows` is the visible field alone, and an event
+  coordinate above it is omitted, encoded as `(255, 255)`. The asymmetry is
+  §12.7's and §12.8's, and it is the difference between the two streams: an
+  event starts an animation and there is nothing to animate where nobody can
+  see, while the falling piece is *where it is* and §9.4 puts part of it above
+  the field on every spawn but `I`'s. A front-end draws as many rows above the
+  field as it has room for — the terminal none, the window one, clipped to the
+  well so a piece grows in rather than appearing (`GUI.md` §G6.6). Neither has
+  to know a buffer zone exists to do that.
 - **`RulesConfig` and `PresentationConfig` are separate structs** (§6.5). Do not
   merge them into one `Config`.
 - **DAS/ARR live in the shell**, not the core (§10.3). The core is told a
@@ -794,6 +805,13 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **No clipping was needed.** The offset is non-zero only when the piece can
   move down, so the cells below it are empty by construction and a sliding piece
   can never overlap the stack, the floor or the walls.
+- **The pop-in the plan told us to accept was not acceptable after all.** §9.4
+  spawns every piece but `I` with a mino above the field, `GameView` clipped it,
+  and a `J` was drawn as three minos and then abruptly four. Invisible while the
+  piece stepped; obvious against smooth neighbours. The fix is the signed row in
+  the invariant above, and it is small because the §19 objection did not apply
+  to the half that mattered — those minos are the player's own piece, not the
+  hidden stack. `GUI.md` §G6.6.
 - **`--virtual-time-budget` is not a way to screenshot this.** It advances
   `performance.now()` without running the frames, so every capture came back
   with the piece at spawn and the clock at `00:00`. What works is the G7 recipe

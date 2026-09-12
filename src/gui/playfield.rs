@@ -159,9 +159,14 @@ fn well(
     // outside the grid because a grid cannot say "half a row down", and last
     // for the reason it went down last in `compose` — where it overlaps the
     // ghost, the piece is what the player sees.
+    //
+    // Clipped to the well, which is what makes a piece **enter** rather than
+    // appear: §9.4 spawns every piece but `I` with a mino above the field, and
+    // as the piece slides that mino grows in past the well's top edge instead
+    // of arriving whole a row later.
     for ((col, row), colour) in falling(view, fx).into_iter().flatten() {
         let at = layout.falling_cell(col, row, view.fall_progress);
-        paint::mino(painter, layout, at, colour);
+        paint::mino_clipped(painter, layout, at, well, colour);
     }
 }
 
@@ -213,11 +218,14 @@ fn compose(view: &GameView, fx: &Cosmetics) -> Field {
     // when `ghost_piece` is off, and that is the view's answer rather than a
     // special case here (§12.7).
     if let Some(ghost) = &view.ghost {
-        for &cell in &ghost.cells {
-            // `OFF_SCREEN` is how the view says a mino is above the field;
-            // clipping happened in `core/view.rs`, and a coordinate that is not
-            // on the field is simply not drawn — which is `at`'s answer.
-            if let Some(cell) = at(&mut field, cell) {
+        for &(col, row) in &ghost.cells {
+            // A negative row is a mino above the field (§12.7). The ghost is on
+            // the grid and the grid is the visible field, so it is simply not
+            // drawn — the same answer `at` gives a coordinate off either side.
+            // The ghost is never interpolated (§G6.5), so it needs no mouth.
+            if let Ok(row) = u8::try_from(row)
+                && let Some(cell) = at(&mut field, (col, row))
+            {
                 *cell = Some(paint::piece(ghost.kind, palette::GHOST));
             }
         }
@@ -272,7 +280,10 @@ const MINOS: usize = 4;
 /// The rows it is washed by are the ones it *occupies*, not the ones it is
 /// sliding toward: a piece is in the row the rules say it is in, and the offset
 /// is how far between rows it is drawn (§12.7).
-fn falling(view: &GameView, fx: &Cosmetics) -> [Option<((u8, u8), egui::Color32)>; MINOS] {
+/// A mino of the falling piece keeps its **signed** row (§12.7), because §9.4
+/// puts one above the field on every spawn but `I`'s and the mouth has room to
+/// show it coming in (§G6.5).
+fn falling(view: &GameView, fx: &Cosmetics) -> [Option<((u8, i8), egui::Color32)>; MINOS] {
     let mut minos = [None; MINOS];
     let Some(piece) = &view.current else {
         return minos;
@@ -280,11 +291,15 @@ fn falling(view: &GameView, fx: &Cosmetics) -> [Option<((u8, u8), egui::Color32)
     let wiped = fx.wiped_rows(VIEW_HEIGHT as u8);
     let colour = paint::piece(piece.kind, palette::FULL);
     for (mino, &(col, row)) in minos.iter_mut().zip(&piece.cells) {
-        // `OFF_SCREEN`, and anything else off the field, is simply not drawn —
-        // the same answer `at` gives `compose`.
-        if usize::from(col) < VIEW_WIDTH && usize::from(row) < VIEW_HEIGHT {
-            *mino = Some(((col, row), washed(colour, row, fx, wiped)));
+        if usize::from(col) >= VIEW_WIDTH || row >= VIEW_HEIGHT as i8 {
+            continue;
         }
+        // A mino above the field is in no row §12.5 has a flash or a wipe for,
+        // so it keeps the piece's plain colour. `well` clips it to the well.
+        *mino = Some(match u8::try_from(row) {
+            Ok(on_field) => ((col, row), washed(colour, on_field, fx, wiped)),
+            Err(_) => ((col, row), colour),
+        });
     }
     minos
 }
@@ -612,7 +627,7 @@ mod tests {
         }
         view.current = Some(PieceView {
             kind: PieceKind::T,
-            cells: [(4, 0), (5, 0), (6, 0), crate::core::OFF_SCREEN],
+            cells: [(4, 0), (5, 0), (6, 0), (5, -1)],
         });
         // Part-way between two rows (§G6.5), so the size sweep draws a sliding
         // piece at every size and density rather than only a settled one.
@@ -844,9 +859,12 @@ mod tests {
             shapes(&ctx, size, 1.0, &playing, chrome, false, &quiet_fx()),
             shapes(&ctx, size, 1.0, &paused, chrome, false, &quiet_fx()),
         );
-        // Nine on the floor, three of the piece on the field, four of ghost.
-        // The scrim and the box are `overlays`', and are drawn either way.
-        assert_eq!(playing - paused, 9 + 3 + 4);
+        // Nine on the floor, four of the piece and four of ghost. The piece's
+        // fourth mino is above the field and is drawn because it has slid far
+        // enough into the mouth to show (§G6.5) — before that change it was
+        // three. The scrim and the box are `overlays`', and are drawn either
+        // way.
+        assert_eq!(playing - paused, 9 + 4 + 4);
     }
 
     #[test]
@@ -1004,13 +1022,18 @@ mod tests {
             ],
         );
 
-        // A mino the view clipped is not drawn, exactly as `compose` does not
-        // draw one (§12.7).
+        // A mino above the field keeps its negative row and its plain colour:
+        // it is in no row §12.5 has a flash or a wipe for, and it is `well`
+        // that decides how much of it the mouth shows (§G6.5).
         view.current = Some(PieceView {
             kind: PieceKind::T,
-            cells: [(4, 0), (5, 0), (6, 0), crate::core::OFF_SCREEN],
+            cells: [(4, 0), (5, 0), (6, 0), (5, -1)],
         });
-        assert_eq!(falling(&view, &quiet)[3], None, "the clipped mino");
+        assert_eq!(
+            falling(&view, &quiet)[3],
+            Some(((5, -1), plain)),
+            "the mino above the field is reported, not dropped",
+        );
 
         // Mid-wipe, the piece is washed by the row it *occupies* — the row the
         // rules say it is in, not the one it is sliding toward.
@@ -1022,6 +1045,52 @@ mod tests {
         fx.absorb(&[], Stamp::ZERO + std::time::Duration::from_millis(250));
         let wiped = falling(&view, &fx)[0].expect("a mino on row 0").1;
         assert_eq!(wiped, paint::GREYED, "row 0 went first");
+    }
+
+    #[test]
+    fn a_piece_enters_the_well_rather_than_appearing_in_it() {
+        // §G6.5: §9.4 spawns every piece but `I` with a mino above the visible
+        // field, so a `T` used to be drawn as three minos until the row changed
+        // and then abruptly as four — barely noticeable when the piece stepped,
+        // and very noticeable once it slid. Clipped to the well, the fourth
+        // grows in past the top edge instead.
+        let layout = match Measure::of(
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(728.0, 672.0)),
+            1.0,
+        ) {
+            Measure::Fits(layout) => layout,
+            small => panic!("{small:?}"),
+        };
+        let well = layout.well();
+        let showing: Vec<f32> = [0u16, 16_384, 32_768, 49_152, 65_535]
+            .into_iter()
+            .map(|progress| {
+                let shown = layout.falling_cell(5, -1, progress).intersect(well);
+                if shown.is_positive() {
+                    shown.height()
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+
+        assert_eq!(showing[0], 0.0, "at the top of its row it is wholly hidden");
+        for pair in showing.windows(2) {
+            assert!(pair[1] > pair[0], "it grows in: {showing:?}");
+        }
+        assert!(
+            showing[4] >= layout.cell() * 0.9,
+            "and is nearly whole by the row change: {showing:?}",
+        );
+        // Which is exactly where the next row starts it, so nothing jumps when
+        // the row does change.
+        assert_eq!(layout.falling_cell(5, 0, 0), layout.field_cell(5, 0));
+        // Nothing of it is ever drawn above the well: the mouth is where the
+        // piece comes from, not somewhere the game draws (§G4.1).
+        for progress in [0u16, 32_768, 65_535] {
+            let shown = layout.falling_cell(5, -1, progress).intersect(well);
+            assert!(!shown.is_positive() || shown.min.y >= well.min.y);
+        }
     }
 
     #[test]

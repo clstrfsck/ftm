@@ -82,6 +82,31 @@ pub fn mino(painter: &egui::Painter, layout: &Layout, cell: egui::Rect, colour: 
     painter.rect_filled(layout.inset(cell, gutter), 0.0, colour);
 }
 
+/// One mino, with whatever of it lies outside `to` cut away (§G6.5).
+///
+/// The falling piece is drawn through this, because a piece entering the field
+/// straddles the well's top edge for a whole row of its fall (§9.4, §12.7) and
+/// what should show is the part that is *in* the well — a partial square that
+/// grows, rather than a whole one that arrives. A mino wholly outside draws
+/// nothing at all.
+///
+/// The intersection is taken after the gutter, so the tile it cuts is the tile
+/// [`mino`] would have drawn; `Rect::intersect` keeps whole-pixel edges because
+/// both rects already have them.
+pub fn mino_clipped(
+    painter: &egui::Painter,
+    layout: &Layout,
+    cell: egui::Rect,
+    to: egui::Rect,
+    colour: egui::Color32,
+) {
+    let gutter = (layout.cell_pixels() / 16).max(1);
+    let tile = layout.inset(cell, gutter).intersect(to);
+    if tile.is_positive() {
+        painter.rect_filled(tile, 0.0, colour);
+    }
+}
+
 /// Monospace or not: a figure is set in monospace, so that a number that
 /// changes does not shuffle the digits either side of it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

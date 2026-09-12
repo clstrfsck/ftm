@@ -337,8 +337,13 @@ fn compose(grid: &mut [[Paint; VIEW_WIDTH]; VIEW_HEIGHT], view: &GameView, fx: &
         (&view.current, Paint::filled as fn(PieceKind) -> Paint),
     ] {
         let Some(piece) = piece else { continue };
-        for &cell in &piece.cells {
-            put(grid, cell, paint(piece.kind));
+        for &(col, row) in &piece.cells {
+            // §12.7: a negative row is a mino above the field. §12.4 has no
+            // room above the well — the row over it is the mouth, and it is a
+            // border character — so the terminal simply has none of them.
+            if let Ok(row) = u8::try_from(row) {
+                put(grid, (col, row), paint(piece.kind));
+            }
         }
     }
     // The clear flash alternates white and the piece's own colour (§12.5): on
@@ -366,7 +371,9 @@ fn compose(grid: &mut [[Paint; VIEW_WIDTH]; VIEW_HEIGHT], view: &GameView, fx: &
 }
 
 /// Set one cell, ignoring a coordinate that is not on the field — which is how
-/// [`OFF_SCREEN`](crate::core::events::OFF_SCREEN) minos are dropped (§12.7).
+/// [`OFF_SCREEN`](crate::core::events::OFF_SCREEN) minos from the event stream
+/// are dropped (§12.7, §12.8). A piece's own minos above the field are a signed
+/// row and are dropped by the caller.
 fn put(grid: &mut [[Paint; VIEW_WIDTH]; VIEW_HEIGHT], (col, row): (u8, u8), paint: Paint) {
     if let Some(cell) = grid
         .get_mut(row as usize)

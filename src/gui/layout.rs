@@ -189,11 +189,18 @@ impl Layout {
     /// 14-point minimum that gives a cell fourteen distinct positions, and at a
     /// comfortable size forty or more, which is past what the eye resolves as
     /// steps.
-    pub fn falling_cell(&self, col: u8, row: u8, progress: u16) -> egui::Rect {
+    ///
+    /// The row is **signed** (§12.7): -1 is the mouth, the row above the well
+    /// that a piece comes in through, and a piece entering sits there for a
+    /// whole row of its fall. The rect is returned whole — clipping it to the
+    /// well is the caller's, because that is a question about what the well
+    /// looks like and not about where the piece is.
+    pub fn falling_cell(&self, col: u8, row: i8, progress: u16) -> egui::Rect {
         let down = u64::from(progress) * u64::from(self.cell) / u64::from(FALL_SCALE);
+        let top = (i64::from(TOP) + i64::from(row)) * i64::from(self.cell);
         self.pixels(
             self.origin[0] + i64::from((WELL + u32::from(col)) * self.cell),
-            self.origin[1] + i64::from((TOP + u32::from(row)) * self.cell) + down as i64,
+            self.origin[1] + top + down as i64,
             self.cell,
             self.cell,
         )

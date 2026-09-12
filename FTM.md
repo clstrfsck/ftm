@@ -1432,16 +1432,35 @@ pub struct GameView {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub struct PieceView { pub kind: PieceKind, pub cells: [(u8, u8); 4] }
+pub struct PieceView { pub kind: PieceKind, pub cells: [(u8, i8); 4] }  // row is signed
 ```
 
 Requirements:
 
-- The view carries **only the visible rows** (20..=39), already clipped, so the
-  buffer zone is never transmitted or drawn.
-- `PieceView::cells` are absolute visible-field coordinates, already clipped;
-  minos above row 20 are omitted, which is why the array may hold fewer than four
-  distinct drawable cells (an omitted mino is encoded as `(255, 255)`).
+- The **locked** cells carry only the visible rows (20..=39), already clipped, so
+  the stack in the buffer zone is never transmitted or drawn.
+- `PieceView::cells` are absolute visible-field coordinates with the **row
+  signed**: 0 is the topmost visible row, and a negative row is a mino above the
+  visible field. All four minos are always present — a piece is never partly
+  missing — and the array holds no sentinel.
+
+  A piece is **not** clipped, and that is deliberate. §9.4 spawns every piece but
+  `I` with minos in matrix row 19, so for a whole row of its fall a piece
+  straddles the top of the field; clipping it away means a front-end draws three
+  minos of a `T` and then abruptly four, which is a piece appearing rather than
+  entering. How many rows above the field a front-end can show is the
+  **front-end's** question: §12.4 has no room above the well and drops them,
+  `GUI.md` §G4.1's mouth has one row and draws it clipped to the well so the
+  piece grows in (§G6.5). Neither has to know that a buffer zone exists to do
+  that — a negative row is simply a row it has no room for.
+
+  This does not weaken §19: the minos concerned belong to the player's *own*
+  falling piece, whose kind and rotation they already know. The stack above the
+  field stays hidden, because `rows` is still the visible field alone.
+- **The event stream is still clipped** (§12.8). `GameEvent` coordinates are
+  unsigned and a cell above the field is omitted, encoded as `(255, 255)`: an
+  event says something happened somewhere a player can see, and a cell they
+  cannot see is one there is nothing to animate in. Only `PieceView` is signed.
 - The view is **derived**, never authoritative: building it must not mutate the
   game. `Game::view(&self) -> GameView` is `&self`.
 - `fall_progress` is **presentation only**, and it is the one field on the view
@@ -1522,10 +1541,15 @@ Rules:
 - Events are emitted in the order the rules produced them within the tick.
 - Event coordinates are **visible-field coordinates**, the same ones `GameView`
   uses (§12.7), so nothing downstream of the core has to know the buffer zone
-  exists. A mino above the visible field is omitted from `PieceLocked::cells`,
-  encoded as `(255, 255)`; a cleared row above it is omitted from
-  `LinesCleared::rows`, which may therefore be shorter than the number of rows
-  the clear removed.
+  exists — and, unlike `PieceView`'s, they are **unsigned and clipped**. A mino
+  above the visible field is omitted from `PieceLocked::cells`, encoded as
+  `(255, 255)`; a cleared row above it is omitted from `LinesCleared::rows`,
+  which may therefore be shorter than the number of rows the clear removed.
+
+  The difference from §12.7's falling piece is the difference between the two
+  streams. An event starts an animation, and there is nothing to animate in a
+  cell nobody can see; the falling piece is *where it is*, and a front-end with
+  room above the well needs to know where in order to draw it arriving.
 - `PieceMoved` covers a player shift and a gravity step. The one-row drop that
   is part of spawning is reported by `PieceSpawned`, and the rows covered by a
   hard drop by `HardDropped`; neither raises `PieceMoved` as well.

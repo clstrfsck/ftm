@@ -724,14 +724,34 @@ for instead, if the movement wants softening, is a brief trailing smear over
 the vacated cells — the shape §12.5's hard-drop trail already has, and
 `GameEvent::PieceMoved` already fires for. `EGUI.md` G10 has the long form.
 
-**A wrinkle, accepted.** §9.4 spawns a piece with minos in row 19 and drops it
-one row, so a freshly spawned `T` has a mino above the visible field that
-`GameView` omits (§12.7): three minos are drawn, not four, until it falls
-again. That is pre-existing — it is why the well has no lid (§G4.1) — but a
-sliding piece makes it more noticeable, because the fourth mino appears
-abruptly against neighbours that are moving smoothly. Carrying a row of the
-buffer zone in the view would fix it and is a much larger §12.7 change with §19
-consequences of its own.
+### G6.6 A piece enters the well
+
+§9.4 spawns every piece but `I` with minos in matrix row 19 and then drops it
+one row, so a freshly spawned `T`, `S`, `Z`, `J` or `L` has a mino above the
+visible field and an `O` has two. For a whole row of its fall the piece
+straddles the top of the field.
+
+`GameView` used to clip those minos away, so a `J` was drawn as three minos and
+then, a row later, as four. That was barely visible while the piece stepped a
+row at a time; against §G6.5's slide it is a mino appearing out of nothing while
+its neighbours move smoothly. §12.7 no longer clips the falling piece — a mino
+above the field carries a negative row — and this front-end draws the piece
+**clipped to the well**:
+
+- A mino wholly above the field draws nothing.
+- One straddling the top edge draws the part of it inside the well, so it is a
+  partial square that grows as the piece slides.
+- At the row change it is exactly the whole square `field_cell` would have put
+  there, so nothing jumps.
+
+The mouth is where a piece comes *from*, not somewhere this screen draws: the
+well has no lid (§G4.1), and a mino hovering in the margin above it, beside no
+wall, would read as part of the layout rather than as a piece arriving. Clipping
+is also what keeps the well's top edge a line — the one the walls stop at.
+
+A front-end with no room above its well skips negative rows entirely, which is
+what §12.4 does. Neither has to know a buffer zone exists; a negative row is
+simply a row it has no room for.
 
 ---
 

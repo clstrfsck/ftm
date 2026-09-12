@@ -23,13 +23,23 @@ pub const VIEW_HEIGHT: usize = VISIBLE_ROWS as usize;
 
 /// One tetromino, ready to draw (§12.7).
 ///
-/// `cells` are absolute visible-field coordinates `(col, row)`, already clipped:
-/// a mino above the visible field is omitted, encoded as [`OFF_SCREEN`], so the
-/// array may hold fewer than four drawable cells.
+/// `cells` are absolute visible-field coordinates `(col, row)`, row 0 being the
+/// topmost visible row. The row is **signed**, and a negative one is a mino
+/// above the visible field: §9.4 spawns every piece but `I` with minos in
+/// matrix row 19, so a piece entering the field straddles the top of it for a
+/// whole row of its fall.
+///
+/// All four minos are always present — a piece is never partly missing here.
+/// How many rows above the field a front-end can show is the **front-end's**
+/// question and not the core's: §12.4 has no room above the well and drops
+/// them, and `GUI.md` §G4.1's mouth has one row, which it draws clipped so the
+/// piece grows in rather than appearing (§G6.5). Nothing above the core has to
+/// know that a buffer zone exists to do either — a negative row is simply a
+/// row it has no room for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PieceView {
     pub kind: PieceKind,
-    pub cells: [(u8, u8); MINOS],
+    pub cells: [(u8, i8); MINOS],
 }
 
 /// Everything any screen needs to draw, and nothing else (§12.7).
@@ -101,6 +111,10 @@ pub struct DebugView {
 /// A matrix cell in visible-field coordinates, or [`OFF_SCREEN`] if it is above
 /// the visible field.
 ///
+/// This is the **event** stream's conversion (§12.8), where a cell above the
+/// field is a cell that did not happen anywhere anyone can see and is dropped.
+/// The falling piece keeps its true position instead — see [`to_field`].
+///
 /// Rows below the field cannot occur: a mino at row 40 or beyond would have
 /// collided with the floor.
 pub fn to_visible(x: i32, y: i32) -> (u8, u8) {
@@ -112,13 +126,30 @@ pub fn to_visible(x: i32, y: i32) -> (u8, u8) {
     (x as u8, row as u8)
 }
 
+/// A matrix cell in visible-field coordinates, **signed**: negative rows are
+/// above the visible field (§12.7).
+///
+/// [`PieceView`]'s conversion, and the difference from [`to_visible`] is the
+/// point. A mino of the falling piece that is above the field is still
+/// somewhere — §9.4 puts one there on every spawn but `I`'s — and a front-end
+/// with room above the well needs to know where, or the piece pops into being
+/// a row late (`GUI.md` §G6.5).
+///
+/// The buffer zone is twenty rows, so the row is never below -20 and an `i8`
+/// holds it with room to spare.
+pub fn to_field(x: i32, y: i32) -> (u8, i8) {
+    let row = y - VISIBLE_TOP;
+    debug_assert!((-VISIBLE_TOP..VISIBLE_ROWS).contains(&row) && (0..WIDTH).contains(&x));
+    (x as u8, row as i8)
+}
+
 impl PieceView {
     /// The drawable form of a piece in play.
     pub fn of(piece: &ActivePiece) -> Self {
         let minos = piece.minos();
-        let mut cells = [OFF_SCREEN; MINOS];
+        let mut cells = [(0, 0); MINOS];
         for (cell, mino) in cells.iter_mut().zip(minos) {
-            *cell = to_visible(mino.x, mino.y);
+            *cell = to_field(mino.x, mino.y);
         }
         Self {
             kind: piece.kind,
@@ -232,9 +263,11 @@ mod tests {
     }
 
     #[test]
-    fn a_piece_straddling_row_twenty_is_clipped_by_the_core() {
-        // T15, and the reason `cells` may hold fewer than four drawable cells:
-        // the renderer must never have to know a buffer zone exists.
+    fn a_piece_straddling_row_twenty_keeps_all_four_minos() {
+        // §12.7: the falling piece is not clipped. A mino above the field gets
+        // a negative row rather than being dropped, because a front-end with
+        // room above the well has to draw it coming in (`GUI.md` §G6.5) and one
+        // without simply skips the negative rows.
         let mut game = new_game(13);
         // A vertical I in column 3 spans four rows; put two of them above the
         // visible field, at rows 18, 19, 20 and 21.
@@ -244,9 +277,40 @@ mod tests {
         assert_eq!(piece.kind, PieceKind::I);
         assert_eq!(
             piece.cells,
-            [OFF_SCREEN, OFF_SCREEN, (3, 0), (3, 1)],
-            "the two buffer-zone minos are omitted, not renumbered",
+            [(3, -2), (3, -1), (3, 0), (3, 1)],
+            "counted from the top visible row, upward as well as down",
         );
+    }
+
+    #[test]
+    fn every_piece_but_the_i_spawns_partly_above_the_field() {
+        // §9.4's table, as the screen sees it: after the spawn drop every piece
+        // but `I` still has a mino in matrix row 19, and `O` has two. This is
+        // what used to reach a renderer as a piece with a mino missing, and
+        // what `GUI.md` §G6.5 draws entering the well.
+        for kind in PieceKind::ALL {
+            let mut game = new_game(41);
+            // §9.4's spawn, plus its single unconditional drop — which on an
+            // empty board always succeeds, and which `place` does not do.
+            let spawn = kind.spawn_origin();
+            place(&mut game, kind, spawn.translate(0, 1), Rotation::North);
+            let piece = game.view().current.expect("a piece is in play");
+
+            let above = piece.cells.iter().filter(|(_, row)| *row < 0).count();
+            // One row above the field afterwards is exactly one row above the
+            // *lowest* spawn row before it — §9.4's row 18.
+            let expected = kind
+                .minos(spawn, Rotation::North)
+                .iter()
+                .filter(|mino| mino.y == 18)
+                .count();
+            assert_eq!(above, expected, "{kind:?} spawned {piece:?}");
+            assert_eq!(
+                above == 0,
+                kind == PieceKind::I,
+                "only the I arrives whole: {kind:?}",
+            );
+        }
     }
 
     #[test]

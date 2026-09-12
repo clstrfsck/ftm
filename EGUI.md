@@ -1466,6 +1466,17 @@ larger §12.7 change, with §19 consequences of its own (the buffer zone is clos
 to hidden information). **Accept the pop-in.** It is recorded here so that the
 next person to notice it knows it was seen.
 
+> **Not accepted, in the end.** The pop was looked at once the slide was
+> running and it is much worse against smooth neighbours than it was against a
+> stepping piece. It is fixed, and the fix is smaller than this paragraph
+> feared: the *falling piece* is no longer clipped — a mino above the field
+> carries a negative row — while `rows`, the stack, still is. The §19 objection
+> turned out not to apply to the half that mattered, because those minos belong
+> to the player's own piece, whose kind and rotation they already know; what is
+> genuinely hidden is the stack above the field, and that has not moved. The
+> window draws the piece clipped to the well, so it grows in past the top edge.
+> `GUI.md` §G6.6 is the section; §12.7 and §12.8 are amended.
+
 ### Tests
 
 - **T15 still holds**: `Game::view` takes `&self` and mutates nothing.
