@@ -306,15 +306,21 @@ fn menu(painter: &egui::Painter, layout: &Layout, state: &Attract, cx: &Context)
             painter.rect_filled(row, cell * 0.1, overlays::SELECTED);
             overlays::marker(painter, row, cell);
         }
+        // Centred on the row, not shifted clear of the marker: the marker sits
+        // inside the bar's left margin and the longest label is half the bar
+        // wide, so there is nothing to make room for — and an item that is a
+        // little off-centre under a wordmark that is exactly centred is
+        // noticeable. The room allowed for a label keeps a cell and a half
+        // either side, which is what the marker occupies on one of them.
         paint::text(
             painter,
-            egui::pos2(row.center().x + cell * 0.4, row.center().y),
+            row.center(),
             egui::Align2::CENTER_CENTER,
             choice.label(),
             Face::Label,
             cell * MENU_SIZE,
             if lit { paint::TEXT } else { paint::LABEL },
-            row.width() - cell * 1.5,
+            row.width() - cell * 3.0,
         );
     }
 }
@@ -638,6 +644,39 @@ mod tests {
     }
 
     #[test]
+    fn the_menu_and_the_name_are_centred_on_the_wordmark() {
+        // The whole screen is one centred column, and the eye reads it as one:
+        // a menu item half a cell off centre under a wordmark that is exactly
+        // centred is noticeable, and was. The marker beside the selected item
+        // sits inside the bar's margin and is not something the label has to
+        // make room for.
+        let ctx = egui::Context::default();
+        let config = ConfigFile::default();
+        let scores = Table::default();
+        let layout = layout(728.0, 672.0, 1.0);
+        let middle = layout.block().center().x;
+        let drawn = placed(&ctx, &config, &scores, 0, None);
+        let mut found = 0;
+        let mut centred: Vec<&str> = MenuChoice::NO_QUIT
+            .iter()
+            .map(|choice| choice.label())
+            .collect();
+        centred.push(attract::SUBTITLE);
+        for (text, rect) in &drawn {
+            if !centred.contains(&text.as_str()) {
+                continue;
+            }
+            found += 1;
+            assert!(
+                (rect.center().x - middle).abs() <= 1.0,
+                "{text:?} is centred at {} and the block at {middle}",
+                rect.center().x,
+            );
+        }
+        assert_eq!(found, MenuChoice::NO_QUIT.len() + 1, "{drawn:?}");
+    }
+
+    #[test]
     fn the_control_summary_hides_the_bindings_that_are_turned_off() {
         // §13.3, and acceptance A9: "the binding disappears from ... the
         // attract screen's controls panel". The words are this front-end's;
@@ -751,6 +790,20 @@ mod tests {
         face: usize,
         sub: Option<Sub>,
     ) -> Vec<String> {
+        placed(ctx, config, scores, face, sub)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect()
+    }
+
+    /// The same, with where each string landed: what it is centred on.
+    fn placed(
+        ctx: &egui::Context,
+        config: &ConfigFile,
+        scores: &Table,
+        face: usize,
+        sub: Option<Sub>,
+    ) -> Vec<(String, egui::Rect)> {
         let output = run(
             ctx,
             egui::vec2(728.0, 672.0),
@@ -764,7 +817,10 @@ mod tests {
         let mut text = Vec::new();
         for shape in &output.shapes {
             if let egui::epaint::Shape::Text(drawn) = &shape.shape {
-                text.push(drawn.galley.text().to_string());
+                text.push((
+                    drawn.galley.text().to_string(),
+                    egui::Rect::from_min_size(drawn.pos, drawn.galley.size()),
+                ));
             }
         }
         output.drop_without_applying_deltas();
