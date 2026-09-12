@@ -23,6 +23,17 @@ use crate::shell::config::{GuiSettings, Startup};
 /// which has no end, can answer differently (§G8.6).
 pub fn report(_warnings: &[String]) {}
 
+/// Whether the front-end is on screen at all (`GUI.md` §G4.7, §G8.7).
+///
+/// Always true here, and that is not a stub: a desktop window that is hidden,
+/// minimised or behind another one does not have the keyboard, and `egui`'s own
+/// focus report already says so. A browser tab is the case where the two come
+/// apart — a hidden tab keeps the canvas's DOM focus and still hears nothing —
+/// so the question is asked of the host rather than of `egui` (§G8.7).
+pub fn visible() -> bool {
+    true
+}
+
 /// `GUI.md` §G8.10: where the window is, for the config to remember.
 ///
 /// Read every pump rather than at the end, because there is no "at the end"

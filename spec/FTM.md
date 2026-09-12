@@ -203,8 +203,8 @@ Plus `clap`, `directories`, `anyhow` and `chrono` in its **native** build, which
 shares the terminal front-end's answers to §6.2, §6.4 and §14 — one `src/native.rs`
 between the two binaries, not a copy each. `egui`'s and `eframe`'s versions are
 pinned together in `GUI.md` §G1 and in `Cargo.toml`, because `egui` moves its API
-across minor versions more freely than the others do, and `eframe`, `egui_kittest`
-and `web-sys` have to move with it.
+across minor versions more freely than the others do, and `eframe` and `web-sys`
+have to move with it.
 
 **egui front-end on wasm**: `wasm-bindgen`, `wasm-bindgen-futures`, `web-sys`
 and `js-sys`, replacing the four native crates above — a browser tab has no argv,

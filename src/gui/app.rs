@@ -244,7 +244,11 @@ impl eframe::App for Gui<'_, '_> {
         self.keys.clear();
         ctx.input(|input| {
             self.keyboard.absorb(&input.events, &mut self.keys);
-            self.focused = input.focused;
+            // §G4.7: "has the keyboard" is two questions, and `egui` answers
+            // only one of them. A hidden browser tab keeps the canvas's focus
+            // and hears nothing, so the host is asked as well — natively that
+            // is a constant `true` (§G8.7).
+            self.focused = input.focused && host::visible();
         });
         let mut leaving = None;
         for event in &self.keys {

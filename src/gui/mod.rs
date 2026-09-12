@@ -7,11 +7,12 @@
 //! and [`host`] is whichever one this build has, under one name, so the shared
 //! modules never say which.
 //!
-//! What it draws today is the playing screen of `GUI.md` §G4 over §G3's cell
-//! metric (`EGUI-PLAN.md` G7) — [`layout`] says where, [`paint`] how, and
-//! [`playfield`] what — served natively and as wasm. §12.6's overlays, §12.5's
-//! animations and §13's attract screen arrive at G8-G11, each over the same
-//! [`Round`](crate::shell::round::Round) this one already pumps.
+//! It is complete, and `GUI.md` is normative for all of it: §G7's attract
+//! screen ([`attract`]) and §G4's playing screen over §G3's cell metric —
+//! [`layout`] says where, [`paint`] how, and [`playfield`] what — with §12.6's
+//! boxes over it ([`overlays`]) and §12.5's animations under them, served
+//! natively and as wasm from one [`Round`](crate::shell::round::Round).
+//! `GUI.md` §G9 is the acceptance it was signed off against.
 //!
 //! Three things this front-end inherits from nowhere, all of them recorded in
 //! `GUI.md`'s "What does not carry over": there are no colour depths and no

@@ -21,12 +21,13 @@ four capabilities; G7 gave it the playing screen, G8 the boxes over it, G9
 §12.5's animations under them, G10 the one core change the whole plan has —
 a falling piece is drawn between two rows, and enters the well rather than
 appearing in it — G11 §13's attract screen beside the game, which is what
-turned §13's *words* from the terminal's into everyone's, and G12 the config
+turned §13's *words* from the terminal's into everyone's, G12 the config
 and the command line, which is what made the two binaries safe to run over one
-file.
+file, and G13 the tests and the sign-off.
 
-**Status: Stage 12 of `TERMINAL-PLAN.md` complete — milestone M4, accepted; `EGUI-PLAN.md`
-stages G0-G12 complete — milestone MG6. Start at G13.** All
+**Status: both plans are finished. Stage 12 of `TERMINAL-PLAN.md` complete —
+milestone M4, accepted; `EGUI-PLAN.md` stages G0-G13 complete — milestone MG7,
+accepted, with B1-B12 signed off one by one in `GUI.md` §G9.3.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -59,8 +60,8 @@ screen. `make run-web` serves the
 same thing in a browser tab through trunk (`index.html`, `Trunk.toml`), with
 `?seed=N` in the URL for `--seed N`, scores in `localStorage`, and §16's
 warnings on the console — and no **QUIT** in the menu there, because a tab
-cannot close itself. `GUI.md` §G1-§G7 and the web build's half of §G8 are
-written and normative; only §G9 is still reserved.
+cannot close itself. **`GUI.md` is whole**: §G1-§G9 are written and normative,
+and nothing in it is reserved any more.
 
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
 and `Game::view()` still the only way to see the result — with `Game::debug()`
@@ -89,14 +90,17 @@ to the pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
 units),
 `query.rs` (§6.4 as a URL query string), `cli.rs` and `host_native.rs` for the
 desktop, and `host_web.rs` for a tab — `gui::host` is whichever one the target
-has, so `app.rs` never asks. T1-T17 all pass, plus I1-I4 and `tests/pump.rs`,
-and the batch-invariance canary is in CI.
+has, so `app.rs` never asks. T1-T17 all pass, plus I1-I4, `tests/pump.rs` and
+`tests/gui_render.rs` — the window's I4, which is `tests/render_sizes.rs`'s
+counterpart in pixels (§G9.1) — and the batch-invariance canary is in CI.
 
-There is no Stage 13 of `TERMINAL-PLAN.md`, and there will not be: that plan is
-finished. **The live work is `EGUI-PLAN.md`, stages G0-G13**, which adds the egui
-and web front-ends and restructures the tree so a fourth front-end is additive.
-Start at G12. §18 remains out of scope and §19 remains a list of constraints to
-honour rather than a work item — see **Scope discipline** below.
+There is no Stage 13 of `TERMINAL-PLAN.md` and no Stage G14 of `EGUI-PLAN.md`:
+**both plans are finished**, and there is no live plan. Read them for why
+something is the shape it is, not for what to do next. A fourth front-end is a
+fourth directory, a feature and a `[[bin]]`, and `FRONTEND.md` is what it is
+written against — but it is not planned, and **Macroquad readiness** in
+`EGUI-PLAN.md` is a list of constraints rather than a work item, exactly as §19
+is. §18 remains out of scope — see **Scope discipline** below.
 
 ## The §17.3 sign-off
 
@@ -137,13 +141,15 @@ does — `GUI.md §G7`, not `spec/GUI.md §G7`. A document is referred to by its
 name because that is what several hundred doc comments say; the directory is
 where it is kept, not what it is called.
 
-1. **`EGUI-PLAN.md`** — the live plan, stages G0-G13. Find the current stage; it
-   names the spec sections it depends on and the tests that close it. Read that
-   stage, plus "The decisions this plan rests on" and "The central idea", which
-   are what the rest of it follows from.
-2. **The specification**, in whichever of the four documents below owns the
-   sections the current stage names. Read those sections, not the whole thing.
-3. **`TERMINAL-PLAN.md`** — the twelve stages that built v1.0. History, not instructions.
+1. **The specification**, in whichever of the four documents below owns the
+   sections your work touches. Read those sections, not the whole thing. Start
+   from `FRONTEND.md` if the work is a front-end's.
+2. **`EGUI-PLAN.md`** — stages G0-G13, all complete. History now, not
+   instructions, but the two sections that are *not* history are "The decisions
+   this plan rests on" and "The central idea", which is what the shell being
+   pumped rather than looping follows from. Its **Macroquad readiness** is a
+   list of constraints, not a plan.
+3. **`TERMINAL-PLAN.md`** — the twelve stages that built v1.0. History too.
    Worth reading when you want to know why something is the shape it is.
 
 The specification is ground truth. **If the code and the spec disagree, the
@@ -164,7 +170,7 @@ several hundred doc comments, and each one would still *read* fine.
 | **`FTM.md`** | §1-§7, §9-§11, §12.7, §12.8, §14-§19 | The front-end-agnostic specification: rules, config, states, controls, the view model and the event stream, high scores, timing, errors, testing, §19. |
 | **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
 | **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
-| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9, §G6.5-§G6.6 by G10, §G7 by G11 and §G8.10-§G8.11 by G12. Only §G9 is left, for G13. |
+| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. Complete: §G1 (the application, the version pin, the loop) and §G2 (input) by G5, §G8's web build by G6, §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9, §G6.5-§G6.6 by G10, §G7 by G11, §G8.10-§G8.11 by G12 and §G9 — the render test and B1-B12 — by G13. |
 
 An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
 owns. `§Gn` means `GUI.md`; a future `MACROQUAD.md` would take `§M`.
@@ -376,9 +382,19 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   `Round::viewport`, and `gui/app.rs` calls it on every `logic` pass rather than
   on the change: a countdown the player leaves running when they click away is
   not `Playing`, so the pump it runs out on is the one that must pause, and
-  `keyboard` settles the countdown first so that pump plays no tick. A hidden
-  tab has no focus, so this is also why a backgrounded game no longer creeps.
-  The terminal does not call it.
+  `keyboard` settles the countdown first so that pump plays no tick. The
+  terminal does not call it.
+
+- **"Have I the keyboard?" is two questions in a window, and `egui` answers
+  only one** (`GUI.md` §G4.7, §G8.7). `gui/app.rs` ANDs `input.focused` with
+  `host::visible()` — `!document.hidden` in a tab, a constant `true`
+  natively — and **dropping the second half is a silent bug, not a compile
+  error**. A hidden tab keeps the canvas's DOM focus and fires no `blur`, so
+  `egui` reports a focused application that hears nothing, and the game plays
+  on behind it: measured at G13, 13 seconds of play in 31 seconds hidden,
+  locking pieces nobody placed. Natively the two agree, which is why the
+  constant is not a stub — a window that is hidden, minimised or behind another
+  has genuinely lost the focus and `egui` says so.
 
 - **§9.17's blank well is `Overlay::blanks`, not a front-end's `matches!`.**
   Both front-ends ask it. G5's scrim let the paused stack show through at a
@@ -978,6 +994,58 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 
 ---
 
+## What G13 settled
+
+- **B8 found a real bug, and it is the reason this stage is not a formality.**
+  A backgrounded browser tab did not pause: it went on playing, throttled — 31
+  seconds hidden advanced a level-1 game by 13, which is G6's creep measured
+  again a year of stages later. §G4.7's *rule* was right; the *mechanism*
+  `GUI.md` §G8.7 named for it was wrong. Switching to another tab fires no
+  `blur` at the canvas, so it keeps the document's focus and `egui` goes on
+  reporting a focused application that cannot hear a key. See the invariant
+  below; both sections are amended and `gui::host::visible` is the fix.
+- **The lesson is worth more than the fix.** §G4.7 had a test and the test
+  passed, because it asked the *shell* whether it pauses when told the keyboard
+  is gone. What was broken was the front-end's answer to "is it?" — a question
+  no test in the tree was in a position to ask. That is the shape of what is
+  left after twelve stages of tests, and it is what B3-B11 are for.
+- **`egui_kittest` was not taken**, against the plan. `egui::Context::run_ui`
+  with a `RawInput` *is* the headless harness, and it is what every test in
+  `src/gui/` already used; the crate's own contribution is an AccessKit tree
+  this front-end has no widget hierarchy for (§G1.1 declines `accesskit` for the
+  same reason) and image snapshots the plan already excluded from CI. A
+  dependency whose only remaining use is excluded is not a dependency. §3's
+  table and §G1.1 no longer name it.
+- **The density is the axis a character grid has not got.** `tests/gui_render.rs`
+  sweeps seven sizes in *physical pixels* at four densities, and the two are not
+  interchangeable: §G3's cell is a whole number of pixels, so fourteen points is
+  17.5 at 1.25 and the cell must be eighteen. The minimum window is therefore
+  468 x 432 pixels there against 364 x 336 at 1x, and **the boundary the test
+  asserts is one pixel wide, not one point**. It also asserts that §G3.3's
+  message never asks for less than it takes, because a player who resizes to
+  what they are told has to get the screen.
+- **Two `egui` traps, for anyone writing a headless test here.** `RawInput`'s
+  `screen_rect` is divided by the zoom factor, so `set_pixels_per_point` and a
+  size are not independent — set the density on the viewport's
+  `native_pixels_per_point` instead and `screen_rect` stays the points you
+  meant. And the font atlas is 2048 pixels: a countdown numeral is six cells, so
+  a viewport of a few thousand *points* at 3x asks for a glyph that will not fit
+  and panics inside `epaint`. Sizes in pixels divided by the density keep every
+  case a viewport that could exist.
+- **CI needed nothing.** Every step this stage was supposed to add was already
+  there — `shell` from G2, `portable` from G3, `web-check` and the web job from
+  G6, the `apt-get` and the MSRV bump from G5. That is what `make check` being
+  the only list CI runs buys: the stage that adds a check adds it there, and the
+  acceptance stage finds the bill paid.
+- **B4 is a test now, not a stopwatch.** §17.3's A4 measured a 50 ms tap and a
+  0.6 s hold on a pty because the terminal's loop was the only way to reach
+  them. Since G4 they are reachable from `tests/pump.rs`, and that is what makes
+  "identical to the terminal front-end's" a fact rather than a comparison: it is
+  the same `shell::input`. Do not try to measure this through a browser — a
+  round trip to a tab is seconds, and the piece has moved on.
+
+---
+
 ## Open decisions
 
 - **The legacy key path's feel (§8.2).** Measured over two seconds of holding
@@ -1029,8 +1097,16 @@ recorded (§14) and so needs no such care.
 
 `tests/pump.rs` is the shell driven headlessly — §15.2's steps called the way a
 front-end calls them, with no screen and no clock. It is where cadence
-invariance, the catch-up cap, §7's phases and `deadline`'s bounds are checked,
-and it is the test a fourth front-end inherits for free.
+invariance, the catch-up cap, §7's phases, `deadline`'s bounds, §8.4's two
+forced pauses and §10.3's DAS and ARR by A4's own two numbers are checked, and
+it is the test a fourth front-end inherits for free.
+
+`tests/gui_render.rs` is the window's I4 — `tests/render_sizes.rs` asked in
+pixels. Seven viewport sizes in *physical pixels* at four densities, every
+screen the program can show, through a real `egui::Context` and no window
+(`GUI.md` §G9.1). Between it and `tests/pump.rs`, the window front-end has what
+`drive.py` gives the terminal; the native window can also be *driven*, which is
+below under **Commands**, and that is what B3-B11 were checked with.
 
 `tools/drive.py` is the only way to check the terminal layer without a human at
 a terminal: §17.1 is "core, no terminal" by design, and what `cargo test` does
@@ -1073,8 +1149,20 @@ grep -E '^preview_count' /tmp/t.toml       # the assertion
 
 `key code` is what the keys §10.1 names but `keystroke` cannot spell:
 125 Down, 126 Up, 123 Left, 124 Right, 36 Enter, 53 Esc, 49 Space. G12
-exercised Down, Right, Enter, Esc and a `keystroke` letter; the other three are
-the same standard table.
+exercised Down, Right, Enter, Esc and a `keystroke` letter; G13 added Space, in
+runs of forty for a top out.
+
+**And the window can be looked at, which G13 is when that was worked out.**
+`screencapture -x -o shot.png` takes the screen without a shutter sound or a
+cursor, and `sips -c H W --cropOffset Y X` trims it to the window — the two
+together are how B3, B5, B9 and B10 were checked. It needs **Screen Recording**
+permission, granted once beside the Accessibility one. This is what turns "a
+person has to look at it" from a blocker into a step: G13 read the attract
+screen, the six previews, the controls table with two bindings gone, and the
+pause that another application stealing focus forced, off actual pixels. A
+screenshot is worth taking even when a test passes — the §13.5 panel's nine
+rows, and the fact that §12.3's colour depth is not among them, is not something
+any assertion in the tree was going to tell you.
 
 **A key is dropped now and then, and that is the thing to design around.** It
 was measured here: the same six-key script into the §13.5 Options panel failed

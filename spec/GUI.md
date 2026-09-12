@@ -1,26 +1,25 @@
 # Falling Tetromino Manager — The egui Front-End
 
-**Version:** 0.7 — §G1-§G8 are written; §G9 is still reserved.
+**Version:** 1.0 — §G1-§G9 are written; B1-B12 are signed off.
 **Date:** 2026-09-12
 **Companion to:** [FTM.md](FTM.md) (the specification),
 [FRONTEND.md](FRONTEND.md) (the contract every front-end is written against),
 [TUI.md](TUI.md) (the terminal front-end), [EGUI-PLAN.md](EGUI-PLAN.md) (the plan that
 builds this one)
 
-This document will be normative for the **egui front-end** — the `ftm-gui`
+This document is normative for the **egui front-end** — the `ftm-gui`
 binary and the same code compiled to `wasm32-unknown-unknown` and served in a
 browser. They are one front-end with two hosts, not two front-ends, so the
 differences between them are called out in place rather than in a document of
 their own.
 
-**It is written stage by stage, not up front.** `EGUI-PLAN.md`'s stages G5–G13 each
-name the section they fill, and each fills it in the same commit as the code.
-§G1 and §G2 were written by G5, §G8's web build by G6, §G3 and §G4 by G7, §G5
-by G8, §G6's animations by G9 and its sub-cell half by G10, §G7 by G11, and
-§G8.10 and §G8.11 — the `[gui]` table and which flag exists in which build —
-by G12. What is left is §G9, still the namespace and the reservation below,
-deliberately, so that a `§G9` written in a doc comment during G13 has somewhere
-agreed to land.
+**It was written stage by stage, not up front.** `EGUI-PLAN.md`'s stages G5–G13
+each named the section they filled, and each filled it in the same commit as the
+code. §G1 and §G2 were written by G5, §G8's web build by G6, §G3 and §G4 by G7,
+§G5 by G8, §G6's animations by G9 and its sub-cell half by G10, §G7 by G11,
+§G8.10 and §G8.11 — the `[gui]` table and which flag exists in which build — by
+G12, and §G9 by G13, which is where B1–B12 were signed off and the document
+became whole.
 
 ## The `§G` namespace
 
@@ -42,7 +41,7 @@ that document owns. `§Gn` means this file.
 | G6 | Animations | `EGUI-PLAN.md` G9 ✅, G10 ✅ | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
 | G7 | The attract screen | `EGUI-PLAN.md` G11 ✅ | §13's wordmark, menu, cycling panel and drifting background, laid out for a window rather than a 36 × 20 grid. |
 | G8 | The web build, and the `[gui]` table | `EGUI-PLAN.md` G6 ✅, G12 ✅ | The canvas and its keyboard focus, `localStorage` for §6.2 and §14, URL query parameters in place of §6.4's flags, this front-end's own config table, and which flag exists in which build. |
-| G9 | Testing and acceptance | `EGUI-PLAN.md` G13 | The headless `egui_kittest` render test, and **B1–B12**, this front-end's answer to §17.3's A1–A10. |
+| G9 | Testing and acceptance | `EGUI-PLAN.md` G13 ✅ | The headless render test, what stands in for `tools/drive.py`, and **B1–B12**, this front-end's answer to §17.3's A1–A10. |
 
 ---
 
@@ -52,8 +51,9 @@ that document owns. `§Gn` means this file.
 
 `egui` and `eframe` are pinned at **0.36** and move together. `egui` breaks its
 API across minor versions more freely than the project's other dependencies do,
-and `eframe`, `egui_kittest` (§G9) and the `web-sys` the wasm build needs (§G8)
-are all versioned against it, so the pin is one decision rather than four.
+and `eframe` and the `web-sys` the wasm build needs (§G8) are both versioned
+against it, so the pin is one decision rather than three. (`egui_kittest` would
+have been a fourth; G13 did not take it — §G9.1 says why.)
 
 That pin sets the project's MSRV, which is **1.95** — `egui`'s own floor. §3
 already says the floor is set by a dependency and moves when one moves; `ratatui`
@@ -138,7 +138,8 @@ pauses a game in progress (§G4.7).
 **G7 replaced the slice's screen** with §G3's layout and §G4's playing screen,
 **G8 put §G5's boxes over it**, **G9 §G6's animations under them**, **G10
 §G6.5's sub-cell gravity** and **G11 §G7's attract screen beside the lot**.
-What is left of this document is §G9, and of the plan, G12 and G13.
+**G12 gave both binaries one config file and §6.4 per build**, and **G13 signed
+the whole thing off** (§G9). Nothing of this document is reserved any more.
 
 ---
 
@@ -474,7 +475,12 @@ happened.
   away. It says what to do; the pause is what makes it safe to take a moment
   doing it.
 - **A hidden tab has no keyboard**, so this is also what stops a backgrounded
-  game from creeping (§G8.7).
+  game from creeping (§G8.7) — but it is not `egui` that says so. "Have I the
+  keyboard?" is two questions here: `egui`'s focus report, and `host::visible`,
+  which is `!document.hidden` in a tab and a constant `true` natively. A hidden
+  tab keeps the canvas's DOM focus and hears nothing, so the first alone answers
+  `true` while the game goes on locking pieces nobody placed. That was measured
+  in G13, after G7 had assumed otherwise; §G8.7 has the numbers.
 
 This front-end has the rule and the terminal does not: `TUI.md` does not ask a
 terminal for focus reports, and a terminal behind another window plays on.
@@ -1069,17 +1075,29 @@ and returning to it costs nothing: there is no burst of arrears, and the player
 is not killed by coming back. Measured in Chrome at G6: 36 seconds minimised
 advanced a level-1 game by about nine seconds of play.
 
-**Since `EGUI-PLAN.md` G7 a game in progress does not creep: it pauses.** A hidden
-tab reports no focus — `eframe` counts a hidden document as unfocused — so the
-first `App::logic` pass after hiding forces the pause of §G4.7, and the player
-comes back to the pause menu rather than to a game that went on without them. The
-measurement above is G6's, from before that rule, and is kept because it is what
-settled it: at a high level, nine seconds of play in thirty-six locks pieces
-nobody placed. What still runs while hidden is the pump itself, and it is
-correct at that cadence, so anything that is not a game in progress — the
-attract screen — creeps as described, which is what it is for: a tab left open
-on §13 goes on drifting and cycling, at whatever cadence the browser is willing
-to give it.
+**Since `EGUI-PLAN.md` G7 a game in progress does not creep: it pauses**, and
+since G13 it actually does. The first `App::logic` pass after hiding forces the
+pause of §G4.7, and the player comes back to the pause menu rather than to a
+game that went on without them. The measurement above is G6's, from before that
+rule, and is kept because it is what settled it: at a high level, nine seconds
+of play in thirty-six locks pieces nobody placed. What still runs while hidden
+is the pump itself, and it is correct at that cadence, so anything that is not a
+game in progress — the attract screen — creeps as described, which is what it is
+for: a tab left open on §13 goes on drifting and cycling, at whatever cadence
+the browser is willing to give it.
+
+**`document.hidden` is what says so, and `egui`'s focus report is not.** G7
+assumed a hidden tab reports no focus, and G13 measured that it does not:
+switching to another tab in the same window fires no `blur` at the canvas, which
+keeps the document's focus — `document.hasFocus()` goes on answering `true` —
+so a game went on playing behind a tab that could not hear a key. `host::visible`
+is the question this front-end asks instead, and §G4.7's rule is the conjunction
+of the two: the keyboard is ours when `egui` says the application has focus
+**and** the host says the page is on screen. A tab whose *window* is behind
+another one is not hidden by this measure and does report a lost focus, which is
+the other half of the same rule; natively `visible` is a constant `true`,
+because a window that is hidden, minimised or behind another does not have the
+focus either and `egui` already says so.
 
 A hidden tab can hear no keys. `eframe` hands the same unconsumed input to every
 hidden pass until one paints, so the adapter sees each focus change more than
@@ -1223,6 +1241,104 @@ that it is inert rather than leaving it to be discovered.
 own grammar, `gui::query::PARAMETERS` against `FLAGS`, and every shared flag
 parsed both ways and compared as `Overrides`. A flag added to one build and not
 the other fails a test rather than becoming a link that quietly does nothing.
+
+---
+
+## G9. Testing and acceptance
+
+This front-end has no `tools/drive.py`. It has two tests that between them reach
+what that script reaches for the terminal, and one acceptance list.
+
+### G9.1 The render test
+
+`tests/gui_render.rs` is §17.2's last requirement for this front-end — *rendering
+does not panic at any viewport size* — and it is `tests/render_sizes.rs`'s
+counterpart, asking the same question in pixels. Like that one it drives the
+drawing entry points rather than the loop above them, at every size, with every
+screen the program can show: §G4's playing screen under each of §12.6's and
+§13.5's overlays, §G7's attract screen and its three sub-screens, §G4.6's debug
+read-out with the widest figures a `Debug` can hold, and §G3.3's replacement
+message.
+
+The sizes, in **physical pixels**, are 0 × 0, 1 × 1, 320 × 240, 364 × 336,
+728 × 672, 1920 × 1080 and 3840 × 2160; each is drawn at densities 1, 1.25, 2
+and 3. Two things differ from the terminal's four:
+
+- **The density is an axis a character grid has not got.** §G3.1 floors the cell
+  in physical pixels, so 1.25 is a different arithmetic from 2 rather than a
+  larger one, and a size that fits at one density does not at another.
+- **The minimum is therefore a boundary in pixels, not in points.** Fourteen
+  points is 17.5 pixels at 1.25, and a cell must be eighteen, so the least
+  window there is 468 × 432 pixels — 375 × 346 points against 364 × 336 at 1×.
+  The test asserts both halves of that: the least window fits and one pixel less
+  does not, and the figure §G3.3's message asks for is never smaller than the
+  one it takes, so a player who resizes to what they are told gets the screen.
+
+Nothing is asserted about how any of it looks. What it looks like is `src/gui/`'s
+own tests, which measure where the text landed (§G7.4 is why), and B3–B11 below,
+which were checked by running the program.
+
+**Image snapshots are deliberately not taken.** `egui_kittest` can render and
+compare them, but it needs a GPU or a software rasteriser, and a CI job that
+flakes on driver differences is a CI job that gets marked ignored. The headless
+render test is the one that runs everywhere. The crate is not a dependency:
+`egui::Context::run_ui` with a `RawInput` is the whole of the harness these tests
+need, and every test here and in `src/gui/` uses it directly — one `Context` per
+test, as a window has, because building one lays out the fonts and that is most
+of the cost.
+
+### G9.2 What stands in for `tools/drive.py`
+
+`tests/pump.rs` (`EGUI-PLAN.md` G4) is §15.2's steps driven with no screen and no
+clock, and it is where this front-end's *behaviour* above the pixels is pinned:
+cadence invariance, the catch-up cap, `deadline`'s bounds, §8.4's two forced
+pauses — the viewport's and §G4.7's — §10.3's DAS and ARR by A4's own two
+numbers, and a whole game played to a top out and through name entry. None of it
+is a window's, which is the point: both front-ends call it.
+
+That leaves exactly what a screen and a keyboard are for, and B3–B11 are it. The
+honest caveat `drive.py` already carries applies here twice over: these
+substitute for, but do not replace, playing the game.
+
+The native window **can** be scripted, and the recipe is in `CLAUDE.md` —
+`osascript` sends it keys, `screencapture` takes its picture. It is not a test
+and never will be: a key goes astray now and then and nothing errors when it
+does, so a run of it must assert on an observable outcome — a config file that
+gained a value, a process that exited, a screen with the right thing on it.
+
+### G9.3 B1–B12
+
+§17.3's A1–A10 for this front-end, checked one by one the way those were. Every
+criterion is checked in **both** builds unless marked native or web.
+
+| | Criterion | How it was checked |
+|---|---|---|
+| B1 | Build clean | `cargo clippy --all-features --all-targets -- -D warnings` silent; `cargo build --release --all-features` builds both binaries; `trunk build --release` succeeds. |
+| B2 | §17.1 and §17.2 pass | `cargo test --all-features`: 417 unit, and the integration tests including §19.4's canary, `tests/pump.rs` and `tests/gui_render.rs`. |
+| B3 | Attract on launch, PLAY starts a game | Both builds, looked at: the wordmark, the menu, the six-second panel and the drift, then `Enter` and a game. The tab's menu has four items, not five (§G8.1). |
+| B4 | §10.1's bindings, DAS/ARR identical to the terminal's | A4's two numbers — a 50 ms tap is one cell either way, a 0.6 s hold reaches the wall and stops — asserted in `tests/pump.rs`, on the `shell::input` both front-ends call. The adapters are pinned separately (§G2.1). |
+| B5 | `preview_count` 1–6, every source | `--preview 1` and the file's 6 in the window, `?preview=3` in a tab, each counted on screen; the §13.5 panel is the third source and is B9's. |
+| B6 | A full game recorded | Native: a game played in `ftm-gui` to a top out, named, written — and read back by `ftm` on its high-score screen. Web: the same in a tab, then a reload, and the entry is on §13.5's sub-screen. |
+| B7 | Clean exit, §16's warnings, a legible panic | A read-only config: the Options panel and the §6.2 first-exit write both warn, on stderr, after the window has gone, and the exit is 0. A config that is not TOML in a tab: exactly one warning, on the console. A panic patched into `logic` temporarily: named its file and line and exited 101. |
+| B8 | Cadence invariance | `tests/pump.rs` at 60 Hz, 144 Hz and a jittery cadence; `frame_cap` reached from the setting (§G8.10). A tab backgrounded and restored: see below — this is the one that found a bug. |
+| B9 | Hold and 180 off/on, three ways | `--no-hold --no-rot180`: the hold panel is gone, and neither binding is in §10.1's table or §13.3's panel. Both switched back on in the §13.5 panel, which wrote `hold_enabled = true` and `allow_180_rotation = true` to the file. |
+| B10 | Focus loss pauses a game | Another application took the keyboard mid-game: the pause menu, over a well §9.17 had blanked. `tests/pump.rs` holds the shell's half, released keys and all. |
+| B11 | *Web*: the canvas takes the keyboard | `document.activeElement` is the canvas on load, with no click. `Space` hard-drops rather than scrolling, and `Tab` leaves the focus where it is. |
+| B12 | The front-ends build against the shell alone | `cargo check --no-default-features` and `make portable`, both green, and no module in `gui/` can name a `core` internal because there are none to name (§17.3 A10). |
+
+**MG7.**
+
+#### What B8 found
+
+A backgrounded tab did not pause. It went on playing, throttled — 31 seconds
+hidden advanced a level-1 game by 13 — exactly as G6 measured it and exactly
+what §G4.7 was written to stop. The rule was right and the mechanism named in
+§G8.7 was wrong: switching to another tab fires no `blur` at the canvas, which
+keeps the document's focus, so `egui` reported a focused application that could
+not hear a key. `host::visible` is the fix and §G8.7 now says what it is for.
+The lesson is the general one this stage exists for: *§G4.7 had a test, and the
+test passed, because the test asked the shell whether it pauses when told it has
+lost the keyboard — and what was broken was the front-end's answer to "have I?"*
 
 ---
 

@@ -311,6 +311,79 @@ fn left_edge(round: &Round, now: Stamp) -> u8 {
 }
 
 #[test]
+fn a_fifty_millisecond_tap_moves_one_cell_and_a_held_key_slides_to_the_wall() {
+    // `GUI.md` §G9's B4, and it is §17.3's A4 by the same two numbers: a 50 ms
+    // tap moves exactly one cell either way, and a 0.6 s hold slides to the
+    // wall and stops there.
+    //
+    // A4 measured those on a pty because the terminal front-end's loop was the
+    // only way to reach them. Since `EGUI-PLAN.md` G4 they are reachable here,
+    // which is what makes B4's "identical to the terminal front-end's" a fact
+    // rather than a comparison: §10.3's DAS and ARR live in `shell::input` and
+    // **both front-ends call this same code**. What each adds is the adapter
+    // that turns its platform's events into `shell::keys::KeyEvent` (F5), and
+    // that is what `tui/keys.rs` and `gui/keys.rs` pin for themselves.
+    //
+    // Pumped at 60 Hz throughout, and no faster: a front-end that delivered
+    // these keys at a different cadence would be measuring its own polling
+    // rate rather than §10.3 (see `script`'s note above).
+    let mut storage = Memory::new();
+    let mut session = session(&mut storage, true);
+    let frame = |n: u64| at(n * 16_667);
+
+    // A tap. The press is answered by one cell immediately (§10.3), and the
+    // release stops it long before DAS's 170 ms could have charged.
+    let mut round = Round::new(&session, frame(0));
+    let spawned = left_edge(&round, frame(0));
+    round.key(&mut session, &press(Key::Left), frame(0));
+    let mut n = 1;
+    while n * 16_667 < 50_000 {
+        round.advance(&mut session, frame(n));
+        n += 1;
+    }
+    round.key(&mut session, &release(Key::Left), at(50_000));
+    for f in n..=60 {
+        round.advance(&mut session, frame(f));
+    }
+    assert_eq!(
+        left_edge(&round, frame(60)),
+        spawned - 1,
+        "a 50 ms tap of left is one cell, and the cell it is not still moving",
+    );
+
+    // The same tap to the right, from where that left it: A4 measured both.
+    let before = left_edge(&round, frame(60));
+    round.key(&mut session, &press(Key::Right), frame(60));
+    for f in 61..=63 {
+        round.advance(&mut session, frame(f));
+    }
+    round.key(&mut session, &release(Key::Right), frame(63));
+    for f in 64..=120 {
+        round.advance(&mut session, frame(f));
+    }
+    assert_eq!(left_edge(&round, frame(120)), before + 1, "and one back");
+
+    // A hold. 0.6 s is DAS plus nineteen ARR periods, which is more than the
+    // width of the field, so it ends against the wall wherever it started.
+    let mut held = Round::new(&session, frame(0));
+    held.key(&mut session, &press(Key::Left), frame(0));
+    for f in 1..=36 {
+        held.advance(&mut session, frame(f));
+    }
+    assert_eq!(
+        left_edge(&held, frame(36)),
+        0,
+        "0.6 s held reaches the wall"
+    );
+    // ...and stops there: it does not wrap, and nothing else moves.
+    held.key(&mut session, &release(Key::Left), frame(36));
+    for f in 37..=60 {
+        held.advance(&mut session, frame(f));
+    }
+    assert_eq!(left_edge(&held, frame(60)), 0, "and stays against it");
+}
+
+#[test]
 fn losing_the_keyboard_pauses_the_game_and_lets_go_of_its_keys() {
     // `GUI.md` §G4.7 and B10: a front-end that cannot hear the keyboard forces
     // §8.4's pause, held keys released, without replacing the screen. A

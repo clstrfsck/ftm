@@ -207,6 +207,27 @@ pub fn report(warnings: &[String]) {
     }
 }
 
+/// Whether the page is the visible tab (`GUI.md` §G4.7, §G8.7).
+///
+/// **This is the one thing `egui`'s focus report does not answer here.**
+/// Switching to another tab in the same window fires no `blur` at the canvas —
+/// it keeps the document's focus, and `document.hasFocus()` goes on saying so —
+/// so a hidden tab looks focused while hearing no keys at all, and the game it
+/// is playing goes on locking pieces nobody placed. `document.hidden` is what
+/// actually changes, so it is what is asked. A tab whose window is behind
+/// another one is *not* hidden by this measure, and does report a lost focus,
+/// which is the other half of the same rule.
+///
+/// Anything unexpected — no window, no document — counts as visible: the
+/// consequence of being wrong that way is a game that plays on, which is what
+/// happened before this existed, rather than one that will not start.
+pub fn visible() -> bool {
+    web_sys::window()
+        .and_then(|window| window.document())
+        .map(|document| !document.hidden())
+        .unwrap_or(true)
+}
+
 /// `GUI.md` §G8.10: nothing to remember, because there is no window.
 ///
 /// A canvas is the size the page gives it, wherever the page happens to be,

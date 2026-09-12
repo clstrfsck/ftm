@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [TERMINAL-PLAN.md](TERMINAL-PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** G0–G12 complete (**MG6**); G13 next.
+**Status:** G0–G13 complete (**MG7**). The plan is finished; `GUI.md` §G9.3 is the sign-off.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -1733,15 +1733,19 @@ binary loses the other's settings.
 
 ### Testing
 
-- `egui_kittest` (pinned to the chosen `egui` minor) drives the GUI headlessly:
-  the AccessKit-based harness constructs an `egui::Context`, feeds `RawInput` and
-  runs `update` with no window. That gives the GUI its **I4 analogue** —
+- The GUI is driven headlessly to give it its **I4 analogue** —
   `tests/gui_render.rs`: every screen the program can show, at several window
-  sizes including one below the §G3 minimum, renders without panicking.
-- **Image snapshots are available and are deliberately not put in CI.**
-  `egui_kittest`'s snapshot rendering needs a GPU or a software rasteriser, and a
-  CI job that flakes on driver differences is a CI job that gets marked ignored.
-  They are a local tool; the headless render test is the CI one.
+  sizes including ones below the §G3 minimum, renders without panicking.
+  **`egui_kittest` was not taken**, and that is a change to this plan:
+  `egui::Context::run_ui` with a `RawInput` *is* the harness — it is what every
+  test in `src/gui/` already uses — and the crate's own contribution is the
+  AccessKit tree and the image snapshots, one of which this front-end has no
+  widget tree for (§G1.1 declines `accesskit` for the same reason) and the other
+  of which the next bullet excludes. A dependency whose only remaining use is
+  excluded is not a dependency. `GUI.md` §G9.1 records it.
+- **Image snapshots are deliberately not taken.** They need a GPU or a software
+  rasteriser, and a CI job that flakes on driver differences is a CI job that
+  gets marked ignored. The headless render test is the one that runs everywhere.
 - `tools/drive.py` gets no GUI counterpart. `tests/pump.rs` from G4 and
   `tests/gui_render.rs` from here are the substitute, and `GUI.md` says so —
   along with the honest caveat `drive.py` already carries: it substitutes for,
@@ -1763,15 +1767,19 @@ build:   cargo build --release --features tui,gui
 The two `check` lines are the load-bearing ones: they are the compiler holding
 the shell's two boundaries, and they cost seconds.
 
-The MSRV job's toolchain moves if G5 chose `eframe` 0.36. It must be changed in
-`Cargo.toml`, `.github/workflows/ci.yml` and §3 together, exactly as the existing
-CI comment demands.
+**All of this was already in place before G13 began.** Every line above arrived
+with the stage that needed it — `shell` at G2, `portable` (this plan's `wasm`)
+at G3, `web-check` and the web job at G6 — because `make check` is the one list
+CI runs and a stage that adds a step adds it there. The MSRV job moved to 1.95
+at G5, in all three places at once. So G13 changed nothing here, and that is the
+result rather than an omission: the CI half of this stage was paid for in
+instalments.
 
 `eframe` needs system libraries on a Linux runner (X11/Wayland development
-headers for `winit`, and a GL stack for `glow`). The CI job grows an `apt-get`
-step, and the web job needs `trunk` plus the `wasm32-unknown-unknown` target.
-This is ordinary for egui projects, but it is a new class of CI failure for this
-repository, which currently has none.
+headers for `winit`, and a GL stack for `glow`), so both host jobs carry an
+`apt-get` step, and the web job carries `trunk` and the
+`wasm32-unknown-unknown` target. That was the new class of CI failure this
+repository had none of; it arrived at G5 and G6 rather than here.
 
 ### Acceptance: B1–B12
 
@@ -1792,6 +1800,11 @@ Every criterion is checked in **both** builds unless marked native or web.
 | B10 | Focus loss pauses a game in progress and releases held keys (§8.4's path). |
 | B11 | *Web*: the canvas takes keyboard focus on load; `Space`, the arrows and `Tab` reach the game and do not scroll or move focus. |
 | B12 | The front-ends build against `shell` and `core::GameView` alone. `cargo check --no-default-features` and its wasm counterpart both pass, and no module in `gui/` names a `core` internal. |
+
+**All twelve are signed off, one by one, and `GUI.md` §G9.3 says how each was
+checked.** B8 is the one that earned the stage: a backgrounded tab did not
+pause, because §G4.7's rule was right and the mechanism §G8.7 named for it was
+not. Both documents are amended and `gui::host::visible` is the fix.
 
 **MG7.**
 
@@ -1953,8 +1966,8 @@ for no benefit.
 | `keep_window` | G12 | New, in `gui/host_native.rs`. Moved, unmoved, `remember_window` off, and — the one that matters — a run with `--scale` and `--fullscreen` whose geometry is written back without them. |
 | `fall_progress` behaviour | G10 | New. Zero when landed, resets on the row change, well-defined above 1 G. |
 | §19.4 canary + I1 snapshot | G10 | **Unchanged, and that is the assertion.** A snapshot that moves means the new field was computed from the wrong state, or that a rule started reading it. |
-| `tests/gui_render.rs` | G13 | New. The GUI's I4, via `egui_kittest`, headless. |
-| B1–B12 | G13 | New. `GUI.md` §G9, checked one by one. |
+| `tests/gui_render.rs` | G13 | New. The GUI's I4, headless through `egui::Context::run_ui` — no harness crate, see §G9.1. Seven sizes in physical pixels at four densities, every screen and overlay, and the minimum as a boundary one *pixel* wide. |
+| B1–B12 | G13 | New. `GUI.md` §G9.3, checked one by one. B4's two numbers and B10's shell half are in `tests/pump.rs`; the rest wanted a screen and a keyboard. |
 
 ---
 
@@ -1965,14 +1978,14 @@ for no benefit.
 | ~~**MSRV conflict.**~~ **Retired at G5**: 0.36 taken, floor raised to 1.95 in one commit across `Cargo.toml`, §3 and the workflow. The three places still have to move together, and the `msrv` job is what catches it if they do not. | — | — |
 | **The G3 abstractions are done half-way**, leaving `cfg(target_arch)` sprinkled through the shell. | G3, discovered in G6 as a slow, miserable stage. | The wasm CI check lands *in* G3 and is what defines the stage as finished. A `cfg` in `shell/` is a stage that is not done. |
 | **The loop inversion changes TUI behaviour subtly.** A reordered step, a lost `dt`, a pause that no longer zeroes the accumulator. | G4, discovered in G11. | G4 lands with no GUI at all, and is validated by the terminal front-end's existing pty acceptance suite plus cadence invariance. |
-| **Tick/frame coupling.** The easy GUI bug: advancing by frame time, or once per repaint. | G5 onward. | `ticks_due` is the only path; the invariance test runs at several cadences; B8 checks it on real hardware and in a real tab. |
+| ~~**Tick/frame coupling.**~~ **Retired at G13.** | — | `ticks_due` is the only path and the invariance test runs at several cadences. B8 checked a real tab, and found the neighbouring defect instead: a hidden tab that went on playing because it still *looked* focused. |
 | **The browser swallows the game's keys.** `Space` scrolls, `Tab` moves focus, the canvas never had focus. | G6, and every web build after. | `GUI.md` §G8.2 makes canvas focus normative, and G6 found `eframe` does not focus the canvas itself; B11 is a dedicated acceptance criterion, because this defect is invisible in every native test. |
 | ~~**A 32-bit target plays a different game.**~~ **Found and retired at G6**: `SmallRng` is another generator on wasm32. | — | §9.6 names the generator; a `const` assertion in `make portable` holds it, because no test on a 64-bit host can. |
 | **Config data loss between binaries.** | G12 ✅, in the field. | Retired as planned: `ConfigFile` keeps every table whichever binary is running, and the round trip is compared byte for byte within each table, in every direction. The second half — a run that *writes* the file for a reason of its own — is `remember_window`, and it writes only when something moved. |
-| **CI grows new classes of failure.** `eframe` needs X11/Wayland headers and a GL stack; the web job needs `trunk` and a wasm target. | G13. | An `apt-get` step and a pinned `trunk`; the headless render test uses no GPU; image snapshots stay out of CI deliberately. |
+| ~~**CI grows new classes of failure.**~~ **Retired, in instalments**: the `apt-get` arrived at G5 and the pinned `trunk` at G6, so G13 changed no workflow. | — | The headless render test uses no GPU and needs no harness crate; image snapshots stay out of CI deliberately (`GUI.md` §G9.1). |
 | **The one core change grows.** `fall_progress` is a foothold, and the next request will be a second field — piece opacity, a spawn animation, a lock-delay fraction. | G10, and every stage after it. | The field is presentation, derived, and read by no rule; G10 is the only stage licensed to touch `src/core/`, and the I1 snapshot going red is what catches a rule that started reading it. Anything further is a §12.7 amendment on its own merits, not a follow-on. |
 | **Feature-gate rot.** A bare `cargo test` stops compiling the GUI, and nobody notices for weeks. | Any stage after G2. | Every Makefile target takes `--all-features`, and the Makefile is the single source of truth CI runs. |
-| **`egui` minor-version churn.** egui breaks API across minors more freely than ratatui does, and `eframe`, `egui_kittest` and `web-sys` must move together. | Maintenance. | Pin the minor in `Cargo.toml` and record it in §3, as the existing table does for every other dependency. |
+| **`egui` minor-version churn.** egui breaks API across minors more freely than ratatui does, and `eframe` and `web-sys` must move together. | Maintenance. | Pin the minor in `Cargo.toml` and record it in §3, as the existing table does for every other dependency. One crate fewer than this plan expected: G13 did not take `egui_kittest`. |
 | **Scope creep into §18.** A window — and especially a web page — makes sound, themes, touch and mouse input feel newly reachable. | Everywhere. | §1.2 and §18 are unchanged: still not work items. Parity is the deliverable. Touch is the one that deserves a real answer rather than a reflex; see below. |
 
 ---
@@ -1996,19 +2009,30 @@ not make on its own.
   and a piece of design in its own right, and is not planned.
 - ~~**Does losing focus pause a game?**~~ **Settled at G7: yes**, by §8.4's
   path (`Round::keyboard`), on every pump without the keyboard. `GUI.md` §G4.7
-  is normative and §G2.3 is amended; a hidden tab no longer creeps (§G8.7).
+  is normative and §G2.3 is amended; a hidden tab no longer creeps (§G8.7) —
+  though it took G13 to make that last clause true, because a hidden tab keeps
+  the canvas's focus and `egui` had no idea. `host::visible` is the second half
+  of the question.
 - **Sub-tick extrapolation on top of `fall_progress`.** The field itself is
   settled — it is [G10](#stage-g10--sub-cell-gravity). What is not settled is
   whether a front-end should also extrapolate *within* a tick for displays above
   60 Hz. It needs no spec change and is purely cosmetic, so it can wait until the
   quantisation has been looked at on real hardware rather than argued about now.
-- **Whether the view should carry a buffer row**, so a piece entering the field
-  slides in rather than popping. Recorded in G10's wrinkle; the recommendation is
-  to accept the pop-in, because the buffer zone is close to hidden information
-  and §19 would have to have an opinion about sending it.
-- **Whether `ftm-gui` should remember its window geometry.** §G8's `[gui]` table
-  has a place for it, but a game that reopens where it was last is also a game
-  that can reopen off-screen. Suggest: remember size, not position.
+- ~~**Whether the view should carry a buffer row**, so a piece entering the field
+  slides in rather than popping.~~ **Settled at G10, against the recommendation
+  above:** the pop-in was not acceptable once it was seen beside smooth
+  neighbours — §9.4 spawns every piece but `I` with a mino above the field, so a
+  `J` was drawn as three minos and then abruptly four. `PieceView::cells` is
+  signed and unclipped, which gives the falling piece's own minos back without
+  giving away the stack, so the §19 objection did not apply to the half that
+  mattered. `GUI.md` §G6.6.
+- ~~**Whether `ftm-gui` should remember its window geometry.**~~ **Settled at
+  G12: size *and* position**, behind `remember_window`, which the player can
+  turn off. The off-screen worry is real and is answered by the window manager
+  rather than by the game; what the write-back refuses instead is a full-screen
+  or maximised window, whose reported size is the display's, and a run that
+  moved nothing — which would otherwise rewrite the config file every time the
+  game was played. `GUI.md` §G8.10.
 - ~~**What the GUI does with `show_debug`.**~~ **Settled at G7:** a plain
   panel over the window's bottom-left corner, outside §G3's metric (§G4.6). The
   nine figures and their words are `Debug::figures`, shared with the terminal's
