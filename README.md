@@ -17,11 +17,11 @@
 
 ---
 
-More seriously, FTM is a guideline-conformant falling-block game for the
-terminal: a single Rust binary with no server, no `unsafe`, and a pure rules
-core that knows nothing about the terminal it is drawn on. Pieces fall on a
-fixed 60 Hz tick, so the same seed and the same inputs always produce the same
-game.
+More seriously, FTM is a guideline-conformant falling-block game written in
+Rust. You can play it in a terminal, in a native egui window, or in a browser.
+It has no server and no `unsafe`, and its pure rules core is independent of
+the front-end displaying it. The game advances at a fixed 60 Hz, making a run
+fully reproducible from its seed and inputs.
 
 <table>
   <tr>
@@ -46,34 +46,64 @@ game.
   </tr>
 </table>
 
+## Running FTM
+
+FTM requires Rust 1.95 or later. From the repository root:
+
+```bash
+make run                     # terminal version
+make run-gui                 # native egui version
+make run-web                 # browser version at http://127.0.0.1:8080
+cargo run -- --help          # terminal command-line options
+cargo run -- --print-config  # effective configuration
 ```
-make run                     # play it (console)
-make run-gui                 # play it (egui)
-cargo run -- --help          # the options (console)
-cargo run -- --print-config  # the effective configuration (console)
+
+The web version also requires
+[Trunk](https://trunkrs.dev/), which you can install with
+`cargo install trunk --locked`.
+
+## Configuration
+
+On its first clean exit, FTM writes a fully commented `config.toml` to your
+platform's configuration directory:
+
+- macOS: `~/Library/Application Support/ftm/`
+- Linux: `~/.config/ftm/`
+
+The terminal and native GUI versions share this file. Common settings can also
+be changed from the in-game **Options** panel.
+
+## Documentation
+
+The normative specification is split across four documents:
+
+- [FTM.md](spec/FTM.md) defines the game and its front-end-independent
+  behaviour.
+- [FRONTEND.md](spec/FRONTEND.md) defines the contract for every front-end.
+- [TUI.md](spec/TUI.md) specifies the terminal interface.
+- [GUI.md](spec/GUI.md) specifies the native and browser egui interfaces.
+
+Section numbers remain stable across these documents. If the implementation
+and specification differ, the specification must be amended rather than
+silently ignored.
+
+[PLAN.md](spec/PLAN.md) records the completed twelve-stage implementation of
+the original terminal game. [EGUI.md](spec/EGUI.md) tracks the work that added
+the native and browser front-ends.
+
+## Development
+
+Install the WebAssembly target before running the full checks:
+
+```bash
+rustup target add wasm32-unknown-unknown
 ```
 
-Settings live in `config.toml` under the platform config directory
-(`~/Library/Application Support/ftm/` on macOS, `~/.config/ftm/` on
-Linux); a fully-commented copy is written there the first time the game exits
-cleanly, and the in-game Options panel — pause, then **Options** — edits the
-settings most worth changing without a text editor.
+Then run:
 
-The specification is [FTM.md](spec/FTM.md) and it is ground truth: if the code and
-the spec disagree, the spec is wrong until it is amended. It has three
-companion documents, and section numbers are stable across all four — a
-section that moved kept its number: [FRONTEND.md](spec/FRONTEND.md) is the contract
-any front-end is written against, [TUI.md](spec/TUI.md) specifies this terminal
-front-end (§8, §12.1–§12.6, §13), and [GUI.md](spec/GUI.md) is reserved for an egui
-front-end in a window and in a browser.
+```bash
+make check
+```
 
-[PLAN.md](spec/PLAN.md) sequences the implementation into twelve stages; all twelve
-are complete. [EGUI.md](spec/EGUI.md) is the live plan, and adds the second and
-third front-ends.
-
-Requires Rust 1.88 or later (edition 2024 needs only 1.85; `ratatui` sets the
-floor). `make check` runs everything CI runs: `cargo fmt --check`, `cargo
-clippy -- -D warnings`, `cargo test`, the two boundary checks and a release
-build. The second boundary check builds the rules and the shell for
-`wasm32-unknown-unknown` — they use no clock, no filesystem, no entropy and no
-calendar of their own — so it wants `rustup target add wasm32-unknown-unknown`.
+This formats and lints the code, runs the tests, checks the core and shell
+boundaries on native and WebAssembly targets, and creates a release build.
