@@ -241,9 +241,9 @@ determinism rests on.
   list stays at four. Rename `MenuChoice::NO_QUIT` to **`MenuChoice::CANVAS`**
   in the same commit: it is no longer "the same list without quit", it is the
   browser's list, exactly as `Setting::CANVAS` is the browser's panel.
-- **`Next` carries the mode.** `Next::Play` becomes `Next::Play(Control)` (or
-  a `Next::Pilot` beside it — P1 decides), so the attract screen's choice is
-  what `Round::new` reads. §7's diagram is amended for the extra edge.
+- **`Next` carries the player.** `Next::Play` becomes `Next::Play(Player)` with
+  `Player::{Human, Pilot}` (§7, settled in P1), so the attract screen's choice
+  is what `Round::new` reads and a restart carries rather than rediscovers.
 - `App` gains the controller beside the input state, and `play_key` drops
   gameplay bindings while it is present. Pause, the pause menu, §10.1's restart
   hold, the Options panel, the controls box and quit all stay live: a spectator
@@ -304,18 +304,36 @@ Complete. `EGUI-PLAN.md` G13 and B1-B12 are signed off; the two front ends,
 `tests/pump.rs`, `tests/gui_render.rs` and the mock-up tests are the fixed
 baseline.
 
-### P1 — Specification and contracts
+### P1 — Specification and contracts ✅
 
-- Replace `PILOT.md`'s draft with the normative design under §P1-§P9: mode
-  lifecycle, the information boundary, the input cap, search budgets, spectator
-  controls, the no-high-score rule, the benchmark's grammar and output, and §P9's
-  acceptance table.
-- Amend `FTM.md` §1.1, §1.2, §7, §14, §15 and §18; amend `TUI.md` and `GUI.md`
-  for the menu row and the indicator. No renumbering.
-- Amend CLAUDE.md: the five-document table, the scope-discipline paragraph, and
-  the invariants this plan adds.
-- Define `pilot::Pilot`/`Settings` and the `Game::fork`/`SearchGame` seam as
-  signatures, before anything uses them.
+Done, and docs only: no code was written, and `src/` is byte-identical.
+
+- `PILOT.md` is normative, §P1-§P9, with §P9's C1-C13 table.
+- `FTM.md` §1.1, §1.2, §4, §7, §14, §15.4 and §18 amended; `TUI.md` §13.3 and
+  §12.4, `GUI.md` §G4.5, §G4.7, §G7.4, §G7.5 and §G8.1 amended; CLAUDE.md's
+  document table, scope rule and invariants. Nothing renumbered.
+- `pilot::Pilot`/`Settings` (§P3.4) and the `Game::fork`/`SearchGame` seam
+  (§P2.3) are written down as signatures.
+
+**What it settled.**
+
+- **`Next::Play(Player)`**, with `Player::{Human, Pilot}` — the payload rather
+  than a fourth `Next` variant, because every front-end already matches `Next`
+  exhaustively and a restart has to *carry* the player rather than rediscover
+  it. §7's table gained one row and its diagram none.
+- **The indicator is `PILOT`, left-aligned on the status row**, for the whole
+  game rather than transiently, in both front-ends. The centred status content
+  is the longest thing that could collide with it and does not: `PERFECT CLEAR`
+  is 13 characters and centres well clear of column 5.
+- **The two layouts were measured on the running binaries, not reasoned about,
+  and they disagreed.** The terminal's attract block must grow from 21 rows to
+  22: with six menu items the footer line falls out of the block *silently*, by
+  clipping, which is exactly what a spec written from arithmetic would have
+  promised away. The window needs no change at all — §G7's menu band is five
+  rows reserved whatever the menu's length, so six items centre into the blank
+  rows either side and neither the panel nor the footer moves. Both are in
+  `PILOT.md` §P7.2, and the screenshot is what settled the second.
+- **`MenuChoice::NO_QUIT` becomes `CANVAS`** in P4, for the reason in §P7.1.
 
 ### P2 — Knowledge, evaluation, and the fork
 
@@ -402,11 +420,14 @@ off one by one.
 
 ## Open decisions
 
-- **Where the indicator goes** on each playing screen, and whether it says
-  `PILOT` or something the §12.4 layout has room for without moving a column.
-  P4's business, and a screenshot decides it.
-- **Whether `Next::Play` gains a payload or `Next::Pilot` joins it.** P1
-  decides; the front ends match on `Next`, so it is a small but visible change
-  either way.
-- **The window's sixth menu row**, above: it fits, but only just. If the footer
-  on the last row looks wrong, the gap above the panel is what gives.
+All three of P1's are settled — see P1 above. What is left is for later stages
+to answer with evidence rather than now:
+
+- **The node budget** (§P6.4). P5 measures it, including a full
+  `MAX_CATCH_UP_TICKS` batch of searches in one pump, and the number goes in
+  §P6 when it is known rather than guessed.
+- **Whether exact reachability (P7) is worth its cost** over the simple
+  generator. P6's baseline is what answers it; if it buys nothing measurable,
+  say so and keep it for the placements a hard drop cannot reach.
+- **The starting weights** (§P5). Hand-tuned, and the benchmark is what says
+  whether a change helped. Automated tuning stays out of this plan.

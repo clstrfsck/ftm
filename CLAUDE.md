@@ -2,9 +2,9 @@
 
 A guideline-conformant falling-block game in Rust. No server, no unsafe. The
 name is the joke; `ftm` is the binary, the crate, and the config and data
-directories. The specification is `FTM.md`, and since G0 it has three companion
-documents — see **The four documents** below. All six documents, the two plans
-included, live in **`spec/`**.
+directories. The specification is `FTM.md`, and since G0 it has companion
+documents — four of them since P1 — see **The five documents** below. All eight
+documents, the three plans included, live in **`spec/`**.
 
 It is no longer only a terminal game, and no longer a single binary: `EGUI-PLAN.md`
 builds a second and third front-end (a native egui window, and the same code as
@@ -100,7 +100,15 @@ something is the shape it is, not for what to do next. A fourth front-end is a
 fourth directory, a feature and a `[[bin]]`, and `FRONTEND.md` is what it is
 written against — but it is not planned, and **Macroquad readiness** in
 `EGUI-PLAN.md` is a list of constraints rather than a work item, exactly as §19
-is. §18 remains out of scope — see **Scope discipline** below.
+is.
+
+**There is a live plan again: `PILOT-PLAN.md`, stages P0-P8**, which builds the
+automated player of `PILOT.md` §P1-§P9 — a **PILOT** row on §13.3's menu that
+plays the game while the player watches. It is a deliberate amendment to the
+scope rule below: it promotes §18's first bullet and no other. Stage P1 is
+complete — the specification, the amendments to `FTM.md`, `TUI.md` and `GUI.md`,
+and this file — and **no code has been written yet**. P2 is next. See **Scope
+discipline**, which now says what is still out.
 
 ## The §17.3 sign-off
 
@@ -141,24 +149,28 @@ does — `GUI.md §G7`, not `spec/GUI.md §G7`. A document is referred to by its
 name because that is what several hundred doc comments say; the directory is
 where it is kept, not what it is called.
 
-1. **The specification**, in whichever of the four documents below owns the
+1. **The specification**, in whichever of the five documents below owns the
    sections your work touches. Read those sections, not the whole thing. Start
-   from `FRONTEND.md` if the work is a front-end's.
-2. **`EGUI-PLAN.md`** — stages G0-G13, all complete. History now, not
+   from `FRONTEND.md` if the work is a front-end's, and from `PILOT.md` if it
+   is the automated player's.
+2. **`PILOT-PLAN.md`** — stages P0-P8, the only live plan. P1 is done; read
+   "The decisions this plan rests on" before writing any of it.
+3. **`EGUI-PLAN.md`** — stages G0-G13, all complete. History now, not
    instructions, but the two sections that are *not* history are "The decisions
    this plan rests on" and "The central idea", which is what the shell being
    pumped rather than looping follows from. Its **Macroquad readiness** is a
    list of constraints, not a plan.
-3. **`TERMINAL-PLAN.md`** — the twelve stages that built v1.0. History too.
+4. **`TERMINAL-PLAN.md`** — the twelve stages that built v1.0. History too.
    Worth reading when you want to know why something is the shape it is.
 
 The specification is ground truth. **If the code and the spec disagree, the
 spec is wrong until it is amended** — fix it in the same commit and say so in
 the message. Never let the code silently diverge.
 
-## The four documents, and the number-stability rule
+## The five documents, and the number-stability rule
 
-G0 split the specification in four. **Section numbers did not move.** The
+G0 split the specification in four; P1 added a fifth. **Section numbers did not
+move, and never do.** The
 sections that left `FTM.md` kept their numbers in the file they moved to, so
 every `§12.4` in the source still resolves — to `TUI.md` rather than to
 `FTM.md` — and `FTM.md` keeps a stub at each vacated number saying where it
@@ -171,9 +183,13 @@ several hundred doc comments, and each one would still *read* fine.
 | **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
 | **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
 | **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. Complete: §G1 (the application, the version pin, the loop) and §G2 (input) by G5, §G8's web build by G6, §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9, §G6.5-§G6.6 by G10, §G7 by G11, §G8.10-§G8.11 by G12 and §G9 — the render test and B1-B12 — by G13. |
+| **`PILOT.md`** | §P1-§P9 | The automated player: the mode, the information boundary, control and the input cap, placements, evaluation, search, the two screens, the headless benchmark, and C1-C13. Normative since P1; **no code yet**. |
 
 An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
-owns. `§Gn` means `GUI.md`; a future `MACROQUAD.md` would take `§M`.
+owns. `§Gn` means `GUI.md` and `§Pn` `PILOT.md`; a future `MACROQUAD.md` would
+take `§M`. **A stage and a section share a letter and are told apart by the
+`§`** — `§P4` is a section of `PILOT.md`, P4 is the stage of `PILOT-PLAN.md`
+that makes something play, exactly as `§G3` and G3 already differ.
 
 Two rules that keep the split honest: **§12.7 and §12.8 stayed in `FTM.md`**,
 because they are what a front-end is written *against* rather than a rendering
@@ -525,6 +541,42 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   mechanic are both `hold: None` — so it travels with the theme and `show_grid`
   rather than being smuggled into the view (§12.4, §12.7).
 
+These four are `PILOT.md`'s, and none of them has code behind it yet — P1 wrote
+them down, P2 onwards has to keep them.
+
+- **The planner never holds a `Game`** (`PILOT.md` §P2). A clone carries the
+  real bag and the real generator, and `Game::bag_remaining` is an accessor onto
+  hidden information, so fairness cannot be a convention. It holds a
+  `SearchGame`: a fork whose randomiser has been **replaced** by a scripted
+  queue the planner built from what it observed, and which refuses to spawn past
+  the end of it. The hidden-future test is belt and braces over a property the
+  types already hold — the same trade A10 made for the core's façade. And
+  `core/mod.rs` re-exports the seam with `pub(crate) use`, so **A10 itself does
+  not move**: the core's public surface is what it was.
+- **The planner takes no clock, and that is a third instance of the house
+  rule** (`PILOT.md` §P3.3). The core takes no clock, the shell takes no clock,
+  and now the player does not either: no `Instant`, no frame count, no wall-time
+  budget, and a search that is **never amortised across frames**. `src/pilot/`
+  is in `make shell` and `make portable` for exactly the reason `shell/` is. The
+  property this buys is cadence invariance for a PILOT round, which is §19.4's
+  canary one layer up and is asserted in `tests/pump.rs`.
+- **The planner thinks once per piece, on the tick it spawns** (`PILOT.md`
+  §P3.1), and emits one `TickInput` per tick until it locks. Two things follow.
+  `App::advance` gives a batch's edge actions to its *first* tick only, because
+  a human produces input per frame; a planned round needs the batch's *n*th
+  input on its *n*th tick, so that is a branch inside `advance` and the human
+  path must stay byte-identical. And a plan is never recomputed from a partly
+  executed state — a plan that diverges from what the search predicted is a bug,
+  not a resync.
+- **A screen offers what its front-end can do, now for a third list**
+  (`PILOT.md` §P1, §P7.1). `MenuChoice::ALL` is six items with PILOT;
+  `MenuChoice::CANVAS` — renamed from `NO_QUIT` — is a tab's four, short of QUIT
+  because a tab cannot close itself and short of PILOT because a tab would
+  search on its frame thread. Nothing is `cfg`-ed out. The room it takes was
+  *measured* before it was specified: the terminal's attract block goes 21 → 22
+  rows or the footer is silently clipped, and the window needs no change at all
+  because its menu band is reserved rather than fitted (`PILOT.md` §P7.2).
+
 ## Working agreements
 
 - Tests land **with** their stage, not after it. `TERMINAL-PLAN.md` maps every test in §17
@@ -550,10 +602,22 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 
 ## Scope discipline
 
-- §18 (other modes, sound, replays, themes, demo bot) and §19 (networking) are
-  **not work items**. §19 is a list of constraints to honour, already baked into
-  Stages 3, 5 and 8. The only networking deliverable in the entire plan is that
-  one CI test.
+- §18 (other modes, sound, replays, themes, per-piece statistics) and §19
+  (networking) are **not work items**. §19 is a list of constraints to honour,
+  already baked into Stages 3, 5 and 8. The only networking deliverable in the
+  entire plan is that one CI test.
+- **One §18 bullet was taken up, and only one**: the self-playing bot, now
+  `PILOT.md` and `PILOT-PLAN.md`. It is a menu item the player chooses, not
+  §13's idle demo — the attract screen still never starts playing by itself,
+  which is the part of that bullet that stays out. Everything else in §18 is
+  exactly as out of scope as it was, and this is not a precedent: the bullet was
+  promoted by a decision, written down in `PILOT-PLAN.md`'s scope section and in
+  §18 itself, rather than by a session deciding it was in.
+- **`PILOT-PLAN.md`'s scope is its stages.** An automated player makes weight
+  training, a replay format, an idle demo and a difficulty setting all feel
+  newly reachable. None is in it. Automated weight tuning in particular is
+  named as *not* in the plan, and would consume §P8's benchmark rather than
+  replace it.
 - The attract screen (§13) is explicitly provisional. It has now been built
   plainly and looked at; iterate on it if it wants it, but §17.3 never judged
   its looks and the plan is finished either way.

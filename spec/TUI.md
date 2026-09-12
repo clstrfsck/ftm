@@ -33,7 +33,7 @@ specification and not with any one screen. `FRONTEND.md` is what collects the
 obligations that fall out of them.
 
 An unqualified `§n` in this document means `FTM.md` §n unless the number is one
-of the five above. `§Gn` means `GUI.md`.
+of the five above. `§Gn` means `GUI.md`, and `§Pn` `PILOT.md`.
 
 ---
 
@@ -364,6 +364,14 @@ Rules for the layout:
 - **Status line** (bottom, centred): shows `B2B` when the back-to-back chain is
   active, `COMBO xN` when the combo counter is ≥ 1, and the most recent clear's
   name (`QUAD`, `T-SPIN DOUBLE`, `PERFECT CLEAR`, …) for 1.5 s after it occurs.
+- **`PILOT` indicator**: while the automated player holds the controls
+  (`PILOT.md` §P7.3) the word `PILOT` is drawn **left-aligned on the status
+  row**, in the `I`-piece cyan that marks the selected menu item, for the whole
+  game. The centred status content is unchanged and cannot collide with it: the
+  longest of those is `PERFECT CLEAR` at 13 characters, which centres well clear
+  of column 5. It is deliberately not a transient: a screenshot of an automated
+  game must never be mistakable for a player's, and an indicator that comes and
+  goes is one that is absent in half the screenshots.
 
 ### 12.5 Animations
 
@@ -505,6 +513,7 @@ or artwork may be copied (§1.3).
                  FALLING TETROMINO MANAGER
 
                      ▸ PLAY
+                       PILOT
                        HIGH SCORES
                        CONTROLS
                        OPTIONS
@@ -519,13 +528,21 @@ or artwork may be copied (§1.3).
               v1.0   ↑↓ select   ENTER start
 ```
 
-The screen is a fixed block **36 characters wide by 21 rows tall**, centred in
+The screen is a fixed block **36 characters wide by 22 rows tall**, centred in
 the terminal like every other screen (§12.1). The mock-up above shows it centred
 in 60 columns. The width is the controls panel's, not the wordmark's: the
 wordmark is 30 characters and is centred within the block.
 
-The 21 rows are wordmark (5), blank, subtitle, blank, menu (5), blank, panel
+The 22 rows are wordmark (5), blank, subtitle, blank, menu (6), blank, panel
 (6), footer — the footer sits directly under the panel, with no gap.
+
+**The block was 21 rows until `PILOT.md` §P7.1 added a sixth menu item**, and
+the extra row is the whole of that change: the panel's position already follows
+the menu's length, and §12.1's 60 × 24 minimum does not move — 22 rows leaves
+one above and one below. The row matters because without it the *footer* is what
+falls off the bottom, silently, by clipping: a block shorter than its paragraph
+loses the last line and says nothing. That is how it was found (`PILOT.md`
+§P7.2), and it is why this count is written down twice.
 
 - The controls panel lists only the bindings that are actually available: the
   `C hold` entry is omitted when `hold_enabled = false`, and the 180° entry is
@@ -542,7 +559,9 @@ The 21 rows are wordmark (5), blank, subtitle, blank, menu (5), blank, panel
   2. the top three high scores, under a `HIGH SCORES` heading;
   3. a one-line rules reminder (`Clear 4 rows at once for a QUAD` and similar,
      rotating through a short list).
-  The cycle pauses while a menu item other than **PLAY** is selected.
+  The cycle pauses while a menu item other than **PLAY** or **PILOT** is
+  selected — the two items that start a game, where the player is about to
+  leave the screen rather than reading it.
 
 ### 13.4 Background animation
 

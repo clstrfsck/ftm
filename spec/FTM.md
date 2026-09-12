@@ -2,19 +2,23 @@
 
 **Version:** 1.0
 **Date:** 2026-09-05 (split into four documents 2026-09-10; §6.3 and §6.4
-amended for the `[gui]` table and the per-build flag split 2026-09-12)
+amended for the `[gui]` table and the per-build flag split 2026-09-12; §1.1,
+§1.2, §4, §7, §14, §15.4 and §18 amended for `PILOT.md`'s automated player
+2026-09-12)
 **Target language:** Rust (edition 2024, MSRV 1.95)
 **Name:** Falling Tetromino Manager (a tetromino game; binary name `ftm`)
 
 **Companion documents:** [FRONTEND.md](FRONTEND.md) (the contract every
 front-end is written against), [TUI.md](TUI.md) (the terminal front-end),
-[GUI.md](GUI.md) (the egui front-end, native and web).
+[GUI.md](GUI.md) (the egui front-end, native and web),
+[PILOT.md](PILOT.md) (the automated player).
 
 > **The section numbers in this document are stable.** Several sections have
 > moved to `TUI.md`, and they **kept their numbers there** — a `§12.4` in a doc
 > comment still resolves, to `TUI.md` rather than to here. Each vacated number
 > keeps a stub below saying where it went. `GUI.md` uses a fresh `§G` namespace
-> so it can never collide, and a future `MACROQUAD.md` would use `§M`.
+> so it can never collide, `PILOT.md` a `§P` one, and a future `MACROQUAD.md`
+> would use `§M`.
 
 ---
 
@@ -50,7 +54,9 @@ other source: all rotation tables, scoring tables and timing constants are
 reproduced here in full. What a screen looks like is a front-end's question, and
 there are three documents for it: `FRONTEND.md` states the contract any front-end
 is written against, `TUI.md` specifies the terminal front-end, and `GUI.md` the
-egui front-end in both its native and its web build.
+egui front-end in both its native and its web build. A fifth document,
+`PILOT.md`, specifies the automated player of §1.1 — who may hold the controls,
+which is a question about neither the rules nor a screen.
 
 External references are given for provenance only, not as required reading:
 
@@ -73,6 +79,10 @@ Where this specification and those pages disagree, **this specification wins**.
   60 columns × 24 rows, `GUI.md` §G3 the window's.
 - Deterministic, testable core: the game rules must be exercisable with no
   front-end attached at all.
+- An **automated player**, chosen from the attract screen's menu and watched
+  rather than played: `PILOT.md` §P1-§P9 specifies it. It plays §11's Marathon
+  under the ordinary rules, through the ordinary `Game::tick`, and knows only
+  what a person watching the screen could know (`PILOT.md` §P2).
 
 ### 1.2 Non-goals (for version 1.0)
 
@@ -83,7 +93,10 @@ Where this specification and those pages disagree, **this specification wins**.
 - Game modes other than Marathon (Sprint / Ultra / Zen are noted as future work
   in §18).
 - **Mouse input, in every front-end.** The game is keyboard-driven and §10.1's
-  bindings are the whole input surface: there is no click-to-select in a menu, no
+  bindings are the whole input surface — `PILOT.md`'s automated player is the
+  one mode where nobody is at the keyboard, and even there the keys that stay
+  live are the spectator's (§7's pause, §10.1's restart and quit) rather than
+  the game's (`PILOT.md` §P7.3): there is no click-to-select in a menu, no
   drag, no pointer path through any screen. This is a rule about the game and not
   about terminals, and it is stated here deliberately, because a window — and
   especially a browser tab — makes a second, pointer-shaped input path through
@@ -289,8 +302,10 @@ ftm/
 │   ├── FRONTEND.md       # the contract every front-end is written against
 │   ├── TUI.md            # the terminal front-end (§8, §12.1–§12.6, §13)
 │   ├── GUI.md            # the egui front-end, native and web (§G)
+│   ├── PILOT.md          # the automated player (§P)
 │   ├── TERMINAL-PLAN.md       # the twelve stages that built v1.0
-│   └── EGUI-PLAN.md           # the front-end plan, stages G0–G13
+│   ├── EGUI-PLAN.md           # the front-end plan, stages G0–G13
+│   └── PILOT-PLAN.md          # the automated player's plan, stages P0–P8
 ├── README.md
 ├── tests/                # integration tests (§17.2), driven through lib.rs
 └── src/
@@ -299,7 +314,8 @@ ftm/
     │                         #   native binaries. Not a layer — see below.
     ├── bin/
     │   ├── ftm.rs            # terminal entry point; required-features = ["tui"]
-    │   └── ftm-gui.rs        # window entry point;   required-features = ["gui"]
+    │   ├── ftm-gui.rs        # window entry point;   required-features = ["gui"]
+    │   └── ftm-pilot.rs      # §P8's headless benchmark; native, no render
     ├── core/                 # pure rules. Every module pub(crate) (§17.3 A10).
     │   ├── mod.rs            # re-exports; `Game` façade
     │   ├── geometry.rs       # Point, Rotation, direction helpers
@@ -313,6 +329,8 @@ ftm/
     │   ├── scoring.rs        # score table, B2B, combo, perfect clear (§9.14)
     │   ├── view.rs           # GameView: the serialisable render model (§12.7)
     │   ├── events.rs         # GameEvent: what happened this tick (§12.8)
+    │   ├── search.rs         # SearchGame: a fork with no randomiser (§P2.3).
+    │   │                     #   pub(crate) use, so the façade does not grow.
     │   └── game.rs           # Game state, `Game::tick` (§15.1)
     ├── shell/                # front-end-agnostic AND platform-free (§3.1).
     │   ├── mod.rs            #   builds for wasm32-unknown-unknown, no cfg.
@@ -328,6 +346,16 @@ ftm/
     │   ├── menus.rs          # the menu models (§12.6, §13.3, §13.5)
     │   ├── cosmetics.rs      # §12.5 animation timers, from events + a stamp
     │   └── palette.rs        # §9.2 and its levelled lift, as plain RGB
+    ├── pilot/                # the automated player. PILOT.md is normative.
+    │   │                     #   Platform-free like shell/, and front-end-free:
+    │   │                     #   it names the core's façade, §P2.3's fork and
+    │   │                     #   RulesConfig, and nothing else.
+    │   ├── mod.rs            # Pilot, Settings (§P3.4)
+    │   ├── knowledge.rs      # observed deals, inferred bag (§P2.4)
+    │   ├── placements.rs     # reachable placements over forks (§P4)
+    │   ├── evaluate.rs       # the integer board evaluation (§P5)
+    │   ├── search.rs         # beam, chance nodes, budget (§P6)
+    │   └── bench.rs          # the benchmark's report types (§P8)
     ├── tui/                  # #[cfg(feature = "tui")]. TUI.md is normative.
     │   ├── mod.rs            # screen dispatch, terminal-too-small screen
     │   ├── keys.rs           # crossterm -> shell::keys adapter
@@ -359,6 +387,13 @@ entry point; everything else lives behind `lib.rs`. This is what lets the
 integration tests of §17.2 — the scripted game and the batch-invariance canary of
 §19.4 — drive the core from `tests/`, which a binary-only crate cannot do, and it
 is what lets `tests/pump.rs` drive the whole shell with no front-end at all.
+
+**`src/pilot/` is not a front-end either.** It draws nothing and holds no loop:
+it is a *player*, sitting beside the shell and reached by it, and it is
+platform-free for the same reason `shell/` is — `PILOT.md` §P3.3's "no clock" is
+held by `make portable` rather than by a comment. Both native front-ends can
+start it; a browser tab does not offer it (`PILOT.md` §P1), which is a shorter
+menu list and not a `cfg`.
 
 A fourth front-end is a fifth directory, a feature and a `[[bin]]`. It is
 deliberately **not** a `trait Frontend`: the front-ends share the shell by
@@ -659,6 +694,11 @@ enum Screen {                 // which loop is running
     Quitting,
 }
 
+enum Player {                 // who holds the controls (PILOT.md §P1)
+    Human,
+    Pilot,
+}
+
 enum Phase {                  // where a game is; only under `Playing`
     Playing,
     Paused { selected: usize },
@@ -682,7 +722,8 @@ Transitions:
 
 | From | Trigger | To |
 |---|---|---|
-| `Attract` | menu item **Play** activated | `Playing` (fresh `Game`) |
+| `Attract` | menu item **Play** activated | `Playing` (fresh `Game`, `Player::Human`) |
+| `Attract` | menu item **PILOT** activated | `Playing` (fresh `Game`, `Player::Pilot`) |
 | `Attract` | **Quit** activated, `quit` key, or `Esc` | `Quitting` |
 | `Attract` | **High scores** / **Controls** / **Options** | the sub-screen; `Esc` returns |
 | `Playing` | `pause` key | `Paused` |
@@ -700,6 +741,13 @@ Transitions:
 
 The pause menu's **Restart** does not need §10.1's one-second hold: choosing an
 item from a menu is already the deliberate act the hold is there to require.
+
+**A restart keeps the player.** Both restarts — the held key and the menu item —
+start a fresh game with the `Player` the finished one had, so a spectator who
+asks for another PILOT game gets one and is never silently handed a game nobody
+is holding the keyboard for (`PILOT.md` §P1). Every other transition above is
+the same for either player; what differs under `Player::Pilot` is only which
+keys the running game listens to (`PILOT.md` §P7.3).
 
 **The state machine is pumped, not looped.** §15.2's steps are methods on the
 state above, called by whichever front-end is running: the terminal's poll loop,
@@ -1670,6 +1718,12 @@ judged.
   warning at exit; the game must never fail to start because of it. Any failure
   to write yields a warning at exit and is otherwise ignored.
 - Runs started with `--seed` are never recorded.
+- **Runs played by `PILOT.md`'s automated player are never recorded**, on any
+  path: not the table, not §12.6's name-entry box, and not §13's highlight of
+  the entry a run just added. A spectator is not a player, and a table of the
+  machine's scores is a table with no players in it. This belongs beside the
+  seeded-run rule above, in the one place that knows how a run was played
+  (`PILOT.md` §P7.4).
 
 ---
 
@@ -1800,6 +1854,12 @@ a modern machine.
   everything in §19.
 - No rules decision may depend on the render rate, on how many ticks were batched
   in one iteration, or on how long a tick took to compute.
+- **Nor may a player's.** `PILOT.md`'s planner reads no clock, no frame count
+  and no wall-time budget: it is a pure function of what it is allowed to know
+  (`PILOT.md` §P2) and its settings, and its search is never spread across
+  frames. A PILOT round is therefore cadence-invariant in exactly the sense
+  above, which is what `tests/pump.rs` asserts and §19.4's canary asserts one
+  layer down.
 
 ---
 
@@ -1939,9 +1999,16 @@ These are recorded so that later refinement has a home; none are required for
 v1.0.
 
 - **Attract mode refinement** (§13) — the layout, the cycling panel and the idle
-  behaviour are a first pass and are expected to change. A self-playing demo
-  driven by a simple heuristic bot is the most likely addition; it would need a
-  placement search and would reuse `Game` unchanged.
+  behaviour are a first pass and are expected to change.
+- ~~A self-playing demo driven by a simple heuristic bot~~ — **taken up**, and
+  the one item in this section that has been. It is specified in `PILOT.md`
+  §P1-§P9 and built by `PILOT-PLAN.md`'s stages P0-P8. Two things about it
+  differ from the guess recorded here: it is a **menu item the player chooses**
+  rather than the attract screen's idle demo, which stays out of scope; and it
+  is not "simple", because the fairness rule (`PILOT.md` §P2) and the input cap
+  (§P3.2) are what make the placement search worth having. The prediction that
+  it "would reuse `Game` unchanged" held: the core gained one crate-private
+  fork constructor and nothing else.
 - **Additional modes** — Sprint (fastest 40 lines), Ultra (highest score in two
   minutes), Zen (no top out), and a Marathon variant that ends at level 15.
 - **Sound** — terminal bell or an optional audio backend.

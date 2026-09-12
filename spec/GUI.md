@@ -29,7 +29,7 @@ document takes a fresh namespace so it can never collide with either. A future
 `MACROQUAD.md` would take `§M`.
 
 An unqualified `§n` here means `FTM.md` §n, or `TUI.md` §n for the five numbers
-that document owns. `§Gn` means this file.
+that document owns. `§Gn` means this file, and `§Pn` `PILOT.md`.
 
 | § | Section | Filled by | Covers |
 |---|---|---|---|
@@ -436,6 +436,13 @@ instead, as §12.4's does: a hold with no feedback is indistinguishable from a
 key that did nothing, and a player about to throw the game away is not reading
 the name of their last clear.
 
+While the automated player holds the controls, **`PILOT` is drawn at the left
+end of this row** for the whole game, in the `I`-piece cyan — `TUI.md` §12.4's
+indicator in this front-end's units. The centred content is unchanged and does
+not collide with it. It is not a transient, for the reason given there: a
+screenshot of an automated game must never be mistakable for a player's, and
+§G9.2's whole method here is screenshots (`PILOT.md` §P7.3).
+
 ### G4.6 The debug read-out
 
 With `show_debug` on, a plain panel over the bottom-left corner of the window:
@@ -466,6 +473,12 @@ happened.
   running when they clicked away is not `Playing` and has nothing to pause, so
   the pass it runs out on is the one that pauses — before a tick is played that
   nobody could answer.
+- **An automated game pauses too** (`PILOT.md` §P7.3). Nobody was going to
+  answer those ticks either way, so the reason above does not apply and a
+  narrower rule was available; it was not taken. A paused game blanks the stack
+  under §9.17 whoever is playing, the spectator gets the same countdown back,
+  and a window that has lost the keyboard has no business spending a search
+  budget on every frame.
 - **It does not undo itself.** Focus coming back shows the pause menu, and the
   player leaves it and gets §9.17's countdown, exactly as after a resize.
 - **The releases come first.** The adapter's synthesised releases (§G2.3) reach
@@ -876,6 +889,14 @@ drawn triangle beside it — the same bar and the same triangle the pause menu
 uses, because they are the same kind of thing. Twelve cells wide, which is the
 well and its walls.
 
+The band it sits in is **five rows, reserved whatever the menu's length**, and
+the items are centred in it. That is why `PILOT.md` §P7.1's sixth item cost this
+screen nothing: six rows of items centre into the blank rows either side of the
+band, the panel and the footer do not move, and §G3's 26 × 24 grid and §G3.3's
+minimum are untouched. It was checked by looking at it, not by arithmetic
+(`PILOT.md` §P7.2) — the terminal's block, laid out the other way round, did
+need a row and lost its footer without one.
+
 The **panel** is a rounded rect on the panels' own ground, four rows inside it,
 and it holds §13.3's three faces: the quick control summary, the top three
 under a heading, and one of §13.3's reminders. The cycle, and its pause while a
@@ -927,6 +948,13 @@ inside a tick (§15.2), the attract screen at a flat 10 fps with no accumulator
   they share `Session::settings` (§G5.4), so the cursor can never land on an
   item nobody can see. §10.1's quit *key* is always live and simply comes back
   to this screen there.
+- **PILOT is offered natively and not in a tab** (`PILOT.md` §P1): a tab would
+  run the search on the frame thread, and nothing asks for it. So the two lists
+  now differ in two ways rather than one, and `MenuChoice::NO_QUIT` is renamed
+  **`MenuChoice::CANVAS`** — it is the browser's list, exactly as
+  `Setting::CANVAS` is the browser's panel, rather than "the same list without
+  quit". Nothing is `cfg`-ed out: the variant exists in every build and one list
+  omits it.
 
 ---
 
@@ -967,8 +995,11 @@ page, and are leaked once, at start-up, to say so. And a tab cannot close
 itself — `window.close()` is refused to a page the player opened — so where the
 native build closes its window on `Next::Quit`, the web build goes to the
 attract screen, and **QUIT** is not offered at all: the menu a tab draws is
-`MenuChoice::NO_QUIT`, four items rather than §13.3's five, and §10.1's quit key
-simply comes back to that screen (§G7.5).
+`MenuChoice::CANVAS`, four items rather than §13.3's six, and §10.1's quit key
+simply comes back to that screen (§G7.5). The two items it is short are QUIT and
+PILOT, and they are missing for unrelated reasons — a tab cannot close itself,
+and a tab should not search on its frame thread (`PILOT.md` §P1). The list was
+called `NO_QUIT` while there was only the first.
 
 ### G8.2 The keyboard, and the canvas's focus
 
