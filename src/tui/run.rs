@@ -184,6 +184,7 @@ fn attract(
                 chrome: &chrome,
                 config: &session.config,
                 settings: session.settings,
+                menu: session.menu,
                 scores: &session.scores,
                 recent: session.recent,
                 mode: session.mode,

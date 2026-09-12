@@ -18,7 +18,7 @@ use crate::shell::config::{self, ConfigFile, Startup};
 use crate::shell::highscore::{self, Entry};
 use crate::shell::host::Host;
 use crate::shell::input::InputMode;
-use crate::shell::menus::Setting;
+use crate::shell::menus::{MenuChoice, Setting};
 
 /// Where the run goes next (§7).
 ///
@@ -55,6 +55,15 @@ pub struct Session<'a> {
     /// *this* list, so the cursor can never land on a row the screen is not
     /// showing.
     pub settings: &'static [Setting],
+    /// The items §13.3's menu offers, which is the front-end's own answer for
+    /// the same reason [`settings`](Self::settings) is: a menu must offer what
+    /// its front-end can actually do.
+    ///
+    /// [`MenuChoice::ALL`] is §13.3's five and is the default; the web build
+    /// sets [`MenuChoice::NO_QUIT`], because a tab cannot close itself
+    /// (`GUI.md` §G8.1). The screen draws this list and
+    /// [`Attract`](crate::shell::attract::Attract) navigates it.
+    pub menu: &'static [MenuChoice],
     /// The three capabilities a run borrows from the front-end (§3.1,
     /// `FRONTEND.md` F2-F4): §6.2's and §14's bytes, the seed for the next
     /// game and §14's date stamp. The fourth, time, arrives as a
@@ -92,6 +101,8 @@ impl<'a> Session<'a> {
             // A terminal's list, which is every setting §13.5 lists; a
             // front-end with fewer says so (`GUI.md` §G5).
             settings: &Setting::ALL,
+            // §13.3's five, which is every front-end that can close itself.
+            menu: &MenuChoice::ALL,
             host,
             warnings,
             saved: false,

@@ -376,12 +376,30 @@ pub enum MenuChoice {
 }
 
 impl MenuChoice {
+    /// §13.3's five, in the order it draws them.
     pub const ALL: [MenuChoice; 5] = [
         MenuChoice::Play,
         MenuChoice::HighScores,
         MenuChoice::Controls,
         MenuChoice::Options,
         MenuChoice::Quit,
+    ];
+
+    /// The four a front-end that cannot quit offers.
+    ///
+    /// A browser tab is closed, not quit: `window.close()` is refused to a page
+    /// the player opened (`GUI.md` §G8.1), so **QUIT** there would be an item
+    /// that does nothing, which is worse than an item that is not offered.
+    /// Which list a front-end shows is its own answer, carried on
+    /// [`Session::menu`](crate::shell::session::Session::menu) — and the screen
+    /// and the shell walk that same list, exactly as they do
+    /// [`Setting::SHARED`], so the cursor can never land on an item nobody can
+    /// see.
+    pub const NO_QUIT: [MenuChoice; 4] = [
+        MenuChoice::Play,
+        MenuChoice::HighScores,
+        MenuChoice::Controls,
+        MenuChoice::Options,
     ];
 
     pub const fn label(self) -> &'static str {

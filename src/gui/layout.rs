@@ -324,7 +324,12 @@ impl Layout {
     }
 
     /// Whole cells of the layout's grid, as a rect in points.
-    fn cells(&self, col: u32, row: u32, cols: u32, rows: u32) -> egui::Rect {
+    ///
+    /// Public because the playing screen is not the only screen laid out in
+    /// this grid: §G7's attract screen takes the same block, the same cell and
+    /// the same minimum, so that a resize does one thing to the program rather
+    /// than two.
+    pub fn cells(&self, col: u32, row: u32, cols: u32, rows: u32) -> egui::Rect {
         self.pixels(
             self.origin[0] + i64::from(col * self.cell),
             self.origin[1] + i64::from(row * self.cell),

@@ -227,6 +227,7 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
                     chrome: &chrome,
                     config: &session.config,
                     settings: &ftm::shell::menus::Setting::ALL,
+                    menu: &ftm::shell::menus::MenuChoice::ALL,
                     scores: &scores,
                     recent: Some(0),
                     mode: InputMode::Enhanced,

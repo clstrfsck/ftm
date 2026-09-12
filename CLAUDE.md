@@ -17,12 +17,13 @@ under the shell; G4 turned §15.2's loop inside out, so the shell is now *pumped
 by a front-end rather than owning a `while`; G5 hung an `eframe` application on
 the pump; G6 compiled the same application for wasm and gave it a browser's
 four capabilities; G7 gave it the playing screen, G8 the boxes over it, G9
-§12.5's animations under them and G10 the one core change the whole plan has:
+§12.5's animations under them, G10 the one core change the whole plan has —
 a falling piece is drawn between two rows, and enters the well rather than
-appearing in it.
+appearing in it — and G11 §13's attract screen beside the game, which is what
+turned §13's *words* from the terminal's into everyone's.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0-G10 complete — milestone MG5. Start at G11.** All
+stages G0-G11 complete. Start at G12.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -47,12 +48,16 @@ Options panel (seven rows — §12.3's colour depth is the terminal's) and the
 controls table, and under them §G6's animations — the clear flash, the
 hard-drop trail, the lock flash, the two banners and the game-over wipe, all on
 the same `Cosmetics` the terminal reads, and §G6.5's sub-cell gravity — at
-level 1 the piece slides down its row rather than stepping once a second. What
-it does not have yet is the attract screen (G11). `make run-web` serves the
+level 1 the piece slides down its row rather than stepping once a second. Since
+G11 it opens on §G7's attract screen instead — the wordmark drawn as minos, the
+menu, the six-second panel, the drift as outlines over the whole viewport, and
+§13.5's three sub-screens, two of which are §G5's own boxes over a second
+screen. `make run-web` serves the
 same thing in a browser tab through trunk (`index.html`, `Trunk.toml`), with
 `?seed=N` in the URL for `--seed N`, scores in `localStorage`, and §16's
-warnings on the console. `GUI.md` §G1-§G6 and the web build's half of §G8 are
-written and normative; §G7 and §G9 are still reserved.
+warnings on the console — and no **QUIT** in the menu there, because a tab
+cannot close itself. `GUI.md` §G1-§G7 and the web build's half of §G8 are
+written and normative; only §G9 is still reserved.
 
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
 and `Game::view()` still the only way to see the result — with `Game::debug()`
@@ -75,7 +80,8 @@ to the pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
 (`impl eframe::App`, the pump), `keys.rs` (the egui adapter), `layout.rs`
 (§G3's metric), `paint.rs` (colours and primitives), `playfield.rs` (§G4, and
 §G6's animations),
-`overlays.rs` (§G5),
+`overlays.rs` (§G5), `attract.rs` (§G7, and §13.4's drift in a window's
+units),
 `query.rs` (§6.4 as a URL query string), `cli.rs` and `host_native.rs` for the
 desktop, and `host_web.rs` for a tab — `gui::host` is whichever one the target
 has, so `app.rs` never asks. T1-T17 all pass, plus I1-I4 and `tests/pump.rs`,
@@ -84,7 +90,7 @@ and the batch-invariance canary is in CI.
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
-Start at G10. §18 remains out of scope and §19 remains a list of constraints to
+Start at G12. §18 remains out of scope and §19 remains a list of constraints to
 honour rather than a work item — see **Scope discipline** below.
 
 ## The §17.3 sign-off
@@ -333,12 +339,23 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   `Layout` — a rect computed in points beside it will land between pixels. Text
   is the exception and is placed freely; `egui` rounds it.
 
-- **A panel offers what its front-end can apply, and the shell navigates the
-  same list** (§13.5, `GUI.md` §G5). `Session::settings` is that list —
-  `Setting::ALL` for the terminal, `Setting::SHARED` for the window, which has
-  no §12.3 colour depth — and `Round::settings` is what the screen draws from.
-  Drawing a different list from the one `Round::key` walks puts the cursor on a
-  row nobody can see. G12 finishes the split and adds the `[gui]` rows.
+- **A screen offers what its front-end can do, and the shell navigates the
+  same list** (§13.3, §13.5, `GUI.md` §G5, §G7.5). There are two of these now.
+  `Session::settings` is the §13.5 panel's — `Setting::ALL` for the terminal,
+  `Setting::SHARED` for the window, which has no §12.3 colour depth — and
+  `Session::menu` is §13.3's — `MenuChoice::ALL`, or `MenuChoice::NO_QUIT` in a
+  browser tab, which cannot close itself. Drawing a different list from the one
+  the shell walks puts the cursor on a row nobody can see. G12 finishes the
+  settings split and adds the `[gui]` rows.
+
+- **§13's words are shared, and only the blocks are a front-end's** (§13.2,
+  §13.3, §13.4, `GUI.md` §G7). §13.2's letterforms live in `shell/attract.rs`
+  as a bitmap, with §13.6's colour cycle, §13.3's reminders and §13.4's
+  numbers; a terminal draws one block as two characters and a window as one
+  mino. A second wordmark would be a second piece of branding under §1.3, and a
+  second list of reminders a second §13.3. What stays in each front-end is
+  where a thing lands and how the drift is positioned — that much is genuinely
+  measured in characters or in pixels.
 
 - **Losing the keyboard pauses a game, every pump, and draws nothing**
   (`GUI.md` §G4.7). `Round::keyboard(heard, now)` is §8.4's `cramp` path beside
@@ -831,6 +848,34 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   standing in for a human, and it is not outstanding any more. §6.2's one config
   file and §14's one table between the two binaries (`src/native.rs`) have now
   been seen working end to end, not just asserted.
+
+---
+
+## What G11 settled
+
+- **§13's words left `tui/`, and that was the stage's real work.** The state
+  machine was already shared; the letterforms, their colours, the reminders and
+  §13.4's numbers were not. See the invariant above. The terminal's §13.2 art
+  test is untouched and now proves the derivation rather than a literal.
+- **A tab has no QUIT.** `Session::menu` beside `Session::settings`, and the
+  web build sets `MenuChoice::NO_QUIT`. The rejected alternative was reloading
+  the page: it is not what the word means, and it would throw away the run's
+  §16 warnings and its in-memory table. The quit *key* still works and comes
+  back to the attract screen.
+- **Both screens are laid out in §G3's grid**, so the window has one too-small
+  threshold rather than two and ending a game resizes nothing. §G7.1.
+- **§13.4's "painted over it, opaquely" is a character grid's rule**, and §G7.3
+  says what it means in a window: the drift is drawn first and everything else
+  is opaque on top of it. Nothing is blanked to make room.
+- **`rand::make_rng` is not available to the window's drift**, because it is
+  the OS entropy source and wasm32 has none. F3's `host::seed` is the
+  capability that already exists for exactly this, and the generator is
+  `Xoshiro256PlusPlus` — reaching for `SmallRng` here would have been reaching
+  for the one that is a different generator on a 32-bit target.
+- **A canvas that is not the visible tab is never painted**, so the attract
+  screen came up blank on first load and appeared the moment a key was pressed.
+  That is G6's recorded trap, not a bug: `App::logic` runs and `App::ui` does
+  not. Worth remembering before debugging a renderer that works.
 
 ---
 

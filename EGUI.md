@@ -1559,6 +1559,59 @@ game, a recorded score appears on the panel and on the sub-screen, and QUIT
 closes the window (and is hidden, or reloads, in the browser — a tab cannot close
 itself, and `GUI.md` §G8 says which).
 
+### What G11 found
+
+- **A second front-end is what turns a shared *state machine* into shared
+  *words*.** `shell::attract` held what was selected and how far the cycle had
+  come; what it did not hold was §13.2's letterforms, §13.2's three colours,
+  §13.3's reminders or §13.4's numbers, all of which were `tui/attract.rs`
+  constants. Two of those would have been outright defects to copy: a second,
+  differently-drawn wordmark is a second piece of branding under §1.3, and a
+  second list of reminders is a second §13.3. They are all in `shell::attract`
+  now, the letterforms as a **bitmap** — `#` and `.` — with each front-end
+  saying what one block is drawn as: two characters in a terminal, one mino in
+  a window. The terminal's §13.2 art test is unchanged and now proves the
+  derivation.
+- **QUIT in a browser tab was the stage's one real design question**, and the
+  answer was the one the project had already made twice. A tab cannot close
+  itself (§G8.1), so **QUIT is not offered there** — `Session::menu` is
+  `MenuChoice::ALL` or `MenuChoice::NO_QUIT`, exactly as `Session::settings` is
+  `Setting::ALL` or `Setting::SHARED`, and the screen draws the list the shell
+  walks. Reloading the page instead was the alternative and is worse: it is not
+  what the word means, and it would have thrown away a run's warnings and its
+  in-memory table. §10.1's quit *key* stays live and comes back to the attract
+  screen.
+- **The attract screen takes §G3's grid, and that decision paid for itself
+  three times**: one too-small threshold rather than two, no resize when a game
+  ends, and no new arithmetic to test. The wordmark being fifteen blocks wide
+  in a twenty-six-cell block is the only place a half cell shows up, and
+  `Layout::in_slot` — written for a preview piece in G7 — already rounded that
+  to a whole pixel.
+- **§13.4's "painted after it, opaquely" is a character grid's sentence.**
+  There a drifting `░░` *replaces* a glyph, so the regions that matter must be
+  painted over it. A window draws the drift first and opaque text and minos on
+  top, which satisfies what the rule is for without blanking anything; §G7.3
+  says so rather than leaving the two front-ends looking as though they
+  disagree.
+- **The drift cannot use `rand::make_rng`.** It is the OS entropy source, and
+  `wasm32-unknown-unknown` has none — the very thing G3 arranged the dependency
+  tables around. F3's `host::seed` is the capability that already exists for
+  this, and the generator is `Xoshiro256PlusPlus` rather than `SmallRng`, which
+  would have been reaching for the one that is a *different generator* on a
+  32-bit target (§G8.9).
+- **A blank canvas on first load is the G6 trap, not a bug.** A tab that is not
+  the visible one reports `document.hidden`, gets no animation frames, and is
+  never painted however many screenshots are taken of it — `App::logic` runs,
+  `App::ui` does not. The first key press activates the tab and the screen
+  appears. Worth knowing before spending an hour on a rendering bug that is not
+  there.
+- **Looked at, in a browser, at every face.** The wordmark as minos, the menu
+  with QUIT absent, all three panel faces, the full ten-row high-score
+  sub-screen at `u32::MAX` scores, and the Options and Controls boxes — which
+  are §G5's own, opened over this screen instead of over a game. The native
+  window runs the same drawing code and was not looked at by the session that
+  built it.
+
 ---
 
 ## Stage G12 — Config, CLI and persistence

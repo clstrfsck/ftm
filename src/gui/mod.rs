@@ -22,6 +22,7 @@
 //! says so on the console and on the page.
 
 pub mod app;
+pub mod attract;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod cli;
 #[cfg(not(target_arch = "wasm32"))]
@@ -44,6 +45,8 @@ pub(crate) use self::host_web as host;
 
 use crate::gui::app::Gui;
 use crate::gui::host::Clock;
+#[cfg(target_arch = "wasm32")]
+use crate::shell::menus::MenuChoice;
 use crate::shell::menus::Setting;
 use crate::shell::session::Session;
 
@@ -106,6 +109,11 @@ pub fn start(runner: eframe::WebRunner, session: &'static mut Session<'static>) 
 
     // §G5, as natively: the panel offers the shared rows.
     session.settings = &Setting::SHARED;
+    // §13.3, §G8.1: and the menu offers four items rather than five. A tab
+    // cannot close itself — `window.close()` is refused to a page the player
+    // opened — so **QUIT** here would be an item that did nothing. The shell
+    // navigates this same list, so the cursor cannot reach what is not drawn.
+    session.menu = &MenuChoice::NO_QUIT;
 
     let document = web_sys::window()
         .and_then(|window| window.document())

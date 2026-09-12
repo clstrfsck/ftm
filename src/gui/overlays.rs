@@ -21,7 +21,7 @@ use crate::gui::layout::Layout;
 use crate::gui::paint::{self, Face};
 use crate::shell::config::ConfigFile;
 use crate::shell::figures::{clock, pps, thousands};
-use crate::shell::menus::{self, Overlay, PauseChoice, Setting};
+use crate::shell::menus::{self, Overlay, PauseChoice, Setting, Sub};
 use crate::shell::round::FrameState;
 
 /// What the two panels read: the config they show, and the rows the panel is
@@ -39,16 +39,16 @@ pub struct Panels<'a> {
 /// the screen rather than part of it.
 const BOX: egui::Color32 = egui::Color32::from_rgb(0x26, 0x26, 0x30);
 /// The selected row of a menu or a panel.
-const SELECTED: egui::Color32 = egui::Color32::from_rgb(0x39, 0x39, 0x48);
+pub(crate) const SELECTED: egui::Color32 = egui::Color32::from_rgb(0x39, 0x39, 0x48);
 /// What dims the well under a box. Not a blank: §9.17's blanking is the
 /// *game's* answer and has already emptied the well where it applies
 /// (`Overlay::blanks`); this is only so the box reads over it.
-const SCRIM: egui::Color32 = egui::Color32::from_black_alpha(0xB0);
+pub(crate) const SCRIM: egui::Color32 = egui::Color32::from_black_alpha(0xB0);
 
 /// A box's title, in cells.
 const TITLE_SIZE: f32 = 0.85;
 /// A row of a menu, a panel or a table, in cells.
-const ROW_SIZE: f32 = 0.7;
+pub(crate) const ROW_SIZE: f32 = 0.7;
 /// The line at the foot of a box that says which keys it answers to.
 const HINT_SIZE: f32 = 0.55;
 /// The countdown numeral, in cells (§9.17).
@@ -58,7 +58,7 @@ const COUNT_SIZE: f32 = 6.0;
 ///
 /// The body starts two cells down and each row is a cell tall, so a box with
 /// `n` rows in it is `n + 4` tall: title, body, air, hint.
-const CHROME_ROWS: u32 = 4;
+pub(crate) const CHROME_ROWS: u32 = 4;
 /// The pause menu (§9.17), in cells: the well and its walls, as §12.6's box
 /// covers the field and not the columns beside it.
 const PAUSE_COLS: u32 = 12;
@@ -90,6 +90,37 @@ pub fn rect_of(layout: &Layout, overlay: &Overlay, panels: &Panels) -> Option<eg
         ),
     };
     Some(layout.overlay(cols, rows))
+}
+
+/// One of §13.5's two sub-screens, drawn over the attract screen (§G7).
+///
+/// The Options panel and the controls table are the *same* boxes the pause menu
+/// opens — §13.5 says so of the panel in as many words — so they are drawn by
+/// the same code, over whichever screen asked for them. §13.5's third
+/// sub-screen, the high-score table, belongs to the attract screen alone and is
+/// drawn there.
+pub fn sub(painter: &egui::Painter, layout: &Layout, sub: &Sub, panels: &Panels) {
+    let overlay = as_overlay(sub);
+    let Some(area) = rect_of(layout, &overlay, panels) else {
+        return;
+    };
+    match overlay {
+        Overlay::Options { selected } => options(painter, layout, area, panels, selected),
+        Overlay::Controls => controls(painter, layout, area, panels.config),
+        _ => {}
+    }
+}
+
+/// Which §12.6 box a §13.5 sub-screen is drawn in, or [`Overlay::None`] for the
+/// one that has none of its own.
+fn as_overlay(sub: &Sub) -> Overlay {
+    match sub {
+        Sub::HighScores => Overlay::None,
+        Sub::Controls => Overlay::Controls,
+        Sub::Options { selected } => Overlay::Options {
+            selected: *selected,
+        },
+    }
 }
 
 /// The six figures §12.6's game-over box lists.
@@ -270,7 +301,7 @@ fn controls(painter: &egui::Painter, layout: &Layout, area: egui::Rect, config: 
 }
 
 /// A box: its ground, its border and its title.
-fn frame(painter: &egui::Painter, layout: &Layout, area: egui::Rect, title: &str) {
+pub(crate) fn frame(painter: &egui::Painter, layout: &Layout, area: egui::Rect, title: &str) {
     let cell = layout.cell();
     let corner = cell * 0.2;
     painter.rect_filled(area, corner, BOX);
@@ -294,7 +325,7 @@ fn frame(painter: &egui::Painter, layout: &Layout, area: egui::Rect, title: &str
 
 /// Row `index` of a box's body: full width inside the margins, one cell tall,
 /// under the title.
-fn row_rect(layout: &Layout, area: egui::Rect, index: usize) -> egui::Rect {
+pub(crate) fn row_rect(layout: &Layout, area: egui::Rect, index: usize) -> egui::Rect {
     let cell = layout.cell();
     egui::Rect::from_min_size(
         egui::pos2(
@@ -306,7 +337,7 @@ fn row_rect(layout: &Layout, area: egui::Rect, index: usize) -> egui::Rect {
 }
 
 /// A label on the left and its value on the right, the width of one row.
-fn pair(
+pub(crate) fn pair(
     painter: &egui::Painter,
     layout: &Layout,
     row: egui::Rect,
@@ -346,7 +377,7 @@ fn pair(
 ///
 /// §10.1's overlay navigation is fixed and not rebindable, so the words are
 /// the keys themselves rather than whatever the `[keys]` table says.
-fn hint(painter: &egui::Painter, layout: &Layout, area: egui::Rect, words: &str) {
+pub(crate) fn hint(painter: &egui::Painter, layout: &Layout, area: egui::Rect, words: &str) {
     let cell = layout.cell();
     paint::text(
         painter,
@@ -364,7 +395,7 @@ fn hint(painter: &egui::Painter, layout: &Layout, area: egui::Rect, words: &str)
 ///
 /// §12.6 draws `▸`; a window has no guarantee that its fonts carry that glyph,
 /// and a shape cannot go missing.
-fn marker(painter: &egui::Painter, row: egui::Rect, cell: f32) {
+pub(crate) fn marker(painter: &egui::Painter, row: egui::Rect, cell: f32) {
     let (x, y) = (row.left() + cell * 0.45, row.center().y);
     let (w, h) = (cell * 0.22, cell * 0.28);
     painter.add(egui::Shape::convex_polygon(

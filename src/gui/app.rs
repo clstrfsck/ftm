@@ -29,16 +29,43 @@
 //! except in one place, where the answer is a fact about the platform rather
 //! than a choice: a tab cannot close itself (see `leave`).
 
+use crate::gui::attract::{self, Drift};
 use crate::gui::host::{self, Clock};
 use crate::gui::keys::Keyboard;
-use crate::gui::layout::Measure;
+use crate::gui::layout::{Layout, Measure};
 use crate::gui::overlays::{self, Panels};
 use crate::gui::paint;
 use crate::gui::playfield::{self, Chrome};
+use crate::shell::attract::Attract;
 use crate::shell::keys::KeyEvent;
 use crate::shell::round::{Fps, FrameState, Round};
 use crate::shell::session::{Next, Session};
 use crate::shell::time::Stamp;
+
+/// §7's two screens, as a field rather than a `match` in a `loop`.
+///
+/// The terminal's state machine is a loop over [`Next`] and this is the same
+/// machine turned inside out, exactly as §15.2's steps were (`EGUI.md` G4): the
+/// compositor calls, and what it finds is whichever screen the run is on. §15's
+/// *two* loops are here too — the attract screen asks to be repainted ten times
+/// a second and has no accumulator (§15.3), a game sixty (§15.2) — as two
+/// answers to [`Round::deadline`](crate::shell::round::Round::deadline)'s
+/// question rather than as two `while`s.
+enum Screen {
+    /// §13, with the drift that belongs to this front-end (§13.4, §G7.3).
+    Attract(Attract, Drift),
+    /// One game. Boxed because a [`Round`] is an order of magnitude the larger
+    /// of the two, and the enum is a field of the application either way.
+    Play(Box<Round>),
+}
+
+impl Screen {
+    /// A fresh attract screen. The drift's entropy is F3's, because a tab has
+    /// no OS source to reach for (§G7.3).
+    fn attract(now: Stamp) -> Self {
+        Screen::Attract(Attract::new(now), Drift::new(host::seed(), now))
+    }
+}
 
 /// One window, one session, one game.
 ///
@@ -54,14 +81,12 @@ pub struct Gui<'session, 'host> {
     keyboard: Keyboard,
     /// One frame's neutral key events, reused rather than reallocated.
     keys: Vec<KeyEvent>,
-    /// §7, as a field rather than a `match` in a `loop`. There is one screen
-    /// until `EGUI.md` G11 adds the attract screen beside it, at which point
-    /// this becomes the `Screen` enum the plan describes.
-    round: Round,
-    /// What step 5 last reported, for the paint that follows it. Carried
-    /// rather than recomputed so that the two halves of one callback are
-    /// looking at the same moment (F1).
-    state: FrameState,
+    /// §7: which screen the run is on.
+    screen: Screen,
+    /// What step 5 last reported, for the paint that follows it, or `None` when
+    /// the screen is not a game. Carried rather than recomputed so that the two
+    /// halves of one callback are looking at the same moment (F1).
+    state: Option<FrameState>,
     /// The moment `state` is of: what the paint counts its frame at.
     now: Stamp,
     /// §G3's answer about the viewport, as `logic` measured it — carried for
@@ -81,18 +106,17 @@ pub struct Gui<'session, 'host> {
 }
 
 impl<'session, 'host> Gui<'session, 'host> {
-    /// Open on a fresh game.
+    /// Open on the attract screen (§13.1, §G7): what the program shows whenever
+    /// no game is in progress, and that includes the moment it starts.
     pub fn new(session: &'session mut Session<'host>, clock: Clock) -> Self {
         let now = clock.now();
-        let round = Round::new(session, now);
-        let state = round.frame(now);
         Self {
             session,
             clock,
             keyboard: Keyboard::new(),
             keys: Vec::new(),
-            round,
-            state,
+            screen: Screen::attract(now),
+            state: None,
             now,
             // Until `logic` has measured one: `eframe` calls it first.
             measure: None,
@@ -104,20 +128,34 @@ impl<'session, 'host> Gui<'session, 'host> {
         }
     }
 
-    /// §7: where the run goes when a game hands back.
+    /// §7: where the run goes when a screen hands back.
     ///
-    /// `Play` is §10.1's held restart. The other two are the ways out of a
-    /// game — the quit key, and Ctrl-C (§16) — and there is no attract screen
-    /// to return to until `EGUI.md` G11, so natively both close the window. A
-    /// tab cannot close itself — `window.close()` is refused to a page the
-    /// player opened — so there both start a fresh game instead, which is the
-    /// attract screen's stand-in until G11 replaces it (§G8.1).
+    /// `Play` is **PLAY** and §10.1's held restart; `Attract` is the quit key
+    /// out of a game and the way a finished one ends. `Quit` is the menu's
+    /// **QUIT**, and the one of the three that a browser tab cannot do: a page
+    /// the player opened may not close itself, so **QUIT** is not offered there
+    /// at all (`Session::menu`, §G8.1) and the quit *key*, which is always
+    /// live, simply comes back here (§G7.5).
     fn leave(&mut self, next: Next, ctx: &egui::Context, web: bool, now: Stamp) {
-        match next {
-            Next::Play => self.round = Round::new(self.session, now),
-            Next::Attract | Next::Quit if web => self.round = Round::new(self.session, now),
-            Next::Attract | Next::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-        }
+        self.screen = match next {
+            Next::Play => Screen::Play(Box::new(Round::new(self.session, now))),
+            Next::Attract => Screen::attract(now),
+            Next::Quit if web => Screen::attract(now),
+            Next::Quit => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                return;
+            }
+        };
+    }
+
+    /// §13.4's drift is spread over the whole viewport, so it is measured in
+    /// cells of it rather than in cells of the block.
+    fn viewport_cells(layout: &Layout, area: egui::Rect) -> (i32, i32) {
+        let cell = layout.cell().max(1.0);
+        (
+            (area.width() / cell).ceil() as i32,
+            (area.height() / cell).ceil() as i32,
+        )
     }
 }
 
@@ -144,7 +182,11 @@ impl eframe::App for Gui<'_, '_> {
         });
         let mut leaving = None;
         for event in &self.keys {
-            if let Some(next) = self.round.key(self.session, event, now) {
+            let next = match &mut self.screen {
+                Screen::Attract(state, _) => state.key(self.session, event, now),
+                Screen::Play(round) => round.key(self.session, event, now),
+            };
+            if let Some(next) = next {
                 leaving = Some(next);
             }
         }
@@ -154,26 +196,48 @@ impl eframe::App for Gui<'_, '_> {
         //    this front-end's; the consequence is the shell's. Measured here,
         //    in `logic`, because a hidden window has no `ui` and still has a
         //    size — and some platforms give a minimised one none at all.
-        let measure = Measure::of(ctx.content_rect(), ctx.pixels_per_point());
-        self.round.viewport(measure.fits());
+        let content = ctx.content_rect();
+        let measure = Measure::of(content, ctx.pixels_per_point());
         self.measure = Some(measure);
         // §G4.7: a window or a tab that cannot hear the keyboard does not play
         //    on without it — §8.4's path again, keys released and all. Told on
         //    every pass, not only when it changes: a countdown the player left
         //    running when they clicked away has to be caught when it runs out.
         //    A hidden tab reports no focus, so this is also what stops a
-        //    backgrounded game creeping on (§G8.7).
-        self.round.keyboard(self.focused, now);
-
+        //    backgrounded game creeping on (§G8.7). Neither rule has anything
+        //    to say to the attract screen: there is no game on it to pause, and
+        //    §13 is what the program shows when there is none (§G7.5).
+        //
         // 1, 3, 4, 5. The clock, DAS/ARR, whole ticks and §12.5's timers — and
         //    §10.1's restart key, once it has been held for its second. The
         //    accumulator inside is over elapsed time and never over frames, so
-        //    this is the same game at 60 Hz and at 144 Hz (§15.2 step 4).
-        let leaving = leaving.or_else(|| self.round.advance(self.session, now));
-        if let Some(next) = leaving {
+        //    this is the same game at 60 Hz and at 144 Hz (§15.2 step 4). The
+        //    attract screen's half of this is §15.3's: a cycle and a colour,
+        //    and no core underneath to advance.
+        let advanced = match &mut self.screen {
+            Screen::Play(round) => {
+                round.viewport(measure.fits());
+                round.keyboard(self.focused, now);
+                let next = round.advance(self.session, now);
+                self.state = Some(round.frame(now));
+                next
+            }
+            Screen::Attract(state, drift) => {
+                state.advance(now);
+                // §13.4's one exclusion here is `show_debug`; its other, `mono`,
+                // has no meaning off a terminal (§G7.3).
+                if let Measure::Fits(layout) = &measure
+                    && !self.session.config.display.show_debug
+                {
+                    drift.step(now, Self::viewport_cells(layout, content));
+                }
+                self.state = None;
+                None
+            }
+        };
+        if let Some(next) = leaving.or(advanced) {
             self.leave(next, ctx, frame.is_web(), now);
         }
-        self.state = self.round.frame(now);
         self.now = now;
 
         // §16: anything the pass above had to warn about — a high-score table
@@ -185,8 +249,14 @@ impl eframe::App for Gui<'_, '_> {
 
         // 6, 7. Ask to be woken in time for the next tick. `deadline` is
         //    advice (§15.2 step 6): the compositor may call back sooner, a key
-        //    will, and `advance` is correct either way.
-        ctx.request_repaint_after(self.round.deadline(now));
+        //    will, and `advance` is correct either way. §15's two loops are
+        //    these two answers: 60 Hz with an accumulator under it, and the
+        //    attract screen's flat 10 fps with none.
+        let deadline = match &self.screen {
+            Screen::Play(round) => round.deadline(now),
+            Screen::Attract(state, _) => state.deadline(),
+        };
+        ctx.request_repaint_after(deadline);
     }
 
     /// §15.2 step 5: draw what the last pump reported.
@@ -200,42 +270,62 @@ impl eframe::App for Gui<'_, '_> {
         // and no generation to watch for (§G1.3). Hold is the running game's
         // answer, not the config's: a game keeps the rules it started under.
         let config = &self.session.config;
-        let chrome = Chrome {
-            show_grid: config.display.show_grid,
-            hold_enabled: self.round.hold_enabled(),
-        };
         let show_debug = config.display.show_debug;
         // §13.5's panel and §12.6's Controls box read the config as it stands,
-        // and the panel offers the rows the shell is navigating (§G5).
+        // and the panel offers the rows the shell is navigating (§G5). Both
+        // screens open those two boxes, so both are handed this.
         let panels = Panels {
             config,
-            settings: self.round.settings(),
+            settings: self.session.settings,
         };
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(paint::BACKGROUND))
             .show(ui, |ui| {
                 let (painter, area) = (ui.painter(), ui.max_rect());
-                match self.measure {
-                    Some(Measure::Fits(layout)) => {
-                        playfield::draw(
-                            painter,
-                            &layout,
-                            &self.state,
-                            chrome,
-                            self.round.cosmetics(),
-                        );
+                let Some(measure) = self.measure else {
+                    return;
+                };
+                let layout = match measure {
+                    Measure::Fits(layout) => layout,
+                    // §G3.3, §12.1: below the minimum *every* screen is
+                    // replaced by the message, the attract screen included.
+                    Measure::TooSmall { need, have } => {
+                        paint::too_small(painter, area, need, have);
+                        return;
+                    }
+                };
+                match (&self.screen, &self.state) {
+                    (Screen::Play(round), Some(state)) => {
+                        let chrome = Chrome {
+                            show_grid: config.display.show_grid,
+                            // Hold is the running game's answer, not the
+                            // config's: a game keeps the rules it started
+                            // under (§13.5).
+                            hold_enabled: round.hold_enabled(),
+                        };
+                        playfield::draw(painter, &layout, state, chrome, round.cosmetics());
                         // §12.6 over §G4, in that order: a box is drawn on top
                         // of a screen that is complete underneath it.
-                        overlays::draw(painter, &layout, &self.state, &panels);
+                        overlays::draw(painter, &layout, state, &panels);
+                        if show_debug {
+                            let debug = round.debug(fps);
+                            playfield::debug(painter, area, &debug, state.view.ticks);
+                        }
                     }
-                    Some(Measure::TooSmall { need, have }) => {
-                        paint::too_small(painter, area, need, have);
+                    (Screen::Attract(state, drift), _) => {
+                        let cx = attract::Context {
+                            config,
+                            panels,
+                            menu: self.session.menu,
+                            scores: &self.session.scores,
+                            recent: self.session.recent,
+                        };
+                        attract::draw(painter, &layout, area, state, drift, &cx);
                     }
-                    None => {}
-                }
-                if show_debug {
-                    let debug = self.round.debug(fps);
-                    playfield::debug(painter, area, &debug, self.state.view.ticks);
+                    // A game whose frame has not been pumped yet: `eframe`
+                    // calls `logic` first, so this cannot happen — and if it
+                    // ever did, an empty ground is the right answer.
+                    (Screen::Play(_), None) => {}
                 }
                 if !self.focused {
                     paint::unfocused(painter, area);

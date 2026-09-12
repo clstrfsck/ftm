@@ -18,7 +18,9 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Clear, Paragraph};
 
 use crate::core::{PieceKind, Rotation};
-use crate::shell::attract::Attract;
+use crate::shell::attract::{
+    self, Attract, DRIFT_FALL, DRIFT_JITTER, DRIFT_SPAWN, DRIFTERS, REMINDERS,
+};
 use crate::shell::config::ConfigFile;
 use crate::shell::highscore::{Entry, Table};
 use crate::shell::input::InputMode;
@@ -34,67 +36,17 @@ use crate::tui::{Chrome, centred};
 // §13.2 the wordmark
 // ---------------------------------------------------------------------------
 
-/// The wordmark is five rows tall (§13.2).
-const WORDMARK_ROWS: usize = 5;
-
-/// The three letters of `FTM`, drawn from block characters — doubled
-/// horizontally, so that three letters still carry the screen — and 30
-/// characters wide altogether (§13.2).
+/// How many characters a terminal gives one block of §13.2's letterforms.
 ///
-/// An **original** block-letter wordmark: the official logo must not be used,
-/// reproduced or approximated, and no official colours-as-branding, styling or
-/// artwork may be copied (§1.3).
-const WORDMARK: [[&str; WORDMARK_ROWS]; 3] = [
-    [
-        "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
-        "\u{2588}\u{2588}      ",
-        "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}  ",
-        "\u{2588}\u{2588}      ",
-        "\u{2588}\u{2588}      ",
-    ],
-    [
-        "\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}\u{2588}",
-        "  \u{2588}\u{2588}\u{2588}\u{2588}  ",
-        "  \u{2588}\u{2588}\u{2588}\u{2588}  ",
-        "  \u{2588}\u{2588}\u{2588}\u{2588}  ",
-        "  \u{2588}\u{2588}\u{2588}\u{2588}  ",
-    ],
-    [
-        "\u{2588}\u{2588}      \u{2588}\u{2588}",
-        "\u{2588}\u{2588}\u{2588}\u{2588}  \u{2588}\u{2588}\u{2588}\u{2588}",
-        "\u{2588}\u{2588}  \u{2588}\u{2588}  \u{2588}\u{2588}",
-        "\u{2588}\u{2588}      \u{2588}\u{2588}",
-        "\u{2588}\u{2588}      \u{2588}\u{2588}",
-    ],
-];
+/// Two, so that three letters still carry the screen — and the same width a
+/// mino takes in the playfield (§12.2), which is what makes the wordmark read
+/// as pieces rather than as a font.
+const BLOCK: usize = CELL_WIDTH as usize;
+/// One block of the wordmark, lit.
+const BLOCK_ON: &str = "\u{2588}\u{2588}";
 
-/// The full name, spelled out under the wordmark (§13.2).
-const SUBTITLE: &str = "FALLING TETROMINO MANAGER";
-
-/// The wordmark's width in characters: 8 + 2 + 8 + 2 + 10 (§13.2).
-const WORDMARK_WIDTH: usize = 30;
-/// Two spaces between letters, so the doubled strokes stay separate.
-const LETTER_GAP: &str = "  ";
-
-/// §9.2's seven colours in §13.2's order, which is what §13.6's idle cycle
-/// walks along.
-const WORDMARK_CYCLE: [PieceKind; 7] = [
-    PieceKind::I,
-    PieceKind::J,
-    PieceKind::L,
-    PieceKind::O,
-    PieceKind::S,
-    PieceKind::T,
-    PieceKind::Z,
-];
-
-/// Where each letter starts in [`WORDMARK_CYCLE`]: `I`, `S` and `T` — cyan,
-/// green and purple (§13.2).
-///
-/// Indices rather than three `PieceKind`s, because §13.6's idle cycle advances
-/// every letter one step along all seven colours. Three fixed colours would
-/// have made that cycle repeat after three seconds instead of seven.
-const WORDMARK_START: [usize; 3] = [0, 4, 5];
+/// The wordmark's width in characters: 15 blocks of two (§13.2).
+const WORDMARK_WIDTH: usize = attract::WORDMARK_BLOCKS * BLOCK;
 
 /// The block the screen is laid out in (§13.3).
 ///
@@ -105,7 +57,7 @@ const BLOCK_WIDTH: usize = 36;
 const BLOCK_HEIGHT: u16 = 21;
 /// The wordmark and its subtitle: five rows, a blank, the name, a blank
 /// (§13.2, §13.3).
-const HEADER_ROWS: u16 = WORDMARK_ROWS as u16 + 3;
+const HEADER_ROWS: u16 = attract::WORDMARK_ROWS as u16 + 3;
 /// The wordmark's left margin inside the block, which centres it.
 const WORDMARK_X: usize = (BLOCK_WIDTH - WORDMARK_WIDTH) / 2;
 /// How far the menu is indented inside the block (§13.3).
@@ -126,28 +78,15 @@ const ENTRY_WIDTH: usize = 16;
 // §13.4 the background animation
 // ---------------------------------------------------------------------------
 
-/// A new drifting piece roughly this often (§13.4).
-const SPAWN: Duration = Duration::from_millis(1_200);
-/// At most this many exist at once (§13.4).
-const DRIFTERS: usize = 12;
-/// A drifting piece falls one row about this often (§13.4), jittered per piece
-/// so they do not march in lockstep.
-const FALL: Duration = Duration::from_millis(600);
-const FALL_JITTER: Duration = Duration::from_millis(150);
+// §13.4's own numbers — how often, how many, how fast — are the
+// specification's and are shared (`shell::attract`); what is here is how a
+// character grid draws one of them.
+
 /// Heavily dimmed (§13.4) — below even the ghost's 45 %, because this is meant
 /// to be noticed only when nothing else is happening.
 const DRIFT_BRIGHTNESS: u8 = 28;
 /// The outline glyph of §13.4.
 const DRIFT_GLYPH: &str = "\u{2591}\u{2591}";
-
-/// The one-line rules reminders the third panel face rotates through (§13.3).
-const REMINDERS: [&str; 5] = [
-    "Clear 4 rows at once for a QUAD",
-    "Back-to-back QUADs score 1.5x",
-    "A T-spin double outscores a QUAD",
-    "Hold parks a piece for later",
-    "Every soft-dropped row is a point",
-];
 
 /// One drifting tetromino outline (§13.4).
 ///
@@ -188,12 +127,12 @@ impl Background {
     /// Spawn, fall and retire, reporting whether anything moved.
     pub fn step(&mut self, now: Stamp, (columns, rows): (u16, u16)) -> bool {
         let mut moved = false;
-        if now.saturating_since(self.spawned) >= SPAWN {
+        if now.saturating_since(self.spawned) >= DRIFT_SPAWN {
             self.spawned = now;
             if self.pieces.len() < DRIFTERS && columns > 4 {
                 let jitter = self
                     .rng
-                    .random_range(0..=FALL_JITTER.as_millis() as u64 * 2);
+                    .random_range(0..=DRIFT_JITTER.as_millis() as u64 * 2);
                 self.pieces.push(Drifter {
                     kind: PieceKind::ALL[self.rng.random_range(0..PieceKind::ALL.len())],
                     rotation: Rotation::from_index(self.rng.random_range(0..4)),
@@ -201,7 +140,7 @@ impl Background {
                         .rng
                         .random_range(0..i16::try_from(columns - 3).unwrap_or(1)),
                     row: -4,
-                    period: FALL - FALL_JITTER + Duration::from_millis(jitter),
+                    period: DRIFT_FALL - DRIFT_JITTER + Duration::from_millis(jitter),
                     since: now,
                 });
                 moved = true;
@@ -235,6 +174,10 @@ pub struct Context<'a> {
     /// The rows the §13.5 panel offers, which is the list the shell is
     /// navigating (`Session::settings`).
     pub settings: &'static [crate::shell::menus::Setting],
+    /// The items §13.3's menu offers, which is likewise the list the shell is
+    /// navigating (`Session::menu`). A terminal can close itself, so this is
+    /// §13.3's five; a browser tab's is one shorter (`GUI.md` §G8.1).
+    pub menu: &'static [MenuChoice],
     pub scores: &'a Table,
     /// The entry the run that just finished added, highlighted in the
     /// high-score sub-screen (§13.5).
@@ -262,7 +205,7 @@ pub fn draw(frame: &mut Frame, state: &Attract, background: &Background, cx: &Co
     let block = centred(area, BLOCK_WIDTH as u16, BLOCK_HEIGHT);
     let mut lines = Vec::with_capacity(BLOCK_HEIGHT as usize);
     let shift = state.idle_shift();
-    for row in 0..WORDMARK_ROWS {
+    for row in 0..attract::WORDMARK_ROWS {
         lines.push(wordmark_row(row, shift, theme));
     }
     lines.push(pad(String::new()));
@@ -274,9 +217,12 @@ pub fn draw(frame: &mut Frame, state: &Attract, background: &Background, cx: &Co
     // and a hard white would be brighter only on a dark background and close
     // to invisible on a light one. Bold is brighter everywhere, and it is the
     // one emphasis `mono` has as well.
-    lines.push(Line::styled(centre(SUBTITLE, BLOCK_WIDTH), theme.bold()));
+    lines.push(Line::styled(
+        centre(attract::SUBTITLE, BLOCK_WIDTH),
+        theme.bold(),
+    ));
     lines.push(pad(String::new()));
-    for (index, choice) in MenuChoice::ALL.iter().enumerate() {
+    for (index, choice) in cx.menu.iter().enumerate() {
         let selected = index == state.selected() && state.sub().is_none();
         let marker = if selected { "\u{25b8} " } else { "  " };
         let style = if selected {
@@ -318,7 +264,7 @@ pub fn draw(frame: &mut Frame, state: &Attract, background: &Background, cx: &Co
 
     let panel = Rect {
         x: block.x,
-        y: block.y + HEADER_ROWS + MenuChoice::ALL.len() as u16 + 1,
+        y: block.y + HEADER_ROWS + cx.menu.len() as u16 + 1,
         width: BLOCK_WIDTH as u16,
         height: PANEL_ROWS as u16 + 2,
     };
@@ -368,18 +314,25 @@ fn drift(frame: &mut Frame, background: &Background, theme: Theme) {
 }
 
 /// One row of the wordmark, a span per letter (§13.2).
+///
+/// The letterforms are `shell::attract`'s, as a bitmap; what a terminal adds is
+/// that a block is two characters wide.
 fn wordmark_row(row: usize, shift: usize, theme: Theme) -> Line<'static> {
-    let mut spans = Vec::with_capacity(WORDMARK.len() * 2 + 2);
+    let mut spans = Vec::with_capacity(attract::WORDMARK.len() * 2 + 2);
     // Padded to the block on both sides rather than centred by the paragraph:
     // every other line here is a full-width `pad`, and a short line would leave
     // the previous frame's characters behind it (§15.3 redraws only what moved).
     spans.push(Span::raw(" ".repeat(WORDMARK_X)));
-    for (index, letter) in WORDMARK.iter().enumerate() {
+    for (index, letter) in attract::WORDMARK.iter().enumerate() {
         if index > 0 {
-            spans.push(Span::raw(LETTER_GAP));
+            spans.push(Span::raw(" ".repeat(attract::WORDMARK_GAP * BLOCK)));
         }
-        let kind = WORDMARK_CYCLE[(WORDMARK_START[index] + shift) % WORDMARK_CYCLE.len()];
-        spans.push(Span::styled(letter[row], theme.piece(kind, palette::FULL)));
+        let drawn: String = letter[row]
+            .chars()
+            .map(|block| if block == '#' { BLOCK_ON } else { "  " })
+            .collect();
+        let kind = attract::wordmark_colour(index, shift);
+        spans.push(Span::styled(drawn, theme.piece(kind, palette::FULL)));
     }
     spans.push(Span::raw(
         " ".repeat(BLOCK_WIDTH - WORDMARK_X - WORDMARK_WIDTH),
@@ -567,6 +520,7 @@ mod tests {
             chrome,
             config,
             settings: &crate::shell::menus::Setting::ALL,
+            menu: &MenuChoice::ALL,
             scores,
             recent: None,
             mode: InputMode::Enhanced,
@@ -578,7 +532,7 @@ mod tests {
         // §13.2: 30 characters of art, 5 rows tall, centred in the 36-wide
         // block, and the letters are the ones the specification draws.
         let theme = chrome().theme;
-        let drawn: Vec<String> = (0..WORDMARK_ROWS)
+        let drawn: Vec<String> = (0..attract::WORDMARK_ROWS)
             .map(|row| plain(&wordmark_row(row, 0, theme)))
             .collect();
         for row in &drawn {
@@ -640,10 +594,14 @@ mod tests {
                 .expect("a letter")
         };
         let start = first(0);
-        for shift in 1..WORDMARK_CYCLE.len() {
+        for shift in 1..attract::WORDMARK_CYCLE.len() {
             assert_ne!(first(shift), start, "shift {shift} repeats too early");
         }
-        assert_eq!(first(WORDMARK_CYCLE.len()), start, "and back after seven");
+        assert_eq!(
+            first(attract::WORDMARK_CYCLE.len()),
+            start,
+            "and back after seven"
+        );
     }
 
     #[test]
@@ -770,7 +728,7 @@ mod tests {
             );
         }
         assert!(
-            screen.contains(SUBTITLE),
+            screen.contains(attract::SUBTITLE),
             "the name is spelled out\n{screen}"
         );
         assert!(screen.contains("\u{25b8} PLAY"), "{screen}");
@@ -848,7 +806,7 @@ mod tests {
         let deep = (30u16, 4_000u16);
         let mut now = start;
         for _ in 0..DRIFTERS * 2 {
-            now += SPAWN;
+            now += DRIFT_SPAWN;
             background.step(now, deep);
         }
         assert_eq!(background.pieces.len(), DRIFTERS, "capped at twelve");
@@ -862,7 +820,7 @@ mod tests {
 
         // On a real screen they leave the bottom and are dropped.
         let cells = (30u16, 24u16);
-        now += FALL * u32::from(cells.1 + 8) * 2;
+        now += DRIFT_FALL * u32::from(cells.1 + 8) * 2;
         background.step(now, cells);
         assert!(background.pieces.is_empty(), "{}", background.pieces.len());
     }

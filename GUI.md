@@ -1,7 +1,6 @@
 # Falling Tetromino Manager — The egui Front-End
 
-**Version:** 0.5 — §G1-§G6 and the web build's half of §G8 are written;
-§G7 and §G9 are still reserved, and §G6's sub-cell half is `EGUI.md` G10's.
+**Version:** 0.6 — §G1-§G8's web half are written; §G9 is still reserved.
 **Date:** 2026-09-12
 **Companion to:** [FTM.md](FTM.md) (the specification),
 [FRONTEND.md](FRONTEND.md) (the contract every front-end is written against),
@@ -17,10 +16,11 @@ their own.
 **It is written stage by stage, not up front.** `EGUI.md`'s stages G5–G13 each
 name the section they fill, and each fills it in the same commit as the code.
 §G1 and §G2 were written by G5, §G8's web build by G6 — its `[gui]` table and
-the rest of its query parameters wait for G12 — §G3 and §G4 by G7, §G5 by G8
-and §G6's animations by G9. The rest is still the namespace and the
-reservations below, deliberately, so that a `§G7` written in a doc comment
-during G11 has somewhere agreed to land.
+the rest of its query parameters wait for G12 — §G3 and §G4 by G7, §G5 by G8,
+§G6's animations by G9 and its sub-cell half by G10, and §G7 by G11. What is
+left is §G9, still the namespace and the reservation below, deliberately, so
+that a `§G9` written in a doc comment during G13 has somewhere agreed to
+land.
 
 ## The `§G` namespace
 
@@ -39,8 +39,8 @@ that document owns. `§Gn` means this file.
 | G3 | Layout | `EGUI.md` G7 ✅ | The integer-cell metric, `LAYOUT_COLS` / `LAYOUT_ROWS`, the minimum `cell` and the too-small state below it (`FRONTEND.md` F6, §8.4). |
 | G4 | The playing screen | `EGUI.md` G7 ✅ | §12.4's information — field, hold, next, stats, status — drawn as pixels rather than characters, `show_debug`, and the pause that losing the keyboard forces. |
 | G5 | Overlays | `EGUI.md` G8 ✅ | §12.6's pause, game-over and name-entry boxes, and the §13.5 Options and §10.1 controls panels. |
-| G6 | Animations | `EGUI.md` G9 ✅, G10 | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
-| G7 | The attract screen | `EGUI.md` G11 | §13's wordmark, menu, cycling panel and drifting background, laid out for a window rather than a 36 × 20 grid. |
+| G6 | Animations | `EGUI.md` G9 ✅, G10 ✅ | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
+| G7 | The attract screen | `EGUI.md` G11 ✅ | §13's wordmark, menu, cycling panel and drifting background, laid out for a window rather than a 36 × 20 grid. |
 | G8 | The web build | `EGUI.md` G6 ✅, G12 | The canvas and its keyboard focus, `localStorage` for §6.2 and §14, URL query parameters in place of §6.4's flags, and the `[gui]` config table. |
 | G9 | Testing and acceptance | `EGUI.md` G13 | The headless `egui_kittest` render test, and **B1–B12**, this front-end's answer to §17.3's A1–A10. |
 
@@ -125,10 +125,10 @@ no next queue, no stats, no ghost and no grid. §12.4's information arrived at
 G7 (§G3, §G4) and §12.6's boxes at G8 (§G5), which is what the scrim was
 standing in for.
 
-§7's screen field has one arm. A game that hands back `Next::Play` — §10.1's held
-restart — starts a fresh one; `Next::Attract` and `Next::Quit` both close the
-window, because there is no attract screen to return to until G11. A tab cannot
-close itself, so there those two start a fresh game as well (§G8.1).
+§7's screen field had one arm, and since G11 it has two (§G7.5). A game that
+hands back `Next::Play` — §10.1's held restart — starts a fresh one;
+`Next::Attract` goes to §13's screen, which at G5 did not exist, so both it and
+`Next::Quit` closed the window instead.
 
 A window or a canvas that does not have the keyboard says so, across the middle
 of the screen: **Click to play** (§G8.2). It is drawn in both builds, over
@@ -136,8 +136,9 @@ whatever else is on screen. At G5 it paused nothing; since G7 losing the keyboar
 pauses a game in progress (§G4.7).
 
 **G7 replaced the slice's screen** with §G3's layout and §G4's playing screen,
-**G8 put §G5's boxes over it** and **G9 §G6's animations under them**. What is
-still to come is §G6's sub-cell gravity (G10) and §G7's attract screen (G11).
+**G8 put §G5's boxes over it**, **G9 §G6's animations under them**, **G10
+§G6.5's sub-cell gravity** and **G11 §G7's attract screen beside the lot**.
+What is left of this document is §G9, and of the plan, G12 and G13.
 
 ---
 
@@ -755,7 +756,156 @@ simply a row it has no room for.
 
 ---
 
-§G7 is reserved for `EGUI.md` G11 and is not yet written.
+## G7. The attract screen
+
+§13's screen, drawn for a window. What is on it is §13's and is not restated
+here: the wordmark, the five-item menu, the panel that cycles every six
+seconds, the drifting background, the sixty-second idle colour cycle and the
+three sub-screens. **The state is shared** — `shell::attract::Attract` is the
+same state machine the terminal walks, and it is what decides what is
+selected, which sub-screen is open, how far the cycle has come and how long the
+keyboard has been quiet.
+
+So are the *words*, which is the part that would have been easiest to get
+wrong. §13.2's letterforms, §13.2's three colours and the order §13.6's cycle
+walks them in, §13.3's reminders and §13.4's numbers all live beside that state
+machine rather than in either front-end. A second front-end that drew a
+different wordmark would be a second piece of branding, and §1.3 is precisely
+about that; one that invented its own reminders would be a second §13.3.
+
+§1.3 reaches this screen more than any other. The wordmark is original block
+letters, the official logo must not be used, reproduced or approximated, and no
+official colours-as-branding, styling or artwork may be copied — and the same
+applies to the window title, the page title and any favicon or icon this
+front-end ever acquires (§G1.2, §G8.1).
+
+### G7.1 It is laid out in §G3's grid
+
+The attract screen takes **the same block, the same cell and the same
+minimum** as the playing screen: 26 × 24 cells, `Layout::cells`, 14 points.
+Three things follow, and each is why.
+
+- **A window that is too small says one thing, not two.** §G3.3's message
+  replaces this screen exactly as it replaces the playing one, at the same
+  size, and a player dragging an edge sees one threshold rather than a screen
+  that vanishes at some other width.
+- **Leaving a game does not resize anything.** The wordmark's blocks are the
+  size the well's minos were a moment ago, because they are the same cell.
+- **There is one metric to test.** `gui::layout` is pure and already tested
+  without a window; this screen adds rows to it and no arithmetic of its own.
+
+In cells, from the block's top-left: two rows of margin, the wordmark's five,
+a blank, the name, a blank, a five-row band the menu is centred in, a blank,
+the six-row panel, the footer, a row of margin.
+
+| Rect | Cells: column, row, width × height |
+|---|---|
+| Wordmark | centred, 2, 15 × 5 — in blocks, not cells of text |
+| Name | 0, 8, 26 × 1 |
+| Menu band | 7, 10, 12 × 5 — the menu is centred *in* it |
+| Panel | 1, 16, 24 × 6 — four rows inside |
+| Footer | 0, 22, 26 × 1 |
+
+The menu is centred in a band of a fixed five rows rather than filling however
+many rows it has, so that a menu one item shorter than §13.3's — a tab's, which
+cannot quit (§G7.5) — leaves the panel under it exactly where it was.
+
+### G7.2 The wordmark is made of minos
+
+§13.2's letterforms are a bitmap, and what a front-end adds is what one block
+of it is drawn as. A terminal gives it two characters, so that three letters
+still carry the screen. **A window gives it one mino** — the same tile the well
+is drawn with, in the same levelled palette (§12.3), with the same gutter — so
+the wordmark is visibly built out of the game rather than set in a font. It is
+fifteen blocks across: four, a blank column, four, a blank column, five.
+
+The three letters take the `I`, `S` and `T` colours, and §13.6's idle cycle
+advances all three one step along §9.2's seven once a second after a minute of
+quiet. That is `shell::attract::wordmark_colour`, and both front-ends ask it.
+
+### G7.3 The drift
+
+§13.4's ambient animation, in this front-end's units. How often a piece
+arrives, how many exist at once and how fast they fall are §13.4's numbers and
+are shared; where a piece *is* is measured in cells of the viewport, so the
+drift itself is `gui::attract::Drift` and the terminal keeps its own
+(`EGUI.md` G2). Three differences from a character grid, and each is the same
+animation rather than another one:
+
+- **Outlines are strokes.** §13.4 draws `░░`; a window strokes the cell, a
+  twelfth of it thick and never under a physical pixel, at the same 28 % of the
+  piece's levelled colour.
+- **§13.4's two exclusions become one.** `show_debug` still turns the drift
+  off; `mono` has no meaning here, because a window has no colour depths
+  (§G8, "What does not carry over").
+- **"Painted after it, opaquely" is met by being behind, not by covering
+  up.** That sentence is a character grid's: a drifting cell there would
+  *replace* a glyph, so the regions that matter have to be painted over it. A
+  window draws the drift first and everything else on top of it, and what is on
+  top is opaque text, opaque minos and the panel's own ground. The result is
+  legible, and nothing has to be blanked to make it so.
+
+The drift's entropy is F3's — `host::seed` — and not the operating system's,
+because a browser tab has no OS entropy source to reach for (`EGUI.md` G3).
+Nothing here is ever replayed, so the generator only has to look random; it is
+`Xoshiro256PlusPlus` because that is the generator this project names (§9.6),
+and reaching for `SmallRng` here would be reaching for the one that is a
+different generator on wasm32 (§G8.9).
+
+### G7.4 The menu, the panel and the sub-screens
+
+The **menu** is one item to a row, the selected one in a lit bar with §G5.1's
+drawn triangle beside it — the same bar and the same triangle the pause menu
+uses, because they are the same kind of thing. Twelve cells wide, which is the
+well and its walls.
+
+The **panel** is a rounded rect on the panels' own ground, four rows inside it,
+and it holds §13.3's three faces: the quick control summary, the top three
+under a heading, and one of §13.3's reminders. The cycle, and its pause while a
+menu item other than **PLAY** is selected, are the state machine's.
+
+The control summary's *words* are this front-end's, and it is the one place
+§13.3's panel differs between the two. The terminal names the movement keys
+with arrows; a window has no guarantee that its fonts carry them (§G5.1), so it
+spells them — `Left / Right`, `Up`, `Down`, `Space`. §13.3's **rule** is
+shared: an entry whose setting is off is not listed at all, so `C hold` goes
+when hold does and `A rotate 180` with 180° rotation (§17.3 A9).
+
+Of §13.5's three sub-screens, **two are not this screen's at all**. The Options
+panel and the controls table are the same boxes the pause menu opens — §13.5
+says so of the panel in as many words — and they are drawn by `gui::overlays`
+over whichever screen asked for them, with the same seven rows §G5.4 gives the
+panel. The **high-score table** is this screen's: a §G5.1 box of the top ten in
+six columns — rank, name, score grouped in threes, level, lines, date — with
+the entry the run that just finished added drawn in the `I`-piece cyan. The
+columns are fractions of the box rather than character counts, and a figure too
+wide for its column is drawn smaller rather than over its neighbour.
+
+Under a box the whole screen dims, as the well does under §G5's. There is no
+§9.17 blanking to do: there is no stack here to give a free look at.
+
+### G7.5 Two screens, one pump
+
+§7's state machine is a loop over `Next` in the terminal and a **field** here,
+for the same reason §15.2's steps became method calls (`EGUI.md` G4): the
+compositor calls, and what it finds is whichever screen the run is on. §15's
+*two* loops are two answers to the same question — a game asks to be woken
+inside a tick (§15.2), the attract screen at a flat 10 fps with no accumulator
+(§15.3) — rather than two `while`s.
+
+- **`ftm-gui` opens on the attract screen**, because §13.1 is what the program
+  shows whenever no game is in progress and that includes the moment it starts.
+- **§G4.7's forced pause has nothing to say here.** There is no game to pause,
+  so a window that loses the keyboard keeps drifting and cycling; "Click to
+  play" is still drawn over it (§G8.2), because the keys still go to the page.
+- **QUIT closes the window, natively.** In a tab it is **not offered**: a page
+  the player opened may not close itself (§G8.1), and an item that did nothing
+  would be worse than one that is not there. Which items the menu has is
+  `Session::menu` — `MenuChoice::ALL` natively, `MenuChoice::NO_QUIT` in the web
+  build — and **the screen draws that list and the shell walks it**, exactly as
+  they share `Session::settings` (§G5.4), so the cursor can never land on an
+  item nobody can see. §10.1's quit *key* is always live and simply comes back
+  to this screen there.
 
 ---
 
@@ -791,8 +941,10 @@ the wasm instance whole. So there is no §6.2 first-clean-exit write, no `finish
 and nothing to hand back: the store and the session live exactly as long as the
 page, and are leaked once, at start-up, to say so. And a tab cannot close
 itself — `window.close()` is refused to a page the player opened — so where the
-native build closes its window on `Next::Attract` or `Next::Quit`, the web build
-starts a fresh game, the attract screen's stand-in until `EGUI.md` G11.
+native build closes its window on `Next::Quit`, the web build goes to the
+attract screen, and **QUIT** is not offered at all: the menu a tab draws is
+`MenuChoice::NO_QUIT`, four items rather than §13.3's five, and §10.1's quit key
+simply comes back to that screen (§G7.5).
 
 ### G8.2 The keyboard, and the canvas's focus
 
@@ -893,7 +1045,9 @@ measurement above is G6's, from before that rule, and is kept because it is what
 settled it: at a high level, nine seconds of play in thirty-six locks pieces
 nobody placed. What still runs while hidden is the pump itself, and it is
 correct at that cadence, so anything that is not a game in progress — the
-attract screen, from G11 — creeps as described.
+attract screen — creeps as described, which is what it is for: a tab left open
+on §13 goes on drifting and cycling, at whatever cadence the browser is willing
+to give it.
 
 A hidden tab can hear no keys. `eframe` hands the same unconsumed input to every
 hidden pass until one paints, so the adapter sees each focus change more than
