@@ -737,9 +737,50 @@ impl Game {
     }
 
     /// Take the next piece from the queue and place it (§9.4).
+    ///
+    /// A queue with nothing in it is a **fork's** (`PILOT.md` §P2.3), never a
+    /// live game's: §9.6's randomiser deals for ever. The fork refuses to spawn
+    /// and waits, so a search cannot run past its own horizon — the object it
+    /// runs on cannot. `Entry` with no timer left is a state the game is
+    /// already able to be in for a tick, and it neither ticks a piece nor ends
+    /// the game; [`Bag::exhausted`] is what says the pieces ran out, and
+    /// nothing else changes.
     fn spawn(&mut self, out: &mut Vec<GameEvent>) {
-        let kind = self.bag.next_piece();
+        let Some(kind) = self.bag.next_piece() else {
+            self.current = None;
+            self.state = PlayState::Entry;
+            self.state_timer = 0;
+            return;
+        };
         self.spawn_kind(kind, out);
+    }
+
+    /// This game with §9.6's randomiser replaced by the caller's own pieces
+    /// (`PILOT.md` §P2.3).
+    ///
+    /// `Game`'s fields are private to this module, so the swap is made here;
+    /// [`crate::core::search::SearchGame`] is the only thing that may hold the
+    /// result and `Game::fork` is the only way to ask for one. Everything else
+    /// — the board, the piece in play, the hold slot, the score, the level and
+    /// the lock-down machine — is carried over exactly as it stands, because a
+    /// search that started from a different position would be answering a
+    /// different question.
+    pub(in crate::core) fn with_scripted_bag(&self, queue: &[PieceKind]) -> Self {
+        let mut game = self.clone();
+        game.bag = Bag::scripted(queue, self.rules.preview_count);
+        game
+    }
+
+    /// Whether a fork's scripted queue has run out (`PILOT.md` §P2.3). Always
+    /// false for a live game.
+    pub(in crate::core) fn bag_exhausted(&self) -> bool {
+        self.bag.exhausted()
+    }
+
+    /// What is left of a fork's scripted queue — the caller's own pieces
+    /// (`PILOT.md` §P2.3).
+    pub(in crate::core) fn scripted(&self) -> &[PieceKind] {
+        self.bag.scripted_remainder()
     }
 
     /// Place a particular piece (§9.4), for the one coming back out of hold.

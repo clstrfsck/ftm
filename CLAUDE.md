@@ -9,7 +9,8 @@ documents, the three plans included, live in **`spec/`**.
 It is no longer only a terminal game, and no longer a single binary: `EGUI-PLAN.md`
 builds a second and third front-end (a native egui window, and the same code as
 wasm in a browser) and anticipates a fourth (Macroquad). As of G8 the tree is
-`core/` + `shell/` + `native.rs` + `tui/` + `gui/`, with `src/bin/ftm.rs` and
+`core/` + `shell/` + `native.rs` + `tui/` + `gui/` — and since P2 `pilot/`
+beside them, which is not a front-end and not a layer — with `src/bin/ftm.rs` and
 `src/bin/ftm-gui.rs` behind `--features gui`; **the window opens and plays** —
 `make run-gui` — and **so does a browser tab** — `make run-web`. G0 changed no
 code; G1 moved the key vocabulary out of crossterm's hands; G2 was a move, a
@@ -90,7 +91,11 @@ to the pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
 units),
 `query.rs` (§6.4 as a URL query string), `cli.rs` and `host_native.rs` for the
 desktop, and `host_web.rs` for a tab — `gui::host` is whichever one the target
-has, so `app.rs` never asks. T1-T17 all pass, plus I1-I4, `tests/pump.rs` and
+has, so `app.rs` never asks. `pilot/` is the automated player and is none of
+the above — not a front-end, not a layer, and a sibling of `core/` and
+`shell/`: `knowledge.rs` (§P2.4's bag counting), `fork.rs` (§P2.3's seam from
+above) and `eval.rs` (§P5's features and weights), with `core/search.rs`
+underneath it. T1-T17 all pass, plus I1-I4, `tests/pump.rs` and
 `tests/gui_render.rs` — the window's I4, which is `tests/render_sizes.rs`'s
 counterpart in pixels (§G9.1) — and the batch-invariance canary is in CI.
 
@@ -105,10 +110,15 @@ is.
 **There is a live plan again: `PILOT-PLAN.md`, stages P0-P8**, which builds the
 automated player of `PILOT.md` §P1-§P9 — a **PILOT** row on §13.3's menu that
 plays the game while the player watches. It is a deliberate amendment to the
-scope rule below: it promotes §18's first bullet and no other. Stage P1 is
-complete — the specification, the amendments to `FTM.md`, `TUI.md` and `GUI.md`,
-and this file — and **no code has been written yet**. P2 is next. See **Scope
-discipline**, which now says what is still out.
+scope rule below: it promotes §18's first bullet and no other. Stages P1 and P2
+are complete. P1 was the specification and the amendments to `FTM.md`, `TUI.md`
+and `GUI.md`; P2 is the first code — §P2.3's fork in `core/search.rs`, and
+**`src/pilot/`, a fourth directory beside `core/`, `shell/` and the two
+front-ends**, holding §P2.4's bag observation, §P2.3's `Fork` and §P5's
+features and weights. It is in `make shell` and `make portable` for exactly the
+reason `shell/` is. **Nothing plays yet**: P3 is placements and a one-ply
+choice, P4 is the menu item and the two front-ends. See **Scope discipline**,
+which says what is still out.
 
 ## The §17.3 sign-off
 
@@ -153,8 +163,9 @@ where it is kept, not what it is called.
    sections your work touches. Read those sections, not the whole thing. Start
    from `FRONTEND.md` if the work is a front-end's, and from `PILOT.md` if it
    is the automated player's.
-2. **`PILOT-PLAN.md`** — stages P0-P8, the only live plan. P1 is done; read
-   "The decisions this plan rests on" before writing any of it.
+2. **`PILOT-PLAN.md`** — stages P0-P8, the only live plan. P1 and P2 are done,
+   and each has a "What it settled" of its own; read "The decisions this plan
+   rests on" before writing any of the rest.
 3. **`EGUI-PLAN.md`** — stages G0-G13, all complete. History now, not
    instructions, but the two sections that are *not* history are "The decisions
    this plan rests on" and "The central idea", which is what the shell being
@@ -541,8 +552,9 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   mechanic are both `hold: None` — so it travels with the theme and `show_grid`
   rather than being smuggled into the view (§12.4, §12.7).
 
-These four are `PILOT.md`'s, and none of them has code behind it yet — P1 wrote
-them down, P2 onwards has to keep them.
+These four are `PILOT.md`'s. The first two have code behind them since P2 and
+are held the way the rest of this list is — by a type and by `make portable`.
+The third and fourth are still written-down-only: P3 and P4 have to keep them.
 
 - **The planner never holds a `Game`** (`PILOT.md` §P2). A clone carries the
   real bag and the real generator, and `Game::bag_remaining` is an accessor onto
@@ -552,14 +564,25 @@ them down, P2 onwards has to keep them.
   the end of it. The hidden-future test is belt and braces over a property the
   types already hold — the same trade A10 made for the core's façade. And
   `core/mod.rs` re-exports the seam with `pub(crate) use`, so **A10 itself does
-  not move**: the core's public surface is what it was.
+  not move**: the core's public surface is what it was. The replacement is in
+  `core/bag.rs`, one level below `Game`: a `Bag` is a generator-and-its-bag *or*
+  a list, so there is no randomiser in a fork that has merely been promised not
+  to ask. §P2.3's method list is an **upper bound**, and each accessor lands
+  with the stage that reads it. `pilot::Fork` is the same object seen from
+  above, and exists because a crate-private type cannot appear in a public
+  signature — which is also where the *queue* arrives, the half of fairness no
+  type can hold.
 - **The planner takes no clock, and that is a third instance of the house
   rule** (`PILOT.md` §P3.3). The core takes no clock, the shell takes no clock,
   and now the player does not either: no `Instant`, no frame count, no wall-time
   budget, and a search that is **never amortised across frames**. `src/pilot/`
-  is in `make shell` and `make portable` for exactly the reason `shell/` is. The
-  property this buys is cadence invariance for a PILOT round, which is §19.4's
-  canary one layer up and is asserted in `tests/pump.rs`.
+  is in `make shell` and `make portable` for exactly the reason `shell/` is —
+  since P2, and the Makefile says so. §P5's "integers only" is the same rule
+  about a different quantity, and for §9.9's reason: the features, the weights
+  and the evaluation are all `i32`, so a plan is identical on every target and
+  in every profile. The property this buys is cadence invariance for a PILOT
+  round, which is §19.4's canary one layer up and is asserted in
+  `tests/pump.rs`.
 - **The planner thinks once per piece, on the tick it spawns** (`PILOT.md`
   §P3.1), and emits one `TickInput` per tick until it locks. Two things follow.
   `App::advance` gives a batch's edge actions to its *first* tick only, because
@@ -1107,6 +1130,60 @@ them down, P2 onwards has to keep them.
   "identical to the terminal front-end's" a fact rather than a comparison: it is
   the same `shell::input`. Do not try to measure this through a browser — a
   round trip to a tab is seconds, and the piece has moved on.
+
+---
+
+## What P2 settled
+
+- **The randomiser is replaced in `core/bag.rs`, not worked around in `Game`.**
+  A `Bag` is now a `Source`: §9.6's generator with the bag it shuffles, or a
+  scripted list with neither. `Bag::next_piece` returns an `Option` and the
+  `None` is reachable only from a fork, where `Game::spawn` declines to spawn
+  and waits in the entry delay. The alternative — a `Game` that keeps its real
+  bag and is asked politely not to deal from it — is what §P2.3 means by
+  "replaced, not hidden", and it is the difference between fairness being a
+  type and fairness being a habit.
+- **The I1 snapshot and the §19.4 canary did not move, and that is the
+  assertion.** `Bag` was restructured under the whole game; a snapshot that had
+  shifted would have meant the live path had changed shape, not that the
+  fixture was stale. Read it that way if it ever does move here.
+- **A stage lands only the part of a seam that is read.** `#![allow(dead_code)]`
+  is gone and the tree means it, so a `pub(crate)` accessor whose only caller is
+  a `#[cfg(test)] mod` is a warning in the ordinary build, and `make check` is
+  `-D warnings`. §P2.3's method list is amended to say it is an upper bound; P3
+  adds the pose and the hold state when its generator reads them. The general
+  lesson for the stages after this one: **a seam built a stage before its
+  consumer needs a consumer**, and the honest one is usually the public face
+  the layer was going to need anyway.
+- **`pilot::Fork` is that face, and it is structural.** §P2.3 requires
+  `SearchGame` to stay out of the core's façade, and Rust will not let a
+  crate-private type appear in a public signature — so `tests/`, §P8's runner
+  and anything else outside the crate search through `pilot`'s own wrapper. It
+  is also where the scripted queue arrives, which is the half of fairness no
+  type can hold: a `Fork` is exactly as fair as the list it was built from.
+- **Two bag facts were bugs before they were specification.** The first piece of
+  a game is dealt during `Game::new`, which **discards its `PieceSpawned`** — a
+  tracker that waited for the event is one piece out for the whole game. And the
+  open bag closes on the **seventh** deal, not the eighth; waiting reads
+  "nothing can come next" at the one moment all seven can. Both are in §P2.4
+  now.
+- **A preview can cross a bag boundary**, so a piece on the screen may also be a
+  legitimate hypothesis — out of the bag *after* the one it was dealt from. At
+  the default preview of 5 this is ordinary, not exotic, and an assertion that
+  said otherwise was wrong about §9.6 rather than about the code.
+- **The features are §P5's literally, including the two that read backwards.**
+  Row transitions count both walls as filled, so an *empty* board scores 40 and
+  a full one 0; column transitions count the floor, so an empty board scores 10.
+  Both are Dellacherie's formulation and both are meant to be minimised — the
+  direction is in the weight, not in the feature. `covered` and `blockades` are
+  deliberately two features and not one: a cell above two holes is counted twice
+  by the first and once by the second.
+- **Test fixtures in `src/pilot/` are held to §P3.4's list too.** The core's
+  `from_bottom_rows` is `core::matrix`'s and the planner may not name it, so
+  `eval.rs` has its own four-line field fixture; `RulesConfig` is built by field
+  rather than through `from_settings`, because the planner may name the one and
+  not the other two. A test that reaches past the boundary is testing a module
+  allowed to do something the module under test is not.
 
 ---
 

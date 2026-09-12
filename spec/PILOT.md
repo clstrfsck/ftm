@@ -109,15 +109,28 @@ impl SearchGame {
 
 - The randomiser is **replaced, not hidden**: a `SearchGame` holds a scripted
   queue and no generator, so there is no hidden future inside it to read by
-  accident or on purpose.
+  accident or on purpose. The replacement is at the level of §9.6's bag itself,
+  which is one of two *sources* — a seeded generator with the bag it shuffles,
+  or a list — so a fork does not hold a randomiser it has promised not to ask.
+- That list above is an **upper bound on this surface, not a shopping list**.
+  Each accessor lands with the stage that reads it, and nothing here may ever be
+  wider: `tick`, `state`, `view`, `scripted` and `exhausted` are P2's, and the
+  pose and hold state arrive with P3's placement generator, which is the first
+  thing that has a use for them.
 - When the scripted queue runs out the fork **refuses to spawn** and reports
   `exhausted()`. A search cannot run past its own horizon, because the object it
-  runs on cannot.
+  runs on cannot. It waits in §9.12's entry delay: a fork that has run out is
+  **not over and has not topped out**, so a search may stop looking rather than
+  have to tell the end of its knowledge from the end of a game.
 - `Game::fork` is `SearchGame`'s only constructor, and `SearchGame` never hands
   back the `Game` inside it.
 - **§17.3's A10 is unchanged.** `core/mod.rs` re-exports this with
   `pub(crate) use`, so the core's *public* surface does not grow and a §19
-  client is handed exactly what it was handed before.
+  client is handed exactly what it was handed before. One consequence is
+  structural rather than incidental: a crate-private type may not appear in a
+  public signature, so `src/pilot/` wraps it in a `Fork` of its own, and that
+  is what anything outside the crate — `tests/`, and §P8's runner — searches
+  through.
 
 ### §P2.4 Observation
 
@@ -128,8 +141,18 @@ The queue a fork is given is built from observation, not from the live game:
   never reconstructs them from a changing preview.
 - A hold swap is not a deal. A swap into an empty slot *is* followed by one, and
   the event stream says which happened.
+- **The first piece of a game is the one deal no event stream mentions.**
+  `Game::new` spawns it during construction and discards the `PieceSpawned`,
+  because construction is not a tick (§9.4). A tracker that waited for the event
+  would be one piece out for the whole game, and would offer as a hypothesis a
+  piece already on the screen.
 - Seven deals close a bag. The remainder is the set not yet dealt from the open
-  one, which is what §P6's chance nodes branch over.
+  one, which is what §P6's chance nodes branch over. The bag closes on the
+  **seventh** piece and not on the eighth: waiting for the eighth would read
+  "nothing can come next" at the one moment any of the seven can.
+- A preview may cross a bag boundary — §6.3 allows six of them and a bag holds
+  seven — so a piece on the screen can also be a legitimate hypothesis, out of
+  the bag after the one it was dealt from.
 - Beyond the preview, the queue is the planner's own **hypotheses**. Changing
   the live game's hidden future, with visible information held constant, cannot
   change a plan — §P9 C2 asserts it, and §P2.3 is why it is true.
@@ -205,7 +228,17 @@ impl Pilot {
 
 `src/pilot/` may name the core's façade and §P2.3's seam, and
 `shell::config::RulesConfig`, and nothing else in either layer. It must not
-learn what a screen, a key or a stamp is.
+learn what a screen, a key or a stamp is. Its own tests are held to the same
+list, because a test that reaches past it is testing a module allowed to do
+something the module under test is not.
+
+Beside the controller, the module is public in three places, and each is
+something a caller outside the crate genuinely needs: `knowledge::Knowledge`
+and its `PieceSet` (§P2.4's counting), `fork::Fork` (§P2.3's seam, which cannot
+appear in a public signature under its own name), and `eval`'s `Board`,
+`Outcome`, `Features` and `Weights` (§P5's facts and the opinion of them).
+§P8's runner and the acceptance checks of §P9 are written against exactly
+those.
 
 ---
 

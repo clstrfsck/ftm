@@ -16,6 +16,7 @@ pub(crate) mod lockdown;
 pub(crate) mod matrix;
 pub(crate) mod piece;
 pub(crate) mod scoring;
+pub(crate) mod search;
 pub(crate) mod srs;
 pub(crate) mod tspin;
 pub(crate) mod view;
@@ -39,3 +40,12 @@ pub use game::{Action, Actions, Game, PlayState, Shift, TickInput};
 pub use geometry::Rotation;
 pub use piece::{Colour, PieceKind};
 pub use view::{DebugView, GameView, PieceView, VIEW_HEIGHT, VIEW_WIDTH};
+
+// `PILOT.md` §P2.3's search seam, and the reason it is spelled `pub(crate)
+// use` rather than `pub use`: it is the automated player's, not a client's.
+// The core's *public* surface above is exactly what it was before `src/pilot/`
+// existed, so §17.3's A10 does not move and a §19 peer is handed what it was
+// handed before. `Game::fork` is an inherent method and travels with `Game`;
+// `SearchGame` is what it returns, and it is not drawable, so it belongs
+// nowhere in the vocabulary above.
+pub(crate) use search::SearchGame;

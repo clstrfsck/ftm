@@ -18,8 +18,8 @@ the game itself through the ordinary rules while they watch.
   not move, and the sections this plan amends keep their numbers. CLAUDE.md's
   four-documents table becomes five in stage P1, in the same commit as the
   first §P number that anything cites.
-- `PILOT.md` today is a draft of general advice with a banner saying so. P1 is
-  what makes it normative; until then no source comment may cite a §P number.
+- `PILOT.md` is normative since P1, and source comments cite `PILOT.md §Pn`
+  the way they cite `GUI.md §Gn`.
 
 ## Scope and decisions
 
@@ -93,8 +93,10 @@ flowchart LR
 ```
 
 - Add a platform-free top-level `src/pilot/` module with a small public API:
-  `Pilot` (the controller), `Settings`, and the benchmark's report types. It is
-  a sibling of `core/` and `shell/`, not a part of either.
+  `Pilot` (the controller), `Settings`, the benchmark's report types, and — as
+  P2 found — the three things a caller outside the crate has to be able to
+  name: §P2.4's `Knowledge`, §P2.3's `Fork` and §P5's features and weights. It
+  is a sibling of `core/` and `shell/`, not a part of either.
 - `src/pilot/` may name the core's façade (`core/mod.rs`'s re-exports) and the
   one crate-private search seam below, and nothing else inside `core`. It may
   name `shell::config::RulesConfig`, and nothing else in the shell: the planner
@@ -335,7 +337,7 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
   `PILOT.md` §P7.2, and the screenshot is what settled the second.
 - **`MenuChoice::NO_QUIT` becomes `CANVAS`** in P4, for the reason in §P7.1.
 
-### P2 — Knowledge, evaluation, and the fork
+### P2 — Knowledge, evaluation, and the fork ✅
 
 - `Game::fork` and `SearchGame`, with the exhaustion behaviour and a test that
   a fork has no reachable hidden future.
@@ -343,6 +345,37 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
   inference, unit-tested against hold swaps and short previews.
 - Board features and the integer evaluator, unit-tested one feature at a time.
 - `src/pilot/` joins `make shell` and `make portable`.
+
+**What it settled.**
+
+- **The randomiser is replaced one level lower than expected.** `core/bag.rs`
+  now holds a `Source` of two kinds — §9.6's generator with the bag it
+  shuffles, or a scripted list — rather than a `Game` that keeps its bag and
+  agrees not to ask it. `Bag::next_piece` returns `Option`, and the `None` is
+  reachable only from a fork. §17.2's I1 snapshot and §19.4's canary did not
+  move, which is the assertion rather than a convenience.
+- **An exhausted fork waits in the entry delay.** It is not over and has not
+  topped out, so a search can tell "I have run out of knowledge" from "the game
+  ended", which is a distinction P6's leaf evaluation depends on. §P2.3 says so
+  now.
+- **A stage that lands a seam lands only the part of it that is read**, because
+  `#![allow(dead_code)]` is gone and the tree means it. §P2.3's method list is
+  an upper bound rather than a shopping list, and is amended to say so: P2 has
+  `tick`, `state`, `view`, `scripted` and `exhausted`, and the pose and hold
+  state arrive with P3's generator.
+- **`pilot::Fork` exists because a crate-private type cannot appear in a public
+  signature.** That is structural and permanent, not a lint workaround: §P2.3
+  requires `SearchGame` to stay out of the core's façade, so `tests/` and §P8's
+  runner search through `pilot`'s own wrapper. It is also where the *queue*
+  arrives, which is the half of fairness a type cannot hold.
+- **The first piece is the deal no event mentions**, and the bag closes on the
+  seventh rather than the eighth. Both are in §P2.4 now; both were bugs first.
+- **A preview can cross a bag boundary**, so a piece on the screen may also be
+  a legitimate hypothesis — which is not an edge case at the default preview of
+  5, and cost a test assertion that was simply wrong about §9.6.
+- The evaluator's starting weights are provisional and say so. Two judgements
+  they already have to get right are tested: a clean stack beats the same stack
+  with a hole in it, and no board is worth a top out.
 
 ### P3 — Placements, one ply
 

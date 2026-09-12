@@ -22,8 +22,9 @@ test:
 	cargo test --all-features
 
 # The compiler holding the shell boundary the way §17.3's A10 made it hold the
-# core's: with neither front-end feature on, `core/` and `shell/` must compile
-# alone. It is worth more than any audit, for the same reason A10 was.
+# core's: with neither front-end feature on, `core/`, `shell/` and — since
+# PILOT-PLAN.md P2 — `pilot/` must compile alone. It is worth more than any
+# audit, for the same reason A10 was.
 shell:
 	cargo check --no-default-features
 
@@ -35,7 +36,9 @@ shell:
 # which is what stops `rand`'s default features drifting back on.
 #
 # It needs the target installed: `rustup target add wasm32-unknown-unknown`.
-# A `cfg(target_arch)` in `shell/` would pass this and is a bug, not a fix.
+# A `cfg(target_arch)` in `shell/` would pass this and is a bug, not a fix, and
+# the same goes for `pilot/`: PILOT.md §P3.3's "the planner takes no clock" is
+# this check, and the cadence invariance of §P9's C4 rests on it.
 portable:
 	cargo check --no-default-features --target wasm32-unknown-unknown
 

@@ -17,6 +17,12 @@
 //!   is the window one, behind `feature = "gui"`. `TUI.md` and `GUI.md` are
 //!   normative for them.
 //!
+//! [`pilot`] is the automated player of `PILOT.md`, and is a **sibling** of the
+//! first two rather than a fourth layer: it sees the core through the same
+//! façade the shell does, plus §P2.3's crate-private search seam, and it names
+//! nothing in the shell but `RulesConfig`. It takes no clock and no I/O for the
+//! same reason the other two do not, and the same two checks hold it there.
+//!
 //! A third front-end is a fourth directory, a feature and a `[[bin]]` —
 //! deliberately not a `trait Frontend`. `FRONTEND.md` is the contract they
 //! share, written down instead of typed.
@@ -33,6 +39,7 @@
 #![forbid(unsafe_code)]
 
 pub mod core;
+pub mod pilot;
 pub mod shell;
 
 #[cfg(all(any(feature = "tui", feature = "gui"), not(target_arch = "wasm32")))]

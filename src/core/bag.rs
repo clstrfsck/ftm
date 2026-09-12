@@ -1,4 +1,5 @@
-//! The 7-bag randomiser (§9.6).
+//! The 7-bag randomiser (§9.6), and the scripted queue that replaces it in a
+//! fork (`PILOT.md` §P2.3).
 //!
 //! A bag holds one of each tetromino, is shuffled with Fisher-Yates when empty,
 //! and is drawn from the front. The next queue is kept topped up to at least
@@ -8,7 +9,11 @@
 //! The shuffle is written out rather than delegated, because the piece sequence
 //! is part of the determinism contract (§15.4): the same seed must give the same
 //! game, so the exact order of draws is a rule, not an implementation detail.
-//! [`Bag::uniform_inclusive`] is written out for the same reason, one level down.
+//! [`Random::uniform_inclusive`] is written out for the same reason, one level
+//! down.
+//!
+//! A bag is one of **two** sources, and the second one has no generator at all:
+//! see [`Source`].
 
 use std::collections::VecDeque;
 
@@ -66,62 +71,181 @@ fn seeded(mut state: u64) -> Generator {
     Generator::from_seed(seed)
 }
 
-/// The 7-bag randomiser and the visible next queue.
+/// Where the next piece comes from.
+///
+/// Two sources, and the difference between them is `PILOT.md` §P2's whole
+/// information boundary. [`Random`] is §9.6: a seeded generator, the bag it
+/// shuffles and the queue it fills. [`Scripted`] is a fork's: exactly the
+/// pieces the caller supplied, in order, and **no generator** — so a
+/// `SearchGame` has no hidden future inside it to read by accident or on
+/// purpose. The randomiser is *replaced* rather than hidden, which is why
+/// fairness is held by a type instead of by a convention (§P2.3).
 #[derive(Clone, Debug)]
-pub struct Bag {
+enum Source {
+    Random(Random),
+    Scripted(Scripted),
+}
+
+/// §9.6's randomiser: the generator, the open bag and the visible queue.
+#[derive(Clone, Debug)]
+struct Random {
     rng: Generator,
     /// The current bag, drawn from the front.
     bag: VecDeque<PieceKind>,
     /// The next queue, kept at `preview_count + 1` or longer.
     queue: VecDeque<PieceKind>,
-    /// How many pieces the player can see, from `RulesConfig` (§6.3).
-    preview_count: u8,
     /// Whether the very first bag is still to be dealt: the S/Z courtesy of
     /// §9.6 applies to it and to no other.
     first_bag: bool,
+}
+
+/// A fork's queue (`PILOT.md` §P2.3): the caller's own pieces and nothing else.
+#[derive(Clone, Debug)]
+struct Scripted {
+    /// The pieces the caller supplied, drawn from the front.
+    queue: Vec<PieceKind>,
+    /// How many of them have been taken.
+    head: usize,
+    /// Whether a piece was asked for after the last one had gone. A search
+    /// stops at its own horizon because the object it runs on cannot go past
+    /// it, and this is how the object says so.
+    exhausted: bool,
+}
+
+/// The source of the next piece, and the visible next queue.
+#[derive(Clone, Debug)]
+pub struct Bag {
+    source: Source,
+    /// How many pieces the player can see, from `RulesConfig` (§6.3).
+    preview_count: u8,
 }
 
 impl Bag {
     /// A randomiser seeded for a run. The queue is filled immediately, so the
     /// first piece and the whole preview are decided before the first tick.
     pub fn new(seed: u64, preview_count: u8) -> Self {
-        let mut bag = Self {
+        let mut random = Random {
             rng: seeded(seed),
             bag: VecDeque::with_capacity(7),
             queue: VecDeque::with_capacity(8),
-            preview_count,
             first_bag: true,
         };
-        bag.top_up();
-        bag
+        random.top_up(preview_count);
+        Self {
+            source: Source::Random(random),
+            preview_count,
+        }
+    }
+
+    /// A scripted queue in place of a randomiser (`PILOT.md` §P2.3).
+    ///
+    /// Reached only through `Game::fork`, which is `SearchGame`'s only
+    /// constructor. When the queue runs out the bag deals nothing and says so
+    /// ([`Bag::exhausted`]); it never invents a piece, because inventing one is
+    /// exactly what a fair search may not do.
+    pub fn scripted(queue: &[PieceKind], preview_count: u8) -> Self {
+        Self {
+            source: Source::Scripted(Scripted {
+                queue: queue.to_vec(),
+                head: 0,
+                exhausted: false,
+            }),
+            preview_count,
+        }
     }
 
     /// Take the next piece, topping the queue back up behind it.
-    pub fn next_piece(&mut self) -> PieceKind {
-        let piece = self.queue.pop_front().expect("the queue is never empty");
-        self.top_up();
-        piece
+    ///
+    /// `None` only from a scripted queue that has run out: §9.6's randomiser
+    /// deals for ever, so a live game never sees it.
+    pub fn next_piece(&mut self) -> Option<PieceKind> {
+        let preview_count = self.preview_count;
+        match &mut self.source {
+            Source::Random(random) => Some(random.next_piece(preview_count)),
+            Source::Scripted(scripted) => scripted.next_piece(),
+        }
     }
 
     /// The upcoming pieces the player can see: exactly `preview_count` of them
-    /// (§12.7).
+    /// (§12.7) — or as many as a scripted queue has left.
     pub fn preview(&self) -> impl Iterator<Item = PieceKind> + '_ {
-        self.queue.iter().copied().take(self.preview_count as usize)
+        let (front, back) = match &self.source {
+            Source::Random(random) => random.queue.as_slices(),
+            Source::Scripted(scripted) => (scripted.remaining(), &[][..]),
+        };
+        front
+            .iter()
+            .chain(back)
+            .copied()
+            .take(self.preview_count as usize)
     }
 
     /// What is left of the current bag, for §12.4's debug strip.
     ///
     /// This is **not** what the player is shown: the queue is drawn from the
     /// front of the bag, so anything still in here beyond `preview_count` is
-    /// hidden information (§12.7).
+    /// hidden information (§12.7). A scripted queue has no bag behind it and
+    /// reports nothing, which is the point of it.
     pub fn remaining(&self) -> impl Iterator<Item = PieceKind> + '_ {
-        self.bag.iter().copied()
+        let (front, back) = match &self.source {
+            Source::Random(random) => random.bag.as_slices(),
+            Source::Scripted(_) => (&[][..], &[][..]),
+        };
+        front.iter().chain(back).copied()
+    }
+
+    /// What is left of a scripted queue — the caller's own pieces, which is why
+    /// this one is not hidden information (`PILOT.md` §P2.3). Empty for §9.6's
+    /// randomiser, whose remainder is [`Bag::remaining`] and is.
+    pub fn scripted_remainder(&self) -> &[PieceKind] {
+        match &self.source {
+            Source::Random(_) => &[],
+            Source::Scripted(scripted) => scripted.remaining(),
+        }
+    }
+
+    /// Whether a scripted queue was asked for a piece it did not have.
+    pub fn exhausted(&self) -> bool {
+        match &self.source {
+            Source::Random(_) => false,
+            Source::Scripted(scripted) => scripted.exhausted,
+        }
+    }
+}
+
+impl Scripted {
+    /// The pieces not yet taken.
+    fn remaining(&self) -> &[PieceKind] {
+        &self.queue[self.head..]
+    }
+
+    /// Take the next piece, or record that there was none.
+    fn next_piece(&mut self) -> Option<PieceKind> {
+        match self.queue.get(self.head) {
+            Some(&piece) => {
+                self.head += 1;
+                Some(piece)
+            }
+            None => {
+                self.exhausted = true;
+                None
+            }
+        }
+    }
+}
+
+impl Random {
+    /// Take the next piece, topping the queue back up behind it.
+    fn next_piece(&mut self, preview_count: u8) -> PieceKind {
+        let piece = self.queue.pop_front().expect("the queue is never empty");
+        self.top_up(preview_count);
+        piece
     }
 
     /// Keep the queue at `preview_count + 1`: everything on show, plus the one
     /// about to be taken.
-    fn top_up(&mut self) {
-        while self.queue.len() <= self.preview_count as usize {
+    fn top_up(&mut self, preview_count: u8) {
+        while self.queue.len() <= preview_count as usize {
             if self.bag.is_empty() {
                 self.refill();
             }
@@ -178,6 +302,9 @@ impl Bag {
     /// §9.6: the first piece of a game is never `S` or `Z`. If it is, swap it
     /// with the first piece in the bag that is neither.
     ///
+    /// The first bag is the randomiser's own, so this is `Random`'s: a scripted
+    /// queue is the caller's list and is dealt exactly as given.
+    ///
     /// This applies to the first bag of a game and to no other, and it is a swap
     /// rather than a redraw so the bag stays a permutation of the seven.
     fn apply_first_piece_courtesy(pieces: &mut [PieceKind; 7]) {
@@ -197,7 +324,9 @@ mod tests {
     /// Take `count` pieces from a freshly seeded bag.
     fn sequence(seed: u64, count: usize) -> Vec<PieceKind> {
         let mut bag = Bag::new(seed, 5);
-        (0..count).map(|_| bag.next_piece()).collect()
+        (0..count)
+            .map(|_| bag.next_piece().expect("§9.6's randomiser deals for ever"))
+            .collect()
     }
 
     #[test]
@@ -330,9 +459,52 @@ mod tests {
                 let shown: Vec<_> = bag.preview().collect();
                 assert_eq!(shown.len(), preview_count as usize);
                 let taken = bag.next_piece();
-                assert_eq!(taken, *shown.first().unwrap_or(&taken));
+                assert_eq!(taken, shown.first().copied());
             }
         }
+    }
+
+    #[test]
+    fn a_scripted_queue_deals_exactly_what_it_was_given() {
+        // `PILOT.md` §P2.3. No generator, no bag: the caller's pieces in the
+        // caller's order, and then nothing at all.
+        use PieceKind::{J, O, T};
+        let mut bag = Bag::scripted(&[T, O, J], 5);
+        assert_eq!(bag.preview().collect::<Vec<_>>(), vec![T, O, J]);
+        assert_eq!(bag.next_piece(), Some(T));
+        assert_eq!(bag.next_piece(), Some(O));
+        assert_eq!(bag.scripted_remainder(), [J]);
+        assert!(!bag.exhausted(), "one left");
+        assert_eq!(bag.next_piece(), Some(J));
+        assert!(!bag.exhausted(), "taking the last one is not running out");
+        assert_eq!(bag.next_piece(), None);
+        assert!(bag.exhausted(), "asked for one that was not there");
+        assert_eq!(bag.scripted_remainder(), []);
+    }
+
+    #[test]
+    fn a_scripted_queue_has_no_bag_to_reveal() {
+        // The information boundary as the type holds it (§P2.2): `remaining` is
+        // §12.4's hidden-information accessor, and a fork's answer to it is
+        // empty because there is nothing behind the queue to answer with.
+        let mut bag = Bag::scripted(&[PieceKind::I, PieceKind::L], 5);
+        assert_eq!(bag.remaining().count(), 0);
+        bag.next_piece();
+        assert_eq!(bag.remaining().count(), 0);
+        // ...where the randomiser's is never empty for long.
+        let random = Bag::new(42, 5);
+        assert!(random.remaining().count() > 0);
+        assert_eq!(random.scripted_remainder(), [], "and it has no script");
+    }
+
+    #[test]
+    fn a_scripted_preview_is_as_short_as_the_queue() {
+        // §12.7 shows exactly `preview_count`; a fork shows what it has, which
+        // is what a search running out of horizon looks like from the view.
+        let bag = Bag::scripted(&[PieceKind::S], 5);
+        assert_eq!(bag.preview().collect::<Vec<_>>(), vec![PieceKind::S]);
+        let bag = Bag::scripted(&PieceKind::ALL, 2);
+        assert_eq!(bag.preview().count(), 2, "and never more than the count");
     }
 
     #[test]
@@ -342,7 +514,7 @@ mod tests {
         let baseline = sequence(2024, 100);
         for preview_count in 1..=6u8 {
             let mut bag = Bag::new(2024, preview_count);
-            let pieces: Vec<_> = (0..100).map(|_| bag.next_piece()).collect();
+            let pieces: Vec<_> = (0..100).flat_map(|_| bag.next_piece()).collect();
             assert_eq!(pieces, baseline, "preview_count = {preview_count}");
         }
     }
