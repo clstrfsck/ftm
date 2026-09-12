@@ -819,8 +819,14 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   on a real timer; `--enable-unsafe-swiftshader` is needed for WebGL, and
   `--disable-gpu` gets §G8.5's "could not start" message instead. Measured
   there: 13 pixels per 500 ms at a 26-pixel cell, then dead still for the lock
-  delay. The native window still has not been looked at by any session that
-  built it.
+  delay.
+- **The native window has now been looked at, by a person**, after G10 — the
+  first time any session's work on it has been seen running. The slide and the
+  entering piece are right there too, which is what one would expect from shared
+  drawing code but had never actually been confirmed. Still unchecked by anyone:
+  §G8's window-to-terminal high-score handoff (play `ftm-gui` to a top out and
+  find the entry on `ftm`'s attract screen), which is a *different* check and is
+  still held only by `native.rs`'s test over the real file store.
 
 ---
 
