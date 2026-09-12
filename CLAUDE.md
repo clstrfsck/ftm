@@ -813,10 +813,12 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **Two more shared answers left `tui/`**: `menus::controls` (§10.1's words and
   §13.3's gating rule) and `figures::pps`.
 - **The window-to-terminal handoff is proven by a test over the real file
-  store**, not by a person at a window: the session that built it could not
-  drive the native GUI. `native.rs` has the test. The acceptance check itself
-  wanted a human once, and **it has had one** — see the end of "What G10
-  settled".
+  store**, not by a person at a window: the session that built it believed it
+  could not drive the native GUI. `native.rs` has the test. The acceptance
+  check itself wanted a human once, and **it has had one** — see the end of
+  "What G10 settled". (It need not have: the window *can* be scripted, which
+  G12 worked out — see **Commands**. The test is still the right one, because
+  what it checks is two binaries over one file store rather than a screen.)
 
 ## What G7 settled
 
@@ -965,12 +967,14 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   "written or not written". `?fullscreen` in a tab is accepted and inert rather
   than warned about, because a link shared from a desktop should not scold
   whoever opens it.
-- **Nothing here has been seen by a person yet.** The window's size, place,
-  scale, full-screen switch, vsync and frame cap are held by unit tests and by
-  the compiler; `keep_window` is tested over `Startup` rather than over a real
-  window, and `remember` — the half that reads `egui`'s viewport info — has no
-  test at all, because it needs a window manager. G13's acceptance is where a
-  human looks.
+- **The native window turned out to be scriptable, and that is the stage's
+  other deliverable.** `osascript` sends it keys; see **Commands**. Every claim
+  above was checked against the running binaries rather than against tests
+  alone — the Options-panel save in both front-ends, the geometry write-back,
+  `remember_window = false`, and the two runs at 125 % that caught the scale
+  bug. `remember` still has no unit test, because reading `egui`'s viewport
+  info needs a window manager; what it has instead is that it has been *run*,
+  which for this function is the better of the two.
 
 ---
 
@@ -1011,6 +1015,11 @@ cargo run -- --seed 42         # deterministic run, not recorded to high scores
 tools/drive.py c c             # drive the release binary on a pty
 tools/drive.py --arg=--seed=42 --arg=--config=/tmp/t.toml esc down down enter
 tools/drive.py enter resize:20x50   # §8.4 and §12.1, without a window to drag
+
+# The native window, driven from a script (macOS). See below.
+./target/release/ftm-gui --config /tmp/t.toml &
+osascript -e 'tell application "System Events" to keystroke "q"'
+osascript -e 'tell application "System Events" to key code 125'   # Down
 ```
 
 `HOME=/tmp/somewhere tools/drive.py ...` redirects both the §6.2 config path
@@ -1038,3 +1047,57 @@ capability queries, so pass `--legacy` to exercise the fallback path. A
 signals the child, which is how §8.4 and §12.1 are reached. Its
 docstring has the rest. It substitutes for, but
 does not replace, playing the game on a real terminal.
+
+**The native window can be driven too, and G12 is when that was worked out.**
+Earlier sessions recorded that they could not, and reached for a human; they
+did not have to. On macOS, start the release binary in the background and send
+it keys with `osascript`:
+
+```bash
+# The recipe G12 used, whole: drive the §13.5 Options panel and assert on the
+# file it saves. `preview_count` moving 5 -> 6 is what says every key landed.
+./target/release/ftm-gui --config /tmp/t.toml & pid=$!
+sleep 5                                    # the window must take the keyboard
+k() { osascript -e "tell application \"System Events\" to key code $1"; sleep 0.4; }
+k 125; k 125; k 125    # Down x3 -> OPTIONS
+k 36                   # Enter    -> open the panel
+k 124                  # Right    -> step the selected row
+k 53                   # Esc      -> §13.5 saves the config and returns
+# The quit key on the attract screen closes the window, and a *clean* exit is
+# what runs §6.2's first-exit write and §G8.10's geometry write-back. `kill` is
+# the fallback for a script whose keys went astray, and skips both.
+osascript -e 'tell application "System Events" to keystroke "q"'
+sleep 2; kill -TERM $pid 2>/dev/null
+grep -E '^preview_count' /tmp/t.toml       # the assertion
+```
+
+`key code` is what the keys §10.1 names but `keystroke` cannot spell:
+125 Down, 126 Up, 123 Left, 124 Right, 36 Enter, 53 Esc, 49 Space. G12
+exercised Down, Right, Enter, Esc and a `keystroke` letter; the other three are
+the same standard table.
+
+**A key is dropped now and then, and that is the thing to design around.** It
+was measured here: the same six-key script into the §13.5 Options panel failed
+once and passed once, and the failure was a lost `Down` — which put the cursor
+on CONTROLS, made `Enter` open the controls box, and left the remaining keys
+doing nothing at all. Nothing errored, and nothing looked wrong. So **script
+towards an observable outcome and assert on it** — a config file that gained a
+value, a process that exited — never on the exit status of `osascript`, which
+is `0` whether or not the key arrived. A run that asserts nothing is a run that
+proves nothing.
+
+Three more things. It needs **Accessibility permission** for whatever runs the
+command, granted once in System Settings, and does nothing without it. Keys go
+to the **front** window, so nothing else may steal focus mid-script — and
+§G4.7 pauses a game the moment something does, which is a correct result and
+not a hang. And allow several seconds after launch before the first key: the
+window has to exist and take the keyboard.
+
+That is how G12 checked the Options-panel save in both front-ends, the §G8.10
+geometry write-back, `remember_window = false`, and the 125 % scale bug that
+shrank the window on every run — none of which any test in the tree can see.
+It is worth more than it looks: it turns "a person has to look at it" into a
+loop. The scale bug in particular was found by running the same binary *twice*
+and diffing the file, which is exactly what a human at a window does not think
+to do. Like `drive.py`, it substitutes for, but does not replace, playing the
+game.
