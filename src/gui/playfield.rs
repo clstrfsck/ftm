@@ -68,11 +68,17 @@ const WIPE_EDGE: u8 = 4;
 /// hold slot and an absent hold mechanic are both `hold: None` — and it is the
 /// running game's answer, [`Round::hold_enabled`], not the config's (§13.5).
 ///
+/// `pilot` is the other one, and it is the running game's answer too
+/// ([`Round::pilot`]): whether the automated player has the controls, which
+/// §P7.3 puts on the status row for the whole game.
+///
 /// [`Round::hold_enabled`]: crate::shell::round::Round::hold_enabled
+/// [`Round::pilot`]: crate::shell::round::Round::pilot
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Chrome {
     pub show_grid: bool,
     pub hold_enabled: bool,
+    pub pilot: bool,
 }
 
 /// Draw one frame of the playing screen.
@@ -105,7 +111,7 @@ pub fn draw(
     }
     stats(painter, layout, view, chrome.hold_enabled);
     next(painter, layout, view);
-    status(painter, layout, fx, state.restart);
+    status(painter, layout, fx, state.restart, chrome.pilot);
     // What goes over the screen is `overlays`' (§12.6, §G5), and the front-end
     // draws it after this: a box is not part of the playing screen, and the
     // screen must be complete underneath it.
@@ -470,10 +476,38 @@ fn stats(painter: &egui::Painter, layout: &Layout, view: &GameView, hold_enabled
 /// The restart takes the whole line, as it does in the terminal: a hold with no
 /// feedback is indistinguishable from a key that did nothing, and a player
 /// about to throw the game away is not reading the name of their last clear.
-fn status(painter: &egui::Painter, layout: &Layout, fx: &Cosmetics, restart: Option<u8>) {
+///
+/// `PILOT.md` §P7.3's indicator sits on the same row, left-aligned in §G3.2's
+/// margin and for the whole game rather than transiently — a screenshot of an
+/// automated game must not be mistakable for a player's, and a mark that comes
+/// and goes is one a screenshot can miss. It is drawn beside whatever else the
+/// row is showing rather than instead of it: the centred content is at most
+/// `PERFECT CLEAR`, which clears the left of a 26-cell band comfortably.
+fn status(
+    painter: &egui::Painter,
+    layout: &Layout,
+    fx: &Cosmetics,
+    restart: Option<u8>,
+    pilot: bool,
+) {
     let band = layout.status();
     let cell = layout.cell();
     let centre = band.center();
+    if pilot {
+        paint::text(
+            painter,
+            egui::pos2(band.left() + cell, centre.y),
+            egui::Align2::LEFT_CENTER,
+            "PILOT",
+            Face::Label,
+            cell * STATUS_SIZE,
+            // The `I`-piece cyan, which is §13.3's selected-item colour and
+            // `TUI.md` §12.4's for this same indicator: one word, one colour,
+            // in both front-ends.
+            paint::piece(PieceKind::I, palette::FULL),
+            band.width() / 3.0,
+        );
+    }
     if let Some(percent) = restart {
         paint::text(
             painter,
@@ -765,10 +799,12 @@ mod tests {
             Chrome {
                 show_grid: true,
                 hold_enabled: true,
+                pilot: false,
             },
             Chrome {
                 show_grid: false,
                 hold_enabled: false,
+                pilot: true,
             },
         ];
         for size in [
@@ -840,6 +876,94 @@ mod tests {
         }
     }
 
+    /// Every string the screen drew, and where it landed.
+    ///
+    /// A shape count says a thing was drawn; this says *where*, which for a
+    /// layout question is the assertion worth making — and it is the shape
+    /// `EGUI-PLAN.md` G11 settled on for exactly that reason.
+    fn placed(
+        ctx: &egui::Context,
+        state: &FrameState,
+        chrome: Chrome,
+    ) -> Vec<(String, egui::Rect, egui::Color32)> {
+        let size = egui::vec2(728.0, 672.0);
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            ..Default::default()
+        };
+        ctx.set_pixels_per_point(1.0);
+        let fx = quiet_fx();
+        let mut found = Vec::new();
+        let output = ctx.run_ui(input, |ui| {
+            let area = ui.max_rect();
+            if let Measure::Fits(layout) = Measure::of(area, ui.ctx().pixels_per_point()) {
+                draw(ui.painter(), &layout, state, chrome, &fx);
+            }
+        });
+        for shape in &output.shapes {
+            if let egui::epaint::Shape::Text(drawn) = &shape.shape {
+                found.push((
+                    drawn.galley.text().to_string(),
+                    egui::Rect::from_min_size(drawn.pos, drawn.galley.size()),
+                    drawn.fallback_color,
+                ));
+            }
+        }
+        output.drop_without_applying_deltas();
+        found
+    }
+
+    #[test]
+    fn a_pilot_game_says_so_on_the_status_row() {
+        // `PILOT.md` §P7.3: an unambiguous indicator, left-aligned on the
+        // status row, for the whole game — so a screenshot of an automated game
+        // cannot be mistaken for a player's. Measured rather than counted: what
+        // could go wrong here is where it landed, not whether it was emitted.
+        let ctx = egui::Context::default();
+        let state = frame_state(busy_view(5), Overlay::None);
+        let watched = Chrome {
+            show_grid: true,
+            hold_enabled: true,
+            pilot: true,
+        };
+        let played = Chrome {
+            pilot: false,
+            ..watched
+        };
+
+        let drawn = placed(&ctx, &state, watched);
+        let flag = drawn
+            .iter()
+            .find(|(text, ..)| text == "PILOT")
+            .expect("the indicator is on the screen");
+        let status = {
+            let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(728.0, 672.0));
+            match Measure::of(area, 1.0) {
+                Measure::Fits(layout) => layout.status(),
+                Measure::TooSmall { .. } => unreachable!("728 x 672 is §G3.3's room"),
+            }
+        };
+        assert!(status.contains_rect(flag.1), "on the status row: {flag:?}");
+        assert!(
+            flag.1.center().x < status.center().x - status.width() / 4.0,
+            "left-aligned, well clear of the centred content: {flag:?}",
+        );
+        // §G4.5: in the `I`-piece cyan, which is `TUI.md` §12.4's colour for
+        // the same word — one indicator, one colour, two front-ends.
+        assert_eq!(flag.2, paint::piece(PieceKind::I, palette::FULL));
+        // Everything else on the screen is where it was, and an ordinary game
+        // has no indicator at all.
+        let ordinary = placed(&ctx, &state, played);
+        assert!(!ordinary.iter().any(|(text, ..)| text == "PILOT"));
+        assert_eq!(
+            drawn
+                .iter()
+                .filter(|entry| entry.0 != "PILOT")
+                .collect::<Vec<_>>(),
+            ordinary.iter().collect::<Vec<_>>(),
+        );
+    }
+
     #[test]
     fn a_paused_well_draws_no_pieces() {
         // §9.17: blanked while paused. The paused frame draws the same screen
@@ -849,6 +973,7 @@ mod tests {
         let chrome = Chrome {
             show_grid: true,
             hold_enabled: true,
+            pilot: false,
         };
         let playing = frame_state(busy_view(5), Overlay::None);
         let paused = frame_state(busy_view(5), Overlay::Paused { selected: 0 });
@@ -878,6 +1003,7 @@ mod tests {
         let chrome = Chrome {
             show_grid: true,
             hold_enabled: true,
+            pilot: false,
         };
         let paused = frame_state(busy_view(5), Overlay::Paused { selected: 0 });
         let ctx = egui::Context::default();

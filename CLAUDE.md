@@ -74,8 +74,10 @@ panel offers), `attract.rs` (§13's state machine),
 `cosmetics.rs` (§12.5's timers), `palette.rs` (§9.2 levelled), `figures.rs`
 (the grouped score, `MM:SS` and pieces per second), `time.rs` (F1's
 `Stamp`), `storage.rs` (F2's `Slot`/`Storage`), `host.rs` (F2-F4 as one
-borrowed bundle), and since G4 `session.rs` (`Session`, `Next`) and `round.rs`
-(`Round`, `FrameState`, `Debug`, and the `App` inside them). `src/native.rs` is
+borrowed bundle), and since G4 `session.rs` (`Session`, `Next`, and since P4
+§P1's `Player`) and `round.rs` (`Round`, `FrameState`, `Debug`, and the `App`
+inside them, which since P4 holds the `pilot::Pilot` when there is one).
+`src/native.rs` is
 the *desktop* — F1-F4 over `std::fs`, `directories`, `chrono` and `rand` — with
 `src/argv.rs` beside it for the capability that is none of those four, an argv:
 §6.4's two enumerated value spellings, which both native binaries share.
@@ -112,8 +114,8 @@ is.
 **There is a live plan again: `PILOT-PLAN.md`, stages P0-P8**, which builds the
 automated player of `PILOT.md` §P1-§P9 — a **PILOT** row on §13.3's menu that
 plays the game while the player watches. It is a deliberate amendment to the
-scope rule below: it promotes §18's first bullet and no other. Stages P1, P2
-and P3 are complete. P1 was the specification and the amendments to `FTM.md`,
+scope rule below: it promotes §18's first bullet and no other. Stages P1 to P4
+are complete. P1 was the specification and the amendments to `FTM.md`,
 `TUI.md` and `GUI.md`; P2 is the first code — §P2.3's fork in `core/search.rs`,
 and **`src/pilot/`, a fourth directory beside `core/`, `shell/` and the two
 front-ends**, holding §P2.4's bag observation, §P2.3's `Fork` and §P5's
@@ -121,9 +123,16 @@ features and weights. It is in `make shell` and `make portable` for exactly the
 reason `shell/` is. **P3 is a player**: `pilot::Pilot` and `Settings` (§P3.4),
 `placement.rs`'s §P4.1 generator and the one-ply choice with §P6.4's
 tie-breaks. It plays a full game headlessly and plays it *well* — 20,000 pieces
-on each of five seeds with no top out — but **nothing offers it yet**: P4 is
-the menu item, the controller inside `App` and the two front-ends. See **Scope
-discipline**, which says what is still out.
+on each of five seeds with no top out.
+
+**P4 is the mode**, and it is offered now: a **PILOT** row under **PLAY** on
+§13.3's menu in both native front-ends, `Next::Play(Player)` so a restart keeps
+it, the controller beside the input state in `shell/round.rs`, §P3.1's per-tick
+input path inside `App::advance`, §P7.3's spectator controls and cyan
+indicator, and §P7.4's suppression of every path to §14's table. `cargo run
+--release` and `make run-gui`, then **PILOT**: it clears fourteen lines in the
+first six seconds on either screen. What is left is P5's headless benchmark and
+the search of P6-P7. See **Scope discipline**, which says what is still out.
 
 ## The §17.3 sign-off
 
@@ -598,8 +607,11 @@ written-down-only: P4 has to keep them.
   plan it was halfway through. Two things follow. `App::advance` gives a batch's
   edge actions to its *first* tick only, because a human produces input per
   frame; a planned round needs the batch's *n*th input on its *n*th tick, so
-  that is a branch inside `advance` (P4's) and the human path must stay
-  byte-identical. And a plan is never recomputed from a partly executed state —
+  since P4 that is a **branch inside `advance`** — four lines, with the human
+  path byte-identical, which the terminal's mock-ups and `tests/pump.rs` are
+  what say. `observe` is handed the slice of the frame's event buffer that tick
+  appended, not the whole of it: the buffer belongs to the frame, because §12.5
+  absorbs it once. And a plan is never recomputed from a partly executed state —
   a plan that diverges from what the search predicted is a bug, not a resync,
   and `Pilot::verify` is the debug assertion that says so tick by tick.
 - **A plan ends at the tick that locks the piece, and the fork is what knows
@@ -622,6 +634,28 @@ written-down-only: P4 has to keep them.
   *measured* before it was specified: the terminal's attract block goes 21 → 22
   rows or the footer is silently clipped, and the window needs no change at all
   because its menu band is reserved rather than fitted (`PILOT.md` §P7.2).
+  Since P4 there is a third list *inside* the second: §13.3's panel cycle pauses
+  on any item but the two that **start a game**, and which indices those are is
+  the front-end's list's answer — so `shell::attract::Attract` remembers the
+  `MenuChoice` the cursor is on and not only where it is.
+
+- **A spectator's keys are dropped at the input boundary** (`PILOT.md` §P7.3,
+  §10.1). While the pilot plays, §10.1's movement, rotation, hold and drop keys
+  do nothing — and "do nothing" means `play_key` returns before `InputState`
+  sees them, exactly where a disabled mechanic's key is dropped. Ignoring what
+  they produce instead would leave a held direction charging DAS and a press
+  resetting a lock-delay timer behind a game nobody is playing. Pause and
+  everything the pause menu reaches, §10.1's restart hold, quit and §16's
+  Ctrl-C stay live: a spectator can stop, look and leave.
+
+- **The PILOT indicator is the `I`-piece cyan, in both front-ends, for the whole
+  game** (`TUI.md` §12.4, `GUI.md` §G4.5, `PILOT.md` §P7.3). Left-aligned on the
+  status row, over the centred content rather than joined to it — the longest
+  thing that can be there is `PERFECT CLEAR` at thirteen characters, which
+  centres well clear of column 5. Deliberately not a transient: a screenshot of
+  an automated game must never be mistakable for a player's, and both front-ends
+  assert the colour as well as the position, because the first implementation
+  had it in the plain text colour and no test would have known.
 
 ## Working agreements
 
@@ -1247,6 +1281,46 @@ written-down-only: P4 has to keep them.
   planned game in the suite checks the plan against the fork tick by tick,
   because `cargo test` is a debug build. A release round pays nothing: the
   predictions are not even recorded.
+
+---
+
+## What P4 settled
+
+- **It is offered, and it was watched.** A **PILOT** row under **PLAY** on both
+  native menus, and a person looked at a game on each: fourteen lines and level
+  two inside six seconds on the terminal at seed 42, the same in the window,
+  with the indicator on the status row of both. `PILOT-PLAN.md` P4 said to
+  expect it to play badly; P3 had already found otherwise and this is that
+  finding with a screen in front of it. The pieces *travel* rather than
+  teleport, which is §P3.2's one-cell cap earning its keep as a presentation
+  decision and not only an honesty one.
+- **The two amendments this stage needed were both the spec catching the
+  code.** §13.3's panel cycle pauses on any item but the two that start a game,
+  so PILOT had to join PLAY there — the first implementation compared an index
+  to zero — and §12.4 and §G4.5 both say the indicator is drawn in the `I`-piece
+  cyan, which the first implementation was not. Neither was a test failure; both
+  were found by reading the sections the stage was implementing against. That is
+  what "the spec is ground truth" buys, and it is why the invariants above now
+  carry the colour.
+- **`Next::Play(Player)` was the cheap half and the sixth menu item the dear
+  one.** Every front-end already matched `Next` exhaustively, so the payload was
+  a compiler-guided edit that could not be got wrong. The menu item reached into
+  `tui::attract`'s block height (21 → 22, `PILOT.md` §P7.2), both render
+  fixtures, and three of the shell's own tests that had counted `Down` presses
+  to a row — those now ask `MenuChoice::ALL` where the row is.
+- **The assertion that would have caught the silent clipping was already
+  there.** §P7.2's hazard is that a menu taller than the block loses the *footer*
+  by clipping, with no error — and `the_screen_holds_the_wordmark_the_menu_and_
+  the_panel` looks for `ENTER start`. Worth knowing for the next thing that
+  grows: the attract screen's tests are what hold its height.
+- **Driving the native window is still a focus problem.** Three of five
+  scripted runs sent their keys to whatever was in front instead, and
+  `osascript` exits `0` either way (`EGUI-PLAN.md` G13 recorded this; it is
+  worse than it reads). What works is **one shell invocation** that launches the
+  binary, waits, sends the keys and screenshots, with nothing in between — a
+  second invocation brings the terminal back to the front and the keys go
+  there. `screencapture -x -o` plus `sips -c H W --cropOffset Y X` is still how
+  the result is looked at.
 
 ---
 

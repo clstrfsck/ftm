@@ -25,7 +25,7 @@ use ftm::shell::input::InputMode;
 use ftm::shell::keys::{Key, KeyEvent};
 use ftm::shell::menus::{Overlay, Setting};
 use ftm::shell::round::Round;
-use ftm::shell::session::{Next, Session};
+use ftm::shell::session::{Next, Player, Session};
 use ftm::shell::storage::{Memory, Slot, Storage};
 use ftm::shell::time::Stamp;
 
@@ -135,7 +135,7 @@ fn play(gaps: &[u64], script: &[(u64, KeyEvent)]) -> (GameView, u64) {
 
     let mut storage = Memory::new();
     let mut session = session(&mut storage, true);
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     let mut next = 0;
     for stamp in frames {
         let now = at(stamp);
@@ -183,6 +183,61 @@ fn the_same_inputs_at_the_same_moments_give_the_same_game_at_any_cadence() {
     assert!(steady.score > 0, "the script played something");
 }
 
+/// The same, for a round nobody is typing into (`PILOT.md` §P3.3).
+///
+/// There is no script, because there are no keys: the planner is the only
+/// thing pressing anything, and what is under test is that *it* does not
+/// notice the cadence either.
+fn play_pilot(gaps: &[u64]) -> (GameView, u64) {
+    let mut frames: Vec<u64> = Vec::new();
+    let mut now = 0u64;
+    for step in 0.. {
+        frames.push(now);
+        if now >= END {
+            break;
+        }
+        now += gaps[step % gaps.len()];
+    }
+    frames.push(END);
+    frames.sort_unstable();
+
+    let mut storage = Memory::new();
+    let mut session = session(&mut storage, true);
+    let mut round = Round::new(&session, Player::Pilot, at(0));
+    for stamp in frames {
+        assert_eq!(round.advance(&mut session, at(stamp)), None);
+    }
+    (round.frame(at(END)).view, round.debug(0).dropped)
+}
+
+#[test]
+fn a_pilot_round_plays_the_same_game_at_any_cadence() {
+    // `PILOT.md` §P3.3 and §P9's C4, which is why the planner takes no clock:
+    // it is a pure function of the fair state, so 60 Hz, 144 Hz and a jittery
+    // cadence with empty frames give a byte-identical `GameView`. This is
+    // §19.4's property one layer up, and it is the check that would fail the
+    // moment a search started being amortised across frames or bounded by
+    // wall time.
+    //
+    // The batch is the mechanism it is really testing: §15.2 step 4 hands a
+    // slow frame several ticks at once, and a planned round needs the batch's
+    // nth input on its nth tick (§P3.1). A batch that gave the planner one
+    // input and gravity for the rest would play a different game at every one
+    // of these cadences.
+    let (steady, dropped) = play_pilot(&[16_667]);
+    assert_eq!(dropped, 0, "nothing was ever behind");
+    assert!(steady.pieces >= 4, "only {} pieces in 4 s", steady.pieces);
+    assert!(steady.score > 0, "and it was playing, not watching");
+
+    let (fast, fast_dropped) = play_pilot(&[6_944]);
+    assert_eq!(fast, steady, "144 Hz plays the same game as 60 Hz");
+    assert_eq!(fast_dropped, 0);
+
+    let (jittery, jittery_dropped) = play_pilot(&[0, 1, 11_000, 0, 3_000, 16_000, 0, 7_777]);
+    assert_eq!(jittery, steady, "and so does a jittery one");
+    assert_eq!(jittery_dropped, 0);
+}
+
 #[test]
 fn a_front_end_that_was_suspended_runs_the_cap_and_discards_the_rest() {
     // §15.2 step 4. Ten seconds in one frame is a backgrounded browser tab,
@@ -190,7 +245,7 @@ fn a_front_end_that_was_suspended_runs_the_cap_and_discards_the_rest() {
     // for — and resuming into six hundred ticks would be an instant death.
     let mut storage = Memory::new();
     let mut session = session(&mut storage, true);
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     assert_eq!(round.debug(0).dropped, 0);
 
     round.advance(&mut session, at(10_000_000));
@@ -216,7 +271,7 @@ fn the_deadline_stays_inside_a_tick() {
     // be told the wrong thing by a zero.
     let mut storage = Memory::new();
     let mut session = session(&mut storage, true);
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     for frame in 0..600u64 {
         let now = at(frame * 6_944);
         round.advance(&mut session, now);
@@ -235,7 +290,7 @@ fn pause_stops_the_clock_and_resuming_counts_back_in() {
     // and the view is the only thing it draws.
     let mut storage = Memory::new();
     let mut session = session(&mut storage, true);
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     let playing = round.frame(at(0)).view;
     assert_eq!(round.frame(at(0)).overlay, Overlay::None);
 
@@ -285,7 +340,7 @@ fn a_viewport_below_the_minimum_pauses_the_game_and_says_so() {
     // the player leaves the pause, and gets the countdown for it.
     let mut storage = Memory::new();
     let session = session(&mut storage, true);
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     assert!(!round.frame(at(0)).cramped);
 
     round.viewport(false);
@@ -333,7 +388,7 @@ fn a_fifty_millisecond_tap_moves_one_cell_and_a_held_key_slides_to_the_wall() {
 
     // A tap. The press is answered by one cell immediately (§10.3), and the
     // release stops it long before DAS's 170 ms could have charged.
-    let mut round = Round::new(&session, frame(0));
+    let mut round = Round::new(&session, Player::Human, frame(0));
     let spawned = left_edge(&round, frame(0));
     round.key(&mut session, &press(Key::Left), frame(0));
     let mut n = 1;
@@ -365,7 +420,7 @@ fn a_fifty_millisecond_tap_moves_one_cell_and_a_held_key_slides_to_the_wall() {
 
     // A hold. 0.6 s is DAS plus nineteen ARR periods, which is more than the
     // width of the field, so it ends against the wall wherever it started.
-    let mut held = Round::new(&session, frame(0));
+    let mut held = Round::new(&session, Player::Human, frame(0));
     held.key(&mut session, &press(Key::Left), frame(0));
     for f in 1..=36 {
         held.advance(&mut session, frame(f));
@@ -393,7 +448,7 @@ fn losing_the_keyboard_pauses_the_game_and_lets_go_of_its_keys() {
     let mut session = session(&mut storage, true);
 
     // What holding left does if nothing intervenes: it slides to the wall.
-    let mut control = Round::new(&session, at(0));
+    let mut control = Round::new(&session, Player::Human, at(0));
     control.key(&mut session, &press(Key::Left), at(0));
     let start = {
         control.advance(&mut session, at(50_000));
@@ -407,7 +462,7 @@ fn losing_the_keyboard_pauses_the_game_and_lets_go_of_its_keys() {
         "held left slides"
     );
 
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     round.key(&mut session, &press(Key::Left), at(0));
     round.advance(&mut session, at(50_000));
     let before = left_edge(&round, at(50_000));
@@ -476,7 +531,7 @@ fn a_panel_offers_the_rows_its_front_end_can_apply() {
     // A window's list, which is the longest of the three and the one whose
     // extra rows are the newest (`EGUI-PLAN.md` G12).
     session.settings = &Setting::WINDOW;
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     assert_eq!(round.settings(), &Setting::WINDOW, "what the screen draws");
 
     // Into the panel: pause, down to Options, Enter.
@@ -514,13 +569,16 @@ fn the_restart_key_ends_the_round_after_its_second() {
     // round.
     let mut storage = Memory::new();
     let mut session = session(&mut storage, true);
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     assert_eq!(round.frame(at(0)).restart, None, "the key is up");
 
     assert_eq!(round.key(&mut session, &press(Key::Char('r')), at(0)), None);
     assert_eq!(round.frame(at(500_000)).restart, Some(50), "halfway");
     assert_eq!(round.advance(&mut session, at(999_000)), None);
-    assert_eq!(round.advance(&mut session, at(1_000_000)), Some(Next::Play));
+    assert_eq!(
+        round.advance(&mut session, at(1_000_000)),
+        Some(Next::Play(Player::Human))
+    );
 }
 
 #[test]
@@ -529,7 +587,7 @@ fn the_quit_key_abandons_the_game_for_the_attract_screen() {
     // abandoned rather than scored (§11).
     let mut storage = Memory::new();
     let mut session = session(&mut storage, true);
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     assert_eq!(
         round.key(&mut session, &press(Key::Char('q')), at(0)),
         Some(Next::Attract),
@@ -546,7 +604,7 @@ fn a_game_played_to_a_top_out_reaches_the_table() {
     // Unseeded, so §14 records it. The seed is constant regardless, so the
     // game is still the same one every time this test runs (§6.4).
     let mut session = session(&mut storage, false);
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
 
     // Hard drop, and a couple of ticks to lock and spawn, until the stack
     // reaches the ceiling (§9.16).
@@ -612,7 +670,7 @@ fn the_options_panel_edits_the_config_without_touching_the_running_game() {
     // an absent hold mechanic are both `hold: None` (§12.4, §12.7).
     let mut storage = Memory::new();
     let mut session = session(&mut storage, true);
-    let mut round = Round::new(&session, at(0));
+    let mut round = Round::new(&session, Player::Human, at(0));
     assert!(round.hold_enabled());
     let generation = round.frame(at(0)).generation;
 
@@ -656,7 +714,7 @@ fn the_options_panel_edits_the_config_without_touching_the_running_game() {
         Overlay::Paused { selected: 2 },
         "back to the item that opened the panel",
     );
-    assert!(!Round::new(&session, at(0)).hold_enabled());
+    assert!(!Round::new(&session, Player::Human, at(0)).hold_enabled());
 
     drop(session);
     let mut warnings = Vec::new();

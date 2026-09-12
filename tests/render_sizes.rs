@@ -71,6 +71,10 @@ fn chrome(depth: Depth, show_grid: bool, hold_enabled: bool) -> Chrome {
         theme: Theme::with_glyphs(depth, Glyphs::DEFAULT),
         show_grid,
         hold_enabled,
+        // I4 is about the sizes a screen is drawn at; `PILOT.md` §P7.3's
+        // indicator is one more string on a row that already has one, and the
+        // terminal's own mock-up tests are where it is checked.
+        pilot: false,
     }
 }
 

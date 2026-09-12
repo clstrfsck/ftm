@@ -679,7 +679,7 @@ mod tests {
         let middle = layout.block().center().x;
         let drawn = placed(&ctx, &config, &scores, 0, None);
         let mut found = 0;
-        let mut centred: Vec<&str> = MenuChoice::NO_QUIT
+        let mut centred: Vec<&str> = MenuChoice::CANVAS
             .iter()
             .map(|choice| choice.label())
             .collect();
@@ -695,7 +695,7 @@ mod tests {
                 rect.center().x,
             );
         }
-        assert_eq!(found, MenuChoice::NO_QUIT.len() + 1, "{drawn:?}");
+        assert_eq!(found, MenuChoice::CANVAS.len() + 1, "{drawn:?}");
     }
 
     #[test]
@@ -923,7 +923,7 @@ mod tests {
                             config,
                             settings: &Setting::SHARED,
                         },
-                        menu: &MenuChoice::NO_QUIT,
+                        menu: &MenuChoice::CANVAS,
                         scores,
                         recent,
                     };

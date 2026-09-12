@@ -252,6 +252,7 @@ mod tests {
             theme: crate::tui::theme::Theme::new(crate::tui::theme::Depth::Truecolor),
             show_grid: false,
             hold_enabled: true,
+            pilot: false,
         }
     }
 

@@ -235,7 +235,7 @@ impl Setting {
     /// A browser tab's rows: the shared seven and the scale.
     ///
     /// The one row the two window builds differ by, for the same reason
-    /// [`MenuChoice::NO_QUIT`] exists — a tab cannot do it.
+    /// [`MenuChoice::CANVAS`] is short of **QUIT** — a tab cannot do it.
     pub const CANVAS: [Setting; 8] = [
         Setting::Preview,
         Setting::StartLevel,
@@ -419,6 +419,9 @@ pub fn controls(file: &ConfigFile) -> Vec<(&'static str, String)> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuChoice {
     Play,
+    /// `PILOT.md` §P1: the automated player, which starts a game the player
+    /// watches rather than plays.
+    Pilot,
     HighScores,
     Controls,
     Options,
@@ -426,26 +429,31 @@ pub enum MenuChoice {
 }
 
 impl MenuChoice {
-    /// §13.3's five, in the order it draws them.
-    pub const ALL: [MenuChoice; 5] = [
+    /// §13.3's six, in the order it draws them (`PILOT.md` §P7.1).
+    pub const ALL: [MenuChoice; 6] = [
         MenuChoice::Play,
+        MenuChoice::Pilot,
         MenuChoice::HighScores,
         MenuChoice::Controls,
         MenuChoice::Options,
         MenuChoice::Quit,
     ];
 
-    /// The four a front-end that cannot quit offers.
+    /// A browser tab's four (`PILOT.md` §P7.1).
     ///
-    /// A browser tab is closed, not quit: `window.close()` is refused to a page
-    /// the player opened (`GUI.md` §G8.1), so **QUIT** there would be an item
-    /// that does nothing, which is worse than an item that is not offered.
-    /// Which list a front-end shows is its own answer, carried on
+    /// It is the browser's list rather than "the same list without quit",
+    /// exactly as [`Setting::CANVAS`] is the browser's panel, and it is short of
+    /// two items for two different reasons. A tab is closed, not quit:
+    /// `window.close()` is refused to a page the player opened (`GUI.md`
+    /// §G8.1), so **QUIT** there would be an item that does nothing, which is
+    /// worse than an item that is not offered. And a tab would run §P6's search
+    /// on its frame thread, so it does not offer **PILOT** either (`PILOT.md`
+    /// §P1). Which list a front-end shows is its own answer, carried on
     /// [`Session::menu`](crate::shell::session::Session::menu) — and the screen
     /// and the shell walk that same list, exactly as they do
     /// [`Setting::WINDOW`] and [`Setting::CANVAS`], so the cursor can never land
     /// on an item nobody can see.
-    pub const NO_QUIT: [MenuChoice; 4] = [
+    pub const CANVAS: [MenuChoice; 4] = [
         MenuChoice::Play,
         MenuChoice::HighScores,
         MenuChoice::Controls,
@@ -455,6 +463,7 @@ impl MenuChoice {
     pub const fn label(self) -> &'static str {
         match self {
             MenuChoice::Play => "PLAY",
+            MenuChoice::Pilot => "PILOT",
             MenuChoice::HighScores => "HIGH SCORES",
             MenuChoice::Controls => "CONTROLS",
             MenuChoice::Options => "OPTIONS",

@@ -145,7 +145,7 @@ pub fn render(
     }
 
     frame.render_widget(
-        Paragraph::new(status(view, fx, hud.restart)).style(chrome.theme.plain()),
+        Paragraph::new(status(view, chrome, fx, hud.restart)).style(chrome.theme.plain()),
         at(0, STATUS_Y, SCREEN_WIDTH, 1),
     );
     if let Some(strip) = strip {
@@ -397,35 +397,69 @@ fn paint(chrome: &Chrome, row: &[Paint], grid: bool) -> Line<'static> {
 }
 
 /// The status line (§12.4): the standing indicators, then the most recent
-/// clear's name while it lasts, centred under the playfield.
+/// clear's name while it lasts, centred under the playfield — with `PILOT`
+/// left-aligned over it while the automated player has the controls
+/// (`PILOT.md` §P7.3).
 ///
 /// The padding is computed here rather than left to the renderer's alignment,
 /// so that "centred" means one thing and the mock-up can be compared against it
-/// character for character.
-fn status(view: &GameView, fx: &Cosmetics, restart: Option<u8>) -> String {
+/// character for character. The indicator is written *over* the centred line
+/// rather than joined to it, so the centred content lands where it always did:
+/// the longest thing that can be there is `PERFECT CLEAR`, which is thirteen
+/// characters and centres well clear of column 5.
+fn status(view: &GameView, chrome: &Chrome, fx: &Cosmetics, restart: Option<u8>) -> Line<'static> {
     // §10.1's restart is a *held* key, and a hold with no feedback is
     // indistinguishable from a key that did nothing. It takes the whole line
     // while it is down: the player is about to throw the game away, and the
     // combo counter is not what they are looking at.
-    if let Some(percent) = restart {
+    let line = if let Some(percent) = restart {
         let filled = usize::from(percent).min(100) * RESTART_CELLS / 100;
-        return centre_line(&format!(
+        centre_line(&format!(
             "RESTART {}{}",
             "\u{2588}".repeat(filled),
             "\u{2591}".repeat(RESTART_CELLS - filled),
-        ));
+        ))
+    } else {
+        let mut parts: Vec<String> = Vec::new();
+        if view.back_to_back {
+            parts.push("B2B".to_string());
+        }
+        if view.combo >= 1 {
+            parts.push(format!("COMBO x{}", view.combo));
+        }
+        if let Some(name) = fx.clear_name() {
+            parts.push(name.to_string());
+        }
+        centre_line(&parts.join("  "))
+    };
+    if chrome.pilot {
+        flagged(&line, chrome)
+    } else {
+        Line::raw(line)
     }
-    let mut parts: Vec<String> = Vec::new();
-    if view.back_to_back {
-        parts.push("B2B".to_string());
-    }
-    if view.combo >= 1 {
-        parts.push(format!("COMBO x{}", view.combo));
-    }
-    if let Some(name) = fx.clear_name() {
-        parts.push(name.to_string());
-    }
-    centre_line(&parts.join("  "))
+}
+
+/// `PILOT.md` §P7.3's indicator, written into the first five columns of the
+/// status line, in the `I`-piece cyan that marks §13.3's selected menu item.
+///
+/// For the whole game rather than transiently: a screenshot of an automated
+/// game must not be mistakable for a player's, and a mark that comes and goes
+/// is one a screenshot can miss. The columns it takes were blank in every
+/// case — the centred content is at most `PERFECT CLEAR`, thirteen characters,
+/// which starts well right of column 5 — so it is written *over* the line
+/// rather than joined to it, and the centred half lands where it always did.
+fn flagged(line: &str, chrome: &Chrome) -> Line<'static> {
+    const FLAG: &str = "PILOT";
+    Line::from(vec![
+        Span::styled(
+            FLAG,
+            chrome
+                .theme
+                .piece(PieceKind::I, palette::FULL)
+                .patch(chrome.theme.bold()),
+        ),
+        Span::raw(line.chars().skip(FLAG.chars().count()).collect::<String>()),
+    ])
 }
 
 /// The bar the restart hold fills, in characters.
@@ -518,6 +552,7 @@ pub mod tests {
             theme: Theme::new(Depth::Truecolor),
             show_grid: false,
             hold_enabled: true,
+            pilot: false,
         }
     }
 
@@ -576,6 +611,11 @@ pub mod tests {
         view
     }
 
+    /// One line's characters, whatever it is styled with.
+    fn plain(line: &Line<'_>) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
     /// Render one frame at the block's exact size and read the characters back.
     fn screenshot(view: &GameView, chrome: &Chrome) -> String {
         let backend = TestBackend::new(SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -606,6 +646,49 @@ pub mod tests {
             drawn, MOCK_UP,
             "\n--- drawn ---\n{drawn}\n--- §12.4 ---\n{MOCK_UP}\n",
         );
+    }
+
+    #[test]
+    fn a_pilot_game_says_so_on_the_status_row() {
+        // `PILOT.md` §P7.3: the indicator is left-aligned on the status row and
+        // is there for the whole game, so a screenshot of an automated game
+        // cannot be mistaken for a player's. The mock-up's own status row is
+        // the hardest case it can share the line with — `B2B  COMBO x3`
+        // centred — and the rest of the screen must be untouched.
+        let view = mock_up_view();
+        let watched = Chrome {
+            pilot: true,
+            ..chrome()
+        };
+        let drawn = screenshot(&view, &watched);
+        let rows: Vec<&str> = drawn.lines().collect();
+        let played: Vec<&str> = MOCK_UP.lines().collect();
+        assert_eq!(
+            rows[STATUS_Y as usize],
+            "PILOT          B2B  COMBO x3                ",
+        );
+        assert_eq!(
+            rows[..STATUS_Y as usize],
+            played[..STATUS_Y as usize],
+            "and nothing else on the screen moved",
+        );
+        // §12.4: in the `I`-piece cyan that marks §13.3's selected item, which
+        // is what makes it read as a label and not as a clear's name.
+        let quiet = Cosmetics::new(Duration::ZERO, Stamp::ZERO);
+        let line = status(&view, &watched, &quiet, None);
+        let flag = &line.spans[0];
+        assert_eq!(flag.content, "PILOT");
+        assert_eq!(
+            flag.style.fg,
+            watched.theme.piece(PieceKind::I, palette::FULL).fg,
+        );
+        // §10.1's restart bar takes the line over, and the indicator stays: a
+        // spectator holding the key is still watching an automated game.
+        let held = plain(&status(&view, &watched, &quiet, Some(50)));
+        assert!(held.starts_with("PILOT"), "{held:?}");
+        assert!(held.contains('\u{2588}'), "{held:?}");
+        // ...and an ordinary game has none of it.
+        assert_eq!(screenshot(&view, &chrome()), MOCK_UP);
     }
 
     #[test]

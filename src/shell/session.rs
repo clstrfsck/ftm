@@ -20,16 +20,34 @@ use crate::shell::host::Host;
 use crate::shell::input::InputMode;
 use crate::shell::menus::{MenuChoice, Setting};
 
+/// Who holds the controls (§7, `PILOT.md` §P1).
+///
+/// §7 gains no phase and no screen for PILOT: a PILOT game is an ordinary game
+/// under the same rules, the same events and the same playing screen, and the
+/// only thing that differs is who decides what is pressed. So this is a payload
+/// on the edge into `Playing` rather than a fourth [`Next`] — every front-end
+/// already matches `Next` exhaustively, and a restart has to *carry* the player
+/// rather than rediscover it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Player {
+    #[default]
+    Human,
+    Pilot,
+}
+
 /// Where the run goes next (§7).
 ///
 /// The state machine is a loop over this: `Attract` and `Play` are the two
 /// screens, and `Quit` is the only way out. A game never returns `Quit` —
 /// §7 and §16 both send the quit key from `Playing` to the attract screen —
-/// and it returns `Play` to mean "restart with a fresh game".
+/// and it returns `Play` to mean "restart with a fresh game", with the
+/// [`Player`] the run is already under: a spectator who asks for another game
+/// gets another PILOT game, and a player is never silently handed a game nobody
+/// is holding the keyboard for (`PILOT.md` §P1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Next {
     Attract,
-    Play,
+    Play(Player),
     Quit,
 }
 
@@ -60,9 +78,10 @@ pub struct Session<'a> {
     /// the same reason [`settings`](Self::settings) is: a menu must offer what
     /// its front-end can actually do.
     ///
-    /// [`MenuChoice::ALL`] is §13.3's five and is the default; the web build
-    /// sets [`MenuChoice::NO_QUIT`], because a tab cannot close itself
-    /// (`GUI.md` §G8.1). The screen draws this list and
+    /// [`MenuChoice::ALL`] is §13.3's six and is the default; the web build
+    /// sets [`MenuChoice::CANVAS`], because a tab cannot close itself
+    /// (`GUI.md` §G8.1) and does not offer PILOT (`PILOT.md` §P1). The screen
+    /// draws this list and
     /// [`Attract`](crate::shell::attract::Attract) navigates it.
     pub menu: &'static [MenuChoice],
     /// The three capabilities a run borrows from the front-end (§3.1,
@@ -102,7 +121,8 @@ impl<'a> Session<'a> {
             // A terminal's list, which is every setting §13.5 lists; a
             // front-end with fewer says so (`GUI.md` §G5).
             settings: &Setting::ALL,
-            // §13.3's five, which is every front-end that can close itself.
+            // §13.3's six, which is every front-end that can close itself and
+            // can afford to search (`PILOT.md` §P7.1).
             menu: &MenuChoice::ALL,
             host,
             warnings,

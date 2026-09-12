@@ -21,7 +21,7 @@ use crate::core::PieceKind;
 use crate::shell::config::ConfigFile;
 use crate::shell::keys::{Key, KeyEvent, KeyKind};
 use crate::shell::menus::{MenuChoice, Setting, Sub};
-use crate::shell::session::{Next, Session};
+use crate::shell::session::{Next, Player, Session};
 use crate::shell::time::Stamp;
 
 // ---------------------------------------------------------------------------
@@ -113,8 +113,9 @@ const FRAME: Duration = Duration::from_millis(100);
 pub enum Outcome {
     /// Nothing to do; the screen may or may not have changed.
     Stay,
-    /// **PLAY**: start a fresh game.
-    Play,
+    /// **PLAY** or **PILOT**: start a fresh game, with whoever is holding the
+    /// controls (`PILOT.md` §P1).
+    Play(Player),
     /// **QUIT**, or the quit key.
     Quit,
     /// The Options panel was left: §13.5 asks for the config to be saved and
@@ -143,6 +144,15 @@ pub struct Attract {
     /// §13.3: when the panel's face last changed. Held at `now` — so the
     /// elapsed time stays zero — while the cycle is paused.
     face_since: Stamp,
+    /// What [`selected`](Self::selected) is *on*, rather than where it is.
+    ///
+    /// §13.3 pauses the cycle on any item but the two that start a game, and
+    /// which index those are is the front-end's list's answer: PILOT is the
+    /// second item of `MenuChoice::ALL` and is not in a tab's list at all
+    /// (`PILOT.md` §P7.1). [`advance`](Self::advance) is not handed that list,
+    /// so the item is remembered as the cursor moves over it. Every list starts
+    /// on PLAY.
+    choice: MenuChoice,
     /// Counts faces shown, not the face on show: the third face's reminder is
     /// `face / FACES` so the tips rotate without a second counter.
     face: usize,
@@ -157,6 +167,7 @@ impl Attract {
             last_key: now,
             face_since: now,
             face: 0,
+            choice: MenuChoice::Play,
         }
     }
 
@@ -197,10 +208,13 @@ impl Attract {
     pub fn advance(&mut self, now: Stamp) -> bool {
         let was = (self.face, self.idle_shift());
         self.now = now;
-        // §13.3: the cycle pauses while a menu item other than PLAY is
-        // selected. Holding the mark at `now` keeps the elapsed time at zero,
-        // so the face that is up stays up rather than jumping when it resumes.
-        if self.selected == 0 && self.sub.is_none() {
+        // §13.3: the cycle pauses while a menu item other than PLAY or PILOT is
+        // selected — the two that start a game, where the player is about to
+        // leave the screen rather than read it. Holding the mark at `now` keeps
+        // the elapsed time at zero, so the face that is up stays up rather than
+        // jumping when it resumes.
+        let starts_a_game = matches!(self.choice, MenuChoice::Play | MenuChoice::Pilot);
+        if starts_a_game && self.sub.is_none() {
             while now.saturating_since(self.face_since) >= FACE {
                 self.face_since += FACE;
                 self.face += 1;
@@ -226,7 +240,7 @@ impl Attract {
         };
         match self.dispatch(event, &mut session.config, offered, now) {
             Outcome::Stay => None,
-            Outcome::Play => Some(Next::Play),
+            Outcome::Play(player) => Some(Next::Play(player)),
             Outcome::Quit => Some(Next::Quit),
             // §13.5: presentation takes effect the moment the panel is left,
             // and the config is written there and then.
@@ -278,7 +292,7 @@ impl Attract {
     }
 
     fn menu_key(&mut self, event: &KeyEvent, menu: &'static [MenuChoice]) -> Outcome {
-        // The items this front-end offers, not §13.3's five: a cursor that can
+        // The items this front-end offers, not §13.3's six: a cursor that can
         // reach an item the screen is not drawing is a cursor the player
         // cannot see (`Session::menu`).
         let items = menu.len();
@@ -287,7 +301,9 @@ impl Attract {
             Key::Up => self.selected = (self.selected + items - 1) % items,
             Key::Down => self.selected = (self.selected + 1) % items,
             Key::Enter | Key::Char(' ') => match menu[self.selected] {
-                MenuChoice::Play => return Outcome::Play,
+                MenuChoice::Play => return Outcome::Play(Player::Human),
+                // `PILOT.md` §P1: the same game, watched rather than played.
+                MenuChoice::Pilot => return Outcome::Play(Player::Pilot),
                 MenuChoice::HighScores => self.sub = Some(Sub::HighScores),
                 MenuChoice::Controls => self.sub = Some(Sub::Controls),
                 MenuChoice::Options => self.sub = Some(Sub::Options { selected: 0 }),
@@ -299,6 +315,9 @@ impl Attract {
             Key::Char('q') | Key::Char('Q') | Key::Esc => return Outcome::Quit,
             _ => {}
         }
+        // Where the cursor ended up, as an *item*: §13.3's cycle asks which one
+        // it is on and the list it is an index into is the front-end's.
+        self.choice = menu[self.selected];
         Outcome::Stay
     }
 
@@ -403,7 +422,7 @@ mod tests {
         assert_eq!(MenuChoice::ALL[0], MenuChoice::Play);
         assert_eq!(
             state.dispatch(&press(Key::Enter), &mut config, everything(), now),
-            Outcome::Play
+            Outcome::Play(Player::Human)
         );
 
         state.dispatch(&press(Key::Up), &mut config, everything(), now);
@@ -421,23 +440,49 @@ mod tests {
     }
 
     #[test]
-    fn a_front_end_without_quit_walks_the_shorter_menu() {
-        // §13.3, `GUI.md` §G8.1: a tab cannot close itself, so its menu is
-        // `NO_QUIT` — and the cursor must not be able to reach the item that is
-        // not being drawn.
+    fn pilot_starts_a_game_the_player_watches() {
+        // `PILOT.md` §P1, §P7.1: a row of its own under PLAY, which starts the
+        // same game with somebody else holding the controls. Which one the
+        // screen hands back is the only difference between the two rows, and it
+        // is what a restart has to carry.
+        let now = Stamp::ZERO;
+        let mut state = Attract::new(now);
+        let mut config = ConfigFile::default();
+        assert_eq!(MenuChoice::ALL[1], MenuChoice::Pilot, "under PLAY");
+        state.dispatch(&press(Key::Down), &mut config, everything(), now);
+        assert_eq!(
+            state.dispatch(&press(Key::Enter), &mut config, everything(), now),
+            Outcome::Play(Player::Pilot),
+        );
+    }
+
+    #[test]
+    fn a_browser_tab_offers_neither_quit_nor_pilot() {
+        // §13.3, `GUI.md` §G8.1, `PILOT.md` §P7.1: a tab cannot close itself
+        // and would search on its frame thread, so its menu is `CANVAS` — and
+        // the cursor must not be able to reach an item that is not being drawn.
         let now = Stamp::ZERO;
         let mut config = ConfigFile::default();
         let offered = Offered {
-            menu: &MenuChoice::NO_QUIT,
+            menu: &MenuChoice::CANVAS,
             settings: &Setting::SHARED,
         };
+        assert!(
+            !MenuChoice::CANVAS.contains(&MenuChoice::Pilot)
+                && !MenuChoice::CANVAS.contains(&MenuChoice::Quit),
+        );
         let mut state = Attract::new(now);
         state.dispatch(&press(Key::Up), &mut config, offered, now);
         assert_eq!(
-            MenuChoice::NO_QUIT[state.selected],
+            MenuChoice::CANVAS[state.selected],
             MenuChoice::Options,
             "up from PLAY wraps to the last item there is",
         );
+        // And down from PLAY is HIGH SCORES, not the row this front-end is not
+        // offering: the list the shell walks is the list the screen draws.
+        let mut walked = Attract::new(now);
+        walked.dispatch(&press(Key::Down), &mut config, offered, now);
+        assert_eq!(MenuChoice::CANVAS[walked.selected], MenuChoice::HighScores);
         assert_eq!(
             state.dispatch(&press(Key::Enter), &mut config, offered, now),
             Outcome::Stay,
@@ -457,10 +502,18 @@ mod tests {
         // §13.5.
         let now = Stamp::ZERO;
         let mut config = ConfigFile::default();
+        // How far down each item is, asked of the list rather than counted out
+        // here: §P7.1 put PILOT second and every row below it moved.
+        let row = |choice: MenuChoice| {
+            MenuChoice::ALL
+                .iter()
+                .position(|item| *item == choice)
+                .expect("§13.3 offers it")
+        };
         for (steps, sub) in [
-            (1, Sub::HighScores),
-            (2, Sub::Controls),
-            (3, Sub::Options { selected: 0 }),
+            (row(MenuChoice::HighScores), Sub::HighScores),
+            (row(MenuChoice::Controls), Sub::Controls),
+            (row(MenuChoice::Options), Sub::Options { selected: 0 }),
         ] {
             let mut state = Attract::new(now);
             for _ in 0..steps {
@@ -491,24 +544,36 @@ mod tests {
     }
 
     #[test]
-    fn the_panel_cycles_every_six_seconds_and_pauses_off_play() {
-        // §13.3: "cycles every 6 seconds between three faces... The cycle
-        // pauses while a menu item other than PLAY is selected."
+    fn the_panel_cycles_every_six_seconds_and_pauses_off_the_two_that_play() {
+        // §13.3 as `PILOT.md` §P7.1 amended it: "cycles every 6 seconds between
+        // three faces... The cycle pauses while a menu item other than PLAY or
+        // PILOT is selected" — the two that start a game, where the player is
+        // about to leave the screen rather than read it.
         let start = Stamp::ZERO;
         let mut state = Attract::new(start);
+        let mut config = ConfigFile::default();
         assert_eq!(state.face, 0);
         assert!(state.advance(start + FACE), "the face changed");
         assert_eq!(state.face, 1);
         state.advance(start + FACE * 3);
         assert_eq!(state.face, 3, "and round to the first face again");
 
-        state.selected = 1;
-        state.advance(start + FACE * 9);
-        assert_eq!(state.face, 3, "held while HIGH SCORES is selected");
-        state.selected = 0;
-        state.advance(start + FACE * 9 + FACE - Duration::from_millis(1));
-        assert_eq!(state.face, 3, "and it resumes from where it paused");
+        // Down once is PILOT, and the cycle carries on.
+        state.dispatch(&press(Key::Down), &mut config, everything(), start);
+        assert_eq!(state.choice, MenuChoice::Pilot);
+        state.advance(start + FACE * 4);
+        assert_eq!(state.face, 4, "PILOT starts a game too");
+
+        // Down again is HIGH SCORES, and it stops.
+        state.dispatch(&press(Key::Down), &mut config, everything(), start);
         state.advance(start + FACE * 10);
-        assert_eq!(state.face, 4);
+        assert_eq!(state.face, 4, "held while a reading item is selected");
+        state.dispatch(&press(Key::Up), &mut config, everything(), start);
+        state.dispatch(&press(Key::Up), &mut config, everything(), start);
+        assert_eq!(state.choice, MenuChoice::Play);
+        state.advance(start + FACE * 10 + FACE - Duration::from_millis(1));
+        assert_eq!(state.face, 4, "and it resumes from where it paused");
+        state.advance(start + FACE * 11);
+        assert_eq!(state.face, 5);
     }
 }

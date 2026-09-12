@@ -118,6 +118,11 @@ pub struct Chrome {
     pub theme: Theme,
     pub show_grid: bool,
     pub hold_enabled: bool,
+    /// `PILOT.md` §P7.3: whether the pilot is playing this game, which puts the
+    /// indicator on the status row. Like `hold_enabled` it is the running
+    /// game's answer ([`Round::pilot`](crate::shell::round::Round::pilot)) and
+    /// is fixed for the life of the round.
+    pub pilot: bool,
 }
 
 /// Everything the playing screen shows that is not the game itself.

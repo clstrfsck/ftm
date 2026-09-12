@@ -29,7 +29,7 @@ use crate::shell::config::{DisplaySettings, Startup};
 use crate::shell::host::Host;
 use crate::shell::input::InputMode;
 use crate::shell::round::{Fps, FrameState, Round};
-use crate::shell::session::{Next, Session};
+use crate::shell::session::{Next, Player, Session};
 use crate::tui::attract::{self, Background};
 use crate::tui::keys::neutral;
 use crate::tui::theme::{Glyphs, Theme};
@@ -88,7 +88,7 @@ fn states(
     loop {
         next = match next {
             Next::Attract => attract(terminal, session, clock, glyphs)?,
-            Next::Play => round(terminal, session, clock, glyphs)?,
+            Next::Play(player) => round(terminal, session, clock, glyphs, player)?,
             Next::Quit => return Ok(()),
         };
     }
@@ -107,11 +107,7 @@ fn attract(
     // grid's cells, so it lives beside the drawing rather than in the state
     // machine, and its "did anything move" answer is folded in below.
     let mut background = Background::new(clock.now());
-    let mut chrome = chrome_for(
-        &session.config.display,
-        glyphs,
-        session.config.gameplay.hold_enabled,
-    );
+    let mut chrome = attract_chrome(&session.config.display, glyphs, session);
     let mut settings = session.generation();
     let mut dirty = true;
     // §8.4: the size is tracked from the resize events rather than asked for
@@ -148,11 +144,7 @@ fn attract(
         // that it changed something neither screen state shows.
         if settings != session.generation() {
             settings = session.generation();
-            chrome = chrome_for(
-                &session.config.display,
-                glyphs,
-                session.config.gameplay.hold_enabled,
-            );
+            chrome = attract_chrome(&session.config.display, glyphs, session);
             dirty = true;
         }
 
@@ -214,10 +206,11 @@ fn round(
     session: &mut Session<'_>,
     clock: &Clock,
     glyphs: Glyphs,
+    player: Player,
 ) -> Result<Next> {
     let show_debug = session.config.display.show_debug;
-    let mut game = Round::new(session, clock.now());
-    let mut chrome = chrome_for(&session.config.display, glyphs, game.hold_enabled());
+    let mut game = Round::new(session, player, clock.now());
+    let mut chrome = chrome_for(&session.config.display, glyphs, &game);
     let mut previous: Option<Frame> = None;
     let mut fps = Fps::new(clock.now());
     let mut settings = session.generation();
@@ -275,7 +268,7 @@ fn round(
         // run deterministic (§15.4).
         if settings != session.generation() {
             settings = session.generation();
-            chrome = chrome_for(&session.config.display, glyphs, game.hold_enabled());
+            chrome = chrome_for(&session.config.display, glyphs, &game);
             invalidated = true;
         }
 
@@ -331,15 +324,31 @@ fn round(
     }
 }
 
-/// The presentation half of the `Chrome` (§12.4, §12.7).
+/// The presentation half of the `Chrome` (§12.4, §12.7), for a running game.
 ///
-/// `hold_enabled` is the caller's answer rather than the config's: §13.5
-/// gives a running game the rules it started under, and the hold box's
-/// presence is a rule.
-fn chrome_for(display: &DisplaySettings, glyphs: Glyphs, hold_enabled: bool) -> Chrome {
+/// `hold_enabled` and `pilot` are the *round's* answers rather than the
+/// config's: §13.5 gives a running game the rules it started under, and the
+/// hold box's presence is a rule; who is holding the controls is settled when
+/// the game starts and cannot change under it (`PILOT.md` §P7.3).
+fn chrome_for(display: &DisplaySettings, glyphs: Glyphs, game: &Round) -> Chrome {
     Chrome {
         theme: Theme::resolve(display.color_depth, glyphs),
         show_grid: display.show_grid,
-        hold_enabled,
+        hold_enabled: game.hold_enabled(),
+        pilot: game.pilot(),
+    }
+}
+
+/// The same, for the attract screen, where there is no game to ask.
+///
+/// It draws no playfield and no status line, so both of the round's answers
+/// are the config's or simply false; the theme and the grid are what it is
+/// really after.
+fn attract_chrome(display: &DisplaySettings, glyphs: Glyphs, session: &Session<'_>) -> Chrome {
+    Chrome {
+        theme: Theme::resolve(display.color_depth, glyphs),
+        show_grid: display.show_grid,
+        hold_enabled: session.config.gameplay.hold_enabled,
+        pilot: false,
     }
 }

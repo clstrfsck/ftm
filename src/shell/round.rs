@@ -17,12 +17,13 @@
 use std::time::Duration;
 
 use crate::core::{Action, Actions, DebugView, Game, GameEvent, GameView, Shift, TickInput};
+use crate::pilot::{Pilot, Settings as PilotSettings};
 use crate::shell::config::{MAX_CATCH_UP_TICKS, TICK};
 use crate::shell::cosmetics::Cosmetics;
 use crate::shell::input::{Bindings, InputMode, InputState};
 use crate::shell::keys::{Key, KeyEvent, KeyKind};
 use crate::shell::menus::{NameEntry, Overlay, PauseChoice, Setting};
-use crate::shell::session::{Next, Session};
+use crate::shell::session::{Next, Player, Session};
 use crate::shell::time::Stamp;
 
 /// §9.17: one second per number, three numbers.
@@ -271,6 +272,18 @@ struct App {
     game: Game,
     input: InputState,
     bindings: Bindings,
+    /// `PILOT.md` §P3: the automated player, when the spectator chose one.
+    ///
+    /// It sits beside the input state rather than replacing it, because the
+    /// spectator's keys stay live (§P7.3): what the controller takes over is
+    /// the *game's* input, and pause, the pause menu, §10.1's restart hold, the
+    /// Options panel, the controls box and quit are all still the person's.
+    /// `None` is an ordinary game and is the path every test outside this
+    /// section takes.
+    pilot: Option<Pilot>,
+    /// Who the restart carries (§P1): a spectator who asks for another game
+    /// gets another PILOT game.
+    player: Player,
     /// §13.5: the rules the game started under, whatever the config says now.
     hold_enabled: bool,
     /// The rows the Options panel offers in *this* front-end
@@ -292,13 +305,24 @@ struct App {
 }
 
 impl App {
-    fn new(session: &Session<'_>) -> Self {
+    fn new(session: &Session<'_>, player: Player) -> Self {
         let (rules, presentation) = session.config.resolve();
         Self {
             bindings: Bindings::new(&presentation.keys, &rules),
             input: InputState::new(&rules, session.mode),
             hold_enabled: rules.hold_enabled,
             settings: session.settings,
+            // §P1: a PILOT game resolves its rules from the config like any
+            // other, and the planner is told them — so a disabled mechanic is
+            // left out of the search rather than planned and refused (§P4.3).
+            // Made here rather than on the first tick, because a `Pilot`
+            // belongs to its game from that game's first tick: the first piece
+            // is a deal no event mentions (§P2.4).
+            pilot: match player {
+                Player::Human => None,
+                Player::Pilot => Some(Pilot::new(&rules, PilotSettings::default())),
+            },
+            player,
             game: Game::new(rules, session.next_seed()),
             events: Vec::new(),
             pending: Pending::default(),
@@ -393,6 +417,25 @@ impl App {
             }
             return Flow::Continue;
         }
+        // `PILOT.md` §P7.3: while the pilot is playing, §10.1's movement,
+        // rotation, hold and drop keys do nothing. They are dropped *here*,
+        // where a disabled mechanic is dropped (§10.1), rather than ignored
+        // downstream: a key the game is not listening to must not charge DAS or
+        // reset a lock-delay timer as a side effect. What is left is the
+        // spectator's — pause (and with it the pause menu, the Options panel,
+        // the controls box and the restart item), §10.1's restart hold above,
+        // and quit.
+        if self.pilot.is_some() {
+            if event.is_ctrl_c() {
+                return Flow::Leave(Next::Attract);
+            }
+            match self.input.binding(event, &self.bindings) {
+                Some(Action::Quit) => return Flow::Leave(Next::Attract),
+                Some(Action::Pause) => self.pause(0),
+                _ => {}
+            }
+            return Flow::Continue;
+        }
         let Some(action) = self.input.key(event, &self.bindings) else {
             return Flow::Continue;
         };
@@ -434,8 +477,11 @@ impl App {
                 PauseChoice::Resume => self.resume(now),
                 PauseChoice::Options => self.phase = Phase::Options { selected: 0 },
                 // Choosing it from a menu is already the deliberate act that
-                // §10.1's one-second hold on the key is there to require.
-                PauseChoice::Restart => return Flow::Leave(Next::Play),
+                // §10.1's one-second hold on the key is there to require. The
+                // player is carried rather than rediscovered (`PILOT.md` §P1):
+                // a restart out of a PILOT game must not silently hand the
+                // spectator a game they are not holding the keyboard for.
+                PauseChoice::Restart => return Flow::Leave(Next::Play(self.player)),
                 PauseChoice::Controls => self.phase = Phase::Controls,
                 PauseChoice::QuitToMenu => return Flow::Leave(Next::Attract),
             },
@@ -524,10 +570,18 @@ impl App {
     }
 
     /// §7: a finished game goes to name entry if the score qualifies and the
-    /// run was not seeded, and to the attract screen otherwise.
+    /// run was neither seeded nor played by the pilot, and to the attract
+    /// screen otherwise.
+    ///
+    /// Both suppressions are here because this is the one place that knows a
+    /// run's provenance (§14, `PILOT.md` §P7.4). The PILOT half is every path
+    /// at once: no table, no §12.6 name entry, and — since `Session::recent` is
+    /// only ever set by recording — no §13 highlight either. A spectator is not
+    /// a player, and a table of PILOT's scores is a table with no players in it.
     fn finish(&mut self, session: &Session<'_>) -> Flow {
         // §6.4, §14: a seeded run is reproducible and is never recorded.
-        let rank = (!session.seeded)
+        let recordable = !session.seeded && self.pilot.is_none();
+        let rank = recordable
             .then(|| session.scores.rank_for(self.game.view().score))
             .flatten();
         match rank {
@@ -599,6 +653,13 @@ impl App {
     /// Edge-triggered actions and the DAS-resolved shift are consumed by the
     /// first tick of the batch only; the held soft drop applies to every tick
     /// in it.
+    ///
+    /// A planned round is the one exception, and it is a branch rather than a
+    /// rewrite (`PILOT.md` §P3.1). A human produces input per *frame*, so the
+    /// batch a slow frame owes gets its edge actions once and gravity for the
+    /// rest; a planner produces input per *tick*, so the batch's nth tick wants
+    /// the batch's nth input. The human path below is byte-identical to what it
+    /// was, which the terminal's mock-ups and `tests/pump.rs` are what say.
     fn advance(&mut self, ticks: u32, now: Stamp) {
         // Cleared unconditionally, and *before* the early return: the events of
         // a frame belong to that frame, and the cosmetics absorb this buffer
@@ -612,19 +673,34 @@ impl App {
         if ticks == 0 || !self.phase.running() {
             return;
         }
-        for tick in 0..ticks {
-            let first = tick == 0;
-            let input = TickInput {
-                actions: if first {
-                    std::mem::take(&mut self.pending.actions)
-                } else {
-                    Actions::default()
-                },
-                soft_drop: self.input.soft_drop(),
-                shift: if first { self.pending.shift } else { None },
-                shift_cells: if first { self.pending.cells } else { 0 },
-            };
-            self.game.tick(&input, &mut self.events);
+        if let Some(pilot) = self.pilot.as_mut() {
+            // §P3.4's order, which is §15.2's: `input` for a tick, then
+            // `Game::tick`, then `observe` of what that tick raised. A tick's
+            // input is decided before the tick happens and its events exist
+            // only after it, so there is no other order to call them in — and
+            // `observe` is handed *that tick's* events alone, out of the
+            // buffer the whole batch is accumulating into for §12.5.
+            for _ in 0..ticks {
+                let input = pilot.input(&self.game);
+                let from = self.events.len();
+                self.game.tick(&input, &mut self.events);
+                pilot.observe(&self.events[from..]);
+            }
+        } else {
+            for tick in 0..ticks {
+                let first = tick == 0;
+                let input = TickInput {
+                    actions: if first {
+                        std::mem::take(&mut self.pending.actions)
+                    } else {
+                        Actions::default()
+                    },
+                    soft_drop: self.input.soft_drop(),
+                    shift: if first { self.pending.shift } else { None },
+                    shift_cells: if first { self.pending.cells } else { 0 },
+                };
+                self.game.tick(&input, &mut self.events);
+            }
         }
         self.pending.cells = 0;
         if self
@@ -675,12 +751,14 @@ pub struct Round {
 impl Round {
     /// Start a fresh game (§7: `Attract` -> `Playing`, or a restart).
     ///
-    /// `now` is the moment the front-end is starting it at (F1): the
+    /// `player` is who holds the controls — the menu item the screen handed
+    /// back, or the one the round being restarted was already under (`PILOT.md`
+    /// §P1). `now` is the moment the front-end is starting it at (F1): the
     /// accumulator and §12.5's timers both date from here.
-    pub fn new(session: &Session<'_>, now: Stamp) -> Self {
+    pub fn new(session: &Session<'_>, player: Player, now: Stamp) -> Self {
         let clear_delay = TICK * session.config.resolve().0.line_clear_delay_ticks;
         Self {
-            app: App::new(session),
+            app: App::new(session, player),
             fx: Cosmetics::new(clear_delay, now),
             accumulator: Duration::ZERO,
             last: now,
@@ -708,9 +786,10 @@ impl Round {
         } else {
             self.accumulator = Duration::ZERO;
         }
-        // §10.1: the restart key, once it has been held for its second.
+        // §10.1: the restart key, once it has been held for its second — and
+        // it keeps the player, exactly as the pause menu's item does.
         if self.app.restart_due(now) {
-            return Some(Next::Play);
+            return Some(Next::Play(self.app.player));
         }
         // 3. Resolve DAS/ARR against the wall clock, not the tick rate (§10.3).
         self.app.resolve_shift(dt);
@@ -804,6 +883,16 @@ impl Round {
     /// (§12.4, §12.7).
     pub fn hold_enabled(&self) -> bool {
         self.app.hold_enabled
+    }
+
+    /// Whether the pilot is playing this game (`PILOT.md` §P7.3).
+    ///
+    /// What a front-end does with it is draw the indicator, so that a
+    /// screenshot of an automated game can never be mistaken for a player's.
+    /// Like [`hold_enabled`](Self::hold_enabled) it is the running game's
+    /// answer and not a setting: it is fixed for the life of the round.
+    pub fn pilot(&self) -> bool {
+        self.app.pilot.is_some()
     }
 
     /// The rows the §13.5 Options panel is offering, for the screen that draws
@@ -948,7 +1037,7 @@ mod tests {
 
     fn app(storage: &mut dyn Storage) -> (App, Session<'_>) {
         let session = session(storage);
-        (App::new(&session), session)
+        (App::new(&session, Player::Human), session)
     }
 
     fn press(key: Key) -> KeyEvent {
@@ -1210,7 +1299,7 @@ mod tests {
         // §17.3's sign-off exercised that case on a real one.
         let mut storage = Unwritable;
         let mut session = session(&mut storage);
-        let mut app = App::new(&session);
+        let mut app = App::new(&session, Player::Human);
         app.phase = Phase::Options { selected: 0 };
         app.key(&mut session, &press(Key::Esc), Stamp::ZERO);
         assert!(!session.saved);
@@ -1347,7 +1436,7 @@ mod tests {
         assert_eq!(session.scores.entries[0].score, score);
         assert_eq!(session.recent, Some(0), "§13.5 highlights it");
 
-        let mut app = App::new(&session);
+        let mut app = App::new(&session, Player::Human);
         scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };
         assert_eq!(
@@ -1405,7 +1494,7 @@ mod tests {
         let mut storage = Memory::new();
         let mut session = session(&mut storage);
         session.mode = InputMode::Legacy;
-        let mut app = App::new(&session);
+        let mut app = App::new(&session, Player::Human);
         let now = Stamp::ZERO;
         app.key(&mut session, &press(Key::Char('r')), now);
         assert!(
@@ -1418,7 +1507,7 @@ mod tests {
 
         // A repeat before the window is out keeps the hold going, and the hold
         // is timed from the first press rather than the last repeat.
-        let mut app = App::new(&session);
+        let mut app = App::new(&session, Player::Human);
         app.key(&mut session, &press(Key::Char('r')), now);
         for step in 1..=3u32 {
             let at = now + RESTART_QUIET / 2 * step;
@@ -1485,7 +1574,7 @@ mod tests {
         assert_eq!(PauseChoice::ALL[1], PauseChoice::Restart);
         assert_eq!(
             app.key(&mut session, &press(Key::Enter), now),
-            Flow::Leave(Next::Play),
+            Flow::Leave(Next::Play(Player::Human)),
         );
     }
 
@@ -1497,13 +1586,16 @@ mod tests {
         let mut storage = Memory::new();
         let mut session = session(&mut storage);
         assert!(session.seeded);
-        assert_eq!(App::new(&session).view(), App::new(&session).view());
+        assert_eq!(
+            App::new(&session, Player::Human).view(),
+            App::new(&session, Player::Human).view()
+        );
 
         session.seeded = false;
         session.host.seed = varying_seed;
         let mut seen = std::collections::HashSet::new();
         for _ in 0..8 {
-            seen.insert(App::new(&session).view().next.clone());
+            seen.insert(App::new(&session, Player::Human).view().next.clone());
         }
         assert!(seen.len() > 1, "eight games, all the same queue");
     }
@@ -1516,12 +1608,174 @@ mod tests {
         let mut storage = Unwritable;
         let mut session = session(&mut storage);
         session.seeded = false;
-        let mut app = App::new(&session);
+        let mut app = App::new(&session, Player::Human);
         scored(&mut app, now);
         app.phase = Phase::NameEntry { rank: 0 };
         app.key(&mut session, &press(Key::Enter), now);
         assert_eq!(session.scores.entries.len(), 1, "the table still took it");
         assert_eq!(session.warnings.len(), 1, "{:?}", session.warnings);
+    }
+
+    // -----------------------------------------------------------------------
+    // `PILOT.md` §P7: the mode, from the shell's side. What it plays is
+    // `pilot`'s business and is tested there; what is here is the round a
+    // spectator is watching.
+
+    /// A PILOT round over the same seeded session the rest of these use.
+    fn watched(storage: &mut dyn Storage) -> (App, Session<'_>) {
+        let session = session(storage);
+        (App::new(&session, Player::Pilot), session)
+    }
+
+    #[test]
+    fn the_pilot_plays_and_the_player_does_not_have_to() {
+        // §P1, §P3.4: an ordinary game under the ordinary rules, with the
+        // controller deciding what is pressed. Nobody touches a key here, and
+        // pieces are placed anyway.
+        let mut storage = Memory::new();
+        let (mut app, _session) = watched(&mut storage);
+        let now = Stamp::ZERO;
+        // Ten seconds of ticks, in the batches a front-end would deliver them
+        // in (§15.2 step 4): the batch's nth tick gets the plan's nth input.
+        for _ in 0..120 {
+            app.advance(5, now);
+        }
+        let view = app.view();
+        assert!(view.pieces >= 5, "only {} pieces locked", view.pieces);
+        assert!(view.score > 0, "and they were dropped, not dribbled");
+        assert!(app.phase.running(), "still going");
+    }
+
+    #[test]
+    fn a_batch_gives_the_planner_a_tick_at_a_time_and_a_human_the_first_tick() {
+        // §P3.1: a human produces input per *frame*, so a catch-up batch gives
+        // its edge actions to the first tick and gravity to the rest; a planner
+        // produces input per *tick*, and a batch that handed it one input would
+        // play a different game at every cadence. Asserted as the difference it
+        // makes: one batch of six ticks against six batches of one.
+        let mut storage = Memory::new();
+        let now = Stamp::ZERO;
+        let (mut lump, _s) = watched(&mut storage);
+        lump.advance(MAX_CATCH_UP_TICKS, now);
+        let mut storage = Memory::new();
+        let (mut steady, _s) = watched(&mut storage);
+        for _ in 0..MAX_CATCH_UP_TICKS {
+            steady.advance(1, now);
+        }
+        assert_eq!(lump.view(), steady.view(), "§P3.3's cadence invariance");
+    }
+
+    #[test]
+    fn a_spectators_keys_are_live_and_the_games_are_not() {
+        // §P7.3: §10.1's movement, rotation, hold and drop keys do nothing
+        // while the pilot is playing — and they are dropped at the input
+        // boundary, so they cannot charge DAS or reset a lock-delay timer
+        // either. Pause and quit are the spectator's and still work.
+        let mut storage = Memory::new();
+        let (mut app, mut session) = watched(&mut storage);
+        let now = Stamp::ZERO;
+        for key in [Key::Left, Key::Right, Key::Down, Key::Up, Key::Char(' ')] {
+            assert_eq!(app.key(&mut session, &press(key), now), Flow::Continue);
+        }
+        assert_eq!(app.pending.actions, Actions::default(), "nothing queued");
+        assert_eq!(app.pending.shift, None);
+        assert_eq!(app.input.das_charge(), 0, "and nothing charging");
+        assert!(!app.input.soft_drop(), "and nothing held down");
+
+        app.key(&mut session, &press(Key::Esc), now);
+        assert_eq!(app.phase, Phase::Paused { selected: 0 }, "pause is live");
+        app.key(&mut session, &press(Key::Esc), now);
+        assert!(matches!(app.phase, Phase::Resuming { .. }), "and so is out");
+
+        // ...and so is quit, from the game itself and from Ctrl-C (§16).
+        let (mut app, mut session) = watched(&mut storage);
+        assert_eq!(
+            app.key(&mut session, &press(Key::Char('q')), now),
+            Flow::Leave(Next::Attract),
+        );
+        let (mut app, mut session) = watched(&mut storage);
+        let ctrl_c = KeyEvent::new(
+            Key::Char('c'),
+            crate::shell::keys::Mods::CTRL,
+            KeyKind::Press,
+        );
+        assert_eq!(
+            app.key(&mut session, &ctrl_c, now),
+            Flow::Leave(Next::Attract),
+        );
+    }
+
+    #[test]
+    fn a_restart_keeps_the_player() {
+        // §P1: "a spectator who asks for another game gets another PILOT game",
+        // from the pause menu's item and from §10.1's held key. Both, because
+        // they are two paths and only one of them goes through `Flow`.
+        let mut storage = Memory::new();
+        let (mut app, mut session) = watched(&mut storage);
+        let now = Stamp::ZERO;
+        app.pause(0);
+        app.key(&mut session, &press(Key::Down), now);
+        assert_eq!(PauseChoice::ALL[1], PauseChoice::Restart);
+        assert_eq!(
+            app.key(&mut session, &press(Key::Enter), now),
+            Flow::Leave(Next::Play(Player::Pilot)),
+        );
+
+        let mut round = Round::new(&session, Player::Pilot, now);
+        round.key(&mut session, &press(Key::Char('r')), now);
+        assert_eq!(
+            round.advance(&mut session, now + RESTART_HOLD),
+            Some(Next::Play(Player::Pilot)),
+        );
+    }
+
+    #[test]
+    fn an_automated_run_is_never_recorded() {
+        // §P7.4: not §14's table, not §12.6's name entry, and not §13's recent
+        // highlight — on any path. The score is real and unseeded, which is
+        // what makes this the suppression rather than an empty game.
+        let mut storage = Memory::new();
+        let (mut app, mut session) = watched(&mut storage);
+        session.seeded = false;
+        let now = Stamp::ZERO;
+        for _ in 0..300 {
+            app.advance(1, now);
+        }
+        let score = app.view().score;
+        assert!(score > 0, "the pilot scored something to suppress");
+        assert_eq!(session.scores.rank_for(score), Some(0), "and it qualifies");
+
+        app.phase = Phase::GameOver { since: now };
+        assert_eq!(
+            app.key(
+                &mut session,
+                &press(Key::Char('x')),
+                now + GAME_OVER_LOCKOUT
+            ),
+            Flow::Leave(Next::Attract),
+            "straight back to §13, with no name to enter",
+        );
+        assert!(session.scores.entries.is_empty());
+        assert_eq!(session.recent, None, "and nothing for §13 to highlight");
+    }
+
+    #[test]
+    fn a_human_game_has_no_planner_and_says_so() {
+        // What the indicator is drawn from (§P7.3), and the negative half of
+        // every assertion above: an ordinary game is untouched by any of this.
+        let mut storage = Memory::new();
+        let now = Stamp::ZERO;
+        let mut session = session(&mut storage);
+        assert!(!Round::new(&session, Player::Human, now).pilot());
+        assert!(Round::new(&session, Player::Pilot, now).pilot());
+        let mut app = App::new(&session, Player::Human);
+        app.key(&mut session, &press(Key::Left), now);
+        app.resolve_shift(Duration::ZERO);
+        assert_eq!(
+            (app.pending.shift, app.pending.cells),
+            (Some(Shift::Left), 1),
+            "a human's key is still a key",
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1537,7 +1791,7 @@ mod tests {
         let mut storage = Memory::new();
         let mut session = session(&mut storage);
         let start = Stamp::ZERO;
-        let mut round = Round::new(&session, start);
+        let mut round = Round::new(&session, Player::Human, start);
         assert_eq!(round.deadline(start), TICK, "nothing banked yet");
 
         // Ten milliseconds in — under a tick, so nothing ran and the whole of
@@ -1566,7 +1820,7 @@ mod tests {
         let mut storage = Memory::new();
         let mut session = session(&mut storage);
         let start = Stamp::ZERO;
-        let mut round = Round::new(&session, start);
+        let mut round = Round::new(&session, Player::Human, start);
         round.app.phase = Phase::Resuming { since: start };
 
         let now = start + COUNTDOWN;
@@ -1587,7 +1841,7 @@ mod tests {
         let mut storage = Memory::new();
         let mut session = session(&mut storage);
         let start = Stamp::ZERO;
-        let mut round = Round::new(&session, start);
+        let mut round = Round::new(&session, Player::Human, start);
         round.app.phase = Phase::Resuming { since: start };
 
         round.keyboard(false, start + COUNTDOWN / 2);

@@ -943,7 +943,7 @@ inside a tick (§15.2), the attract screen at a flat 10 fps with no accumulator
 - **QUIT closes the window, natively.** In a tab it is **not offered**: a page
   the player opened may not close itself (§G8.1), and an item that did nothing
   would be worse than one that is not there. Which items the menu has is
-  `Session::menu` — `MenuChoice::ALL` natively, `MenuChoice::NO_QUIT` in the web
+  `Session::menu` — `MenuChoice::ALL` natively, `MenuChoice::CANVAS` in the web
   build — and **the screen draws that list and the shell walks it**, exactly as
   they share `Session::settings` (§G5.4), so the cursor can never land on an
   item nobody can see. §10.1's quit *key* is always live and simply comes back

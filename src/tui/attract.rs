@@ -54,7 +54,13 @@ const WORDMARK_WIDTH: usize = attract::WORDMARK_BLOCKS * BLOCK;
 /// and is centred inside it.
 const BLOCK_WIDTH: usize = 36;
 /// Wordmark, gap, subtitle, gap, menu, gap, panel, footer (§13.3).
-const BLOCK_HEIGHT: u16 = 21;
+///
+/// Twenty-two rather than twenty-one since `PILOT.md` §P7.2: the sixth menu
+/// item pushes the footer line out of a 21-row block, and it does it *silently*
+/// — the paragraph is simply clipped. Measured on the running binary before it
+/// was promised. §12.1's 60 x 24 minimum does not move: 22 still leaves a row
+/// above and a row below.
+const BLOCK_HEIGHT: u16 = 22;
 /// The wordmark and its subtitle: five rows, a blank, the name, a blank
 /// (§13.2, §13.3).
 const HEADER_ROWS: u16 = attract::WORDMARK_ROWS as u16 + 3;
@@ -508,6 +514,7 @@ mod tests {
             theme: Theme::with_glyphs(Depth::Truecolor, Glyphs::DEFAULT),
             show_grid: false,
             hold_enabled: true,
+            pilot: false,
         }
     }
 
@@ -732,6 +739,10 @@ mod tests {
             "the name is spelled out\n{screen}"
         );
         assert!(screen.contains("\u{25b8} PLAY"), "{screen}");
+        // `PILOT.md` §P7.2, and this is the assertion that holds it: the footer
+        // is the last line of the block, so a menu that has outgrown
+        // `BLOCK_HEIGHT` clips it away silently rather than erroring. The sixth
+        // item is what made that reachable.
         assert!(screen.contains("ENTER start"), "{screen}");
         assert!(screen.contains("soft drop"), "the first face\n{screen}");
     }

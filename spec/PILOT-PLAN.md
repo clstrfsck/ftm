@@ -421,7 +421,7 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
   changes under its callers. `settings()` is what reads the field — §P8's
   report header is who will want it.
 
-### P4 — It plays
+### P4 — It plays ✅
 
 - `MenuChoice::Pilot`, the `CANVAS` rename, `Next` carrying the mode, the
   controller inside `App`, the per-tick input path in `advance`, spectator
@@ -429,6 +429,50 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
 - Terminal mock-ups and GUI render fixtures updated.
 - At the end of this stage a person watches it play on both front ends. It is
   expected to play badly.
+
+**What it settled.**
+
+- **It was watched on both front ends, and it does not play badly.** P3 already
+  said so headlessly; this is the same finding with a screen in front of it.
+  The terminal at seed 42 had **14 lines and level 2 within six seconds** of the
+  menu, and the window the same, and neither looked like a machine flailing —
+  the pieces travel rather than teleport, which is §P3.2's cap being a
+  presentation decision as much as an honesty one. The sentence above is left
+  as it was written: what P4 expected is part of what P4 found out.
+- **The planner's branch is four lines inside `advance`, and the human path is
+  byte-identical.** The batch is where the two differ (§P3.1) — the same six
+  ticks as one batch and as six give the same board, which is the cadence
+  invariance of §P9's C4 reached from the inside, and `tests/pump.rs` now runs a
+  whole PILOT round at 60 Hz, 144 Hz and a jittery cadence to say it from the
+  outside. `observe` is handed the slice of the shared event buffer that tick
+  appended, because the buffer belongs to the frame and §12.5 absorbs all of it.
+- **Two amendments the stage was not expecting, and both were the spec's.**
+  §13.3's panel cycle pauses on any item but the two that *start a game*, so
+  PILOT had to join PLAY — and the index that answers it is a front-end's list's
+  (`MenuChoice::CANVAS` has no PILOT at all), so `Attract` remembers the item the
+  cursor is on rather than only where it is. And §12.4 and §G4.5 both say the
+  indicator is drawn in the `I`-piece cyan, which the first implementation was
+  not; it is now, in both front-ends, and the colour is asserted in both.
+- **The spectator's keys are dropped at the input boundary, not downstream.**
+  §P7.3 says the gameplay keys do nothing, and the cheap way to read that is
+  "ignore what they produce". That would have left a held direction charging DAS
+  and a press resetting a lock-delay timer behind a game nobody is playing — the
+  reason §10.1 drops a disabled mechanic's key where it does. Pause, the pause
+  menu and everything reachable from it, §10.1's restart hold, quit and Ctrl-C
+  are what stay live.
+- **`Next::Play(Player)` cost less than the menu did.** Every front-end already
+  matched `Next` exhaustively, so the payload was a compiler-guided edit; the
+  sixth menu item is what reached into `tui::attract`'s block height, the two
+  render fixtures and three of the shell's own tests. §P7.2's measurement was
+  right on both counts — the terminal's block went 21 → 22 rows and the window
+  needed nothing — and the assertion that would have caught the silent clipping
+  was already there: the footer line is the last row of the block, and
+  `the_screen_holds_the_wordmark_the_menu_and_the_panel` looks for it.
+- **The window is still awkward to drive, and the awkwardness is focus.** Three
+  of five scripted runs sent their keys to whatever was in front instead —
+  `osascript` reports success either way, exactly as `EGUI-PLAN.md` G13 recorded.
+  What works is one shell invocation that launches the binary, waits, sends the
+  keys and screenshots, with nothing in between to steal the foreground.
 
 ### P5 — Headless benchmark
 

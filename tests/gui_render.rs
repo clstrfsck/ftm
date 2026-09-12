@@ -257,10 +257,14 @@ fn the_playing_screen_renders_at_every_size() {
         Chrome {
             show_grid: true,
             hold_enabled: true,
+            pilot: false,
         },
+        // The second of the pair is the one that varies every optional piece of
+        // the screen at once, and §P7.3's indicator is one of them now.
         Chrome {
             show_grid: false,
             hold_enabled: false,
+            pilot: true,
         },
     ];
     for size in SIZES {
@@ -331,12 +335,12 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
         &[Key::Down, Key::Down, Key::Down, Key::Enter],
     ];
     for keys in opened {
-        // §G7.5 and §G8.1: a desktop's menu and a tab's, which differ by
-        // **QUIT** — the list the shell walks, so the cursor cannot reach a row
-        // that is not drawn.
+        // §G7.5, §G8.1 and `PILOT.md` §P7.1: a desktop's menu and a tab's,
+        // which differ by **QUIT** and **PILOT** — the list the shell walks, so
+        // the cursor cannot reach a row that is not drawn.
         let screens: [(&'static [MenuChoice], &'static [Setting]); 2] = [
             (&MenuChoice::ALL, &Setting::WINDOW),
-            (&MenuChoice::NO_QUIT, &Setting::CANVAS),
+            (&MenuChoice::CANVAS, &Setting::CANVAS),
         ];
         for (menu, settings) in screens {
             let mut session = session(&mut storage);
@@ -417,6 +421,7 @@ fn the_minimum_window_gets_the_real_screen_and_one_pixel_short_does_not() {
     let chrome = Chrome {
         show_grid: true,
         hold_enabled: true,
+        pilot: false,
     };
     for ppp in DENSITIES {
         // The minimum is a cell of `MIN_CELL` *points* and the cell is a whole

@@ -168,7 +168,9 @@ impl<'session, 'host> Gui<'session, 'host> {
 
     /// §7: where the run goes when a screen hands back.
     ///
-    /// `Play` is **PLAY** and §10.1's held restart; `Attract` is the quit key
+    /// `Play` is **PLAY**, **PILOT** and §10.1's held restart — and it carries
+    /// *which* of the first two, because a restart keeps the player rather than
+    /// rediscovering it (`PILOT.md` §P1); `Attract` is the quit key
     /// out of a game and the way a finished one ends. `Quit` is the menu's
     /// **QUIT**, and the one of the three that a browser tab cannot do: a page
     /// the player opened may not close itself, so **QUIT** is not offered there
@@ -176,7 +178,7 @@ impl<'session, 'host> Gui<'session, 'host> {
     /// live, simply comes back here (§G7.5).
     fn leave(&mut self, next: Next, ctx: &egui::Context, web: bool, now: Stamp) {
         self.screen = match next {
-            Next::Play => Screen::Play(Box::new(Round::new(self.session, now))),
+            Next::Play(player) => Screen::Play(Box::new(Round::new(self.session, player, now))),
             Next::Attract => Screen::attract(now),
             Next::Quit if web => Screen::attract(now),
             Next::Quit => {
@@ -370,8 +372,10 @@ impl eframe::App for Gui<'_, '_> {
                             show_grid: config.display.show_grid,
                             // Hold is the running game's answer, not the
                             // config's: a game keeps the rules it started
-                            // under (§13.5).
+                            // under (§13.5). So is who is playing it, which is
+                            // settled when the game starts (`PILOT.md` §P7.3).
                             hold_enabled: round.hold_enabled(),
+                            pilot: round.pilot(),
                         };
                         playfield::draw(painter, &layout, state, chrome, round.cosmetics());
                         // §12.6 over §G4, in that order: a box is drawn on top
