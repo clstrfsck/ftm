@@ -155,6 +155,14 @@ fn well(
             }
         }
     }
+    // §G6.5: the falling piece last, and a fraction of a row low. It is drawn
+    // outside the grid because a grid cannot say "half a row down", and last
+    // for the reason it went down last in `compose` — where it overlaps the
+    // ghost, the piece is what the player sees.
+    for ((col, row), colour) in falling(view, fx).into_iter().flatten() {
+        let at = layout.falling_cell(col, row, view.fall_progress);
+        paint::mino(painter, layout, at, colour);
+    }
 }
 
 /// Everything that can occupy a cell of the well, in the order it is allowed to
@@ -162,9 +170,14 @@ fn well(
 ///
 /// The same order as the terminal's, and for the same reasons: the trail goes
 /// down before the stack can be drawn over and never over a mino that is really
-/// there (§12.5); the ghost goes under the falling piece (§9.8). The last two
-/// steps are **transformations of what is already in a cell** rather than
-/// things drawn over it, so neither the flash nor the wipe can hide a mino.
+/// there (§12.5); the ghost goes under the falling piece (§9.8). The flash and
+/// the wipe are **transformations of what is already in a cell** rather than
+/// things drawn over it, so neither can hide a mino.
+///
+/// The falling piece is the one thing not here: it may be between two rows
+/// (§G6.5), which a grid of cells has no way to hold. It is [`falling`]'s, and
+/// it is given the same colour and the same washes, so that a piece at rest is
+/// drawn exactly as it would have been if it had stayed in the grid.
 fn compose(view: &GameView, fx: &Cosmetics) -> Field {
     let mut field: Field = [[None; VIEW_WIDTH]; VIEW_HEIGHT];
     for (row, cells) in view.rows.iter().enumerate() {
@@ -195,45 +208,85 @@ fn compose(view: &GameView, fx: &Cosmetics) -> Field {
             });
         }
     }
-    // §9.8: the ghost goes down before the falling piece, so that where the two
-    // overlap the piece is what is drawn. Either may be absent — the ghost when
-    // `ghost_piece` is off, the piece during the clear and entry delays — and
-    // that is the view's answer, not a special case here (§12.7).
-    for (piece, percent) in [
-        (&view.ghost, palette::GHOST),
-        (&view.current, palette::FULL),
-    ] {
-        let Some(piece) = piece else { continue };
-        for &cell in &piece.cells {
+    // §9.8: the ghost goes down here so that where it and the piece overlap the
+    // piece — drawn afterwards, by `falling` — is what shows. It may be absent,
+    // when `ghost_piece` is off, and that is the view's answer rather than a
+    // special case here (§12.7).
+    if let Some(ghost) = &view.ghost {
+        for &cell in &ghost.cells {
             // `OFF_SCREEN` is how the view says a mino is above the field;
             // clipping happened in `core/view.rs`, and a coordinate that is not
             // on the field is simply not drawn — which is `at`'s answer.
             if let Some(cell) = at(&mut field, cell) {
-                *cell = Some(paint::piece(piece.kind, percent));
+                *cell = Some(paint::piece(ghost.kind, palette::GHOST));
             }
         }
     }
-    // §12.5's line-clear flash: one wash toward white at two strengths, so the
-    // row pulses rather than blinking between two colours (§G6.1).
-    for (row, cells) in field.iter_mut().enumerate() {
-        let Some(white) = fx.flashing(row as u8) else {
-            continue;
-        };
-        let strength = if white { FLASH_ON } else { FLASH_OFF };
-        for cell in cells.iter_mut().flatten() {
-            *cell = paint::wash(*cell, paint::FLASH, strength);
-        }
-    }
-    // §12.5's game-over wipe, greying from the top row down, with the rows
-    // just above the front part-greyed (§G6.3).
+    // §12.5's line-clear flash and game-over wipe, over everything that is in
+    // the well by now.
     let wiped = fx.wiped_rows(VIEW_HEIGHT as u8);
-    for (row, cells) in field.iter_mut().enumerate().take(wiped as usize) {
-        let strength = wipe_percent(wiped, row as u8);
+    for (row, cells) in field.iter_mut().enumerate() {
         for cell in cells.iter_mut().flatten() {
-            *cell = paint::wash(*cell, paint::GREYED, strength);
+            *cell = washed(*cell, row as u8, fx, wiped);
         }
     }
     field
+}
+
+/// §12.5's two whole-row transformations, applied to one cell (§G6.2).
+///
+/// A function of the cell rather than a pass over the grid, because the falling
+/// piece is not in the grid and has to be given exactly the same treatment.
+fn washed(colour: egui::Color32, row: u8, fx: &Cosmetics, wiped: u8) -> egui::Color32 {
+    // The line-clear flash: one wash toward white at two strengths, so the row
+    // pulses rather than blinking between two colours (§G6.1).
+    let colour = match fx.flashing(row) {
+        Some(white) => paint::wash(
+            colour,
+            paint::FLASH,
+            if white { FLASH_ON } else { FLASH_OFF },
+        ),
+        None => colour,
+    };
+    // The game-over wipe, greying from the top row down, with the rows just
+    // above the front part-greyed (§G6.3).
+    if row < wiped {
+        paint::wash(colour, paint::GREYED, wipe_percent(wiped, row))
+    } else {
+        colour
+    }
+}
+
+/// The minos of a tetromino: how long `PieceView::cells` is (§12.7).
+const MINOS: usize = 4;
+
+/// The falling piece: the cells it covers, and the colours they are drawn in
+/// (§G6.5).
+///
+/// Kept out of [`compose`] because [`GameView::fall_progress`] may put it
+/// between two rows, and the grid there has no way to hold that. Everything
+/// else about it is unchanged — the same colour, and [`washed`] with the same
+/// two transformations — so at rest it is drawn exactly where and as it was
+/// before this became a separate step.
+///
+/// The rows it is washed by are the ones it *occupies*, not the ones it is
+/// sliding toward: a piece is in the row the rules say it is in, and the offset
+/// is how far between rows it is drawn (§12.7).
+fn falling(view: &GameView, fx: &Cosmetics) -> [Option<((u8, u8), egui::Color32)>; MINOS] {
+    let mut minos = [None; MINOS];
+    let Some(piece) = &view.current else {
+        return minos;
+    };
+    let wiped = fx.wiped_rows(VIEW_HEIGHT as u8);
+    let colour = paint::piece(piece.kind, palette::FULL);
+    for (mino, &(col, row)) in minos.iter_mut().zip(&piece.cells) {
+        // `OFF_SCREEN`, and anything else off the field, is simply not drawn —
+        // the same answer `at` gives `compose`.
+        if usize::from(col) < VIEW_WIDTH && usize::from(row) < VIEW_HEIGHT {
+            *mino = Some(((col, row), washed(colour, row, fx, wiped)));
+        }
+    }
+    minos
 }
 
 /// One cell of the well, or `None` for a coordinate that is not on the field.
@@ -535,6 +588,7 @@ mod tests {
         GameView {
             rows: [[None; VIEW_WIDTH]; VIEW_HEIGHT],
             current: None,
+            fall_progress: 0,
             ghost: None,
             hold: None,
             hold_locked: false,
@@ -560,6 +614,9 @@ mod tests {
             kind: PieceKind::T,
             cells: [(4, 0), (5, 0), (6, 0), crate::core::OFF_SCREEN],
         });
+        // Part-way between two rows (§G6.5), so the size sweep draws a sliding
+        // piece at every size and density rather than only a settled one.
+        view.fall_progress = 40_000;
         view.ghost = Some(PieceView {
             kind: PieceKind::T,
             cells: [(4, 18), (5, 18), (6, 18), (5, 17)],
@@ -920,6 +977,88 @@ mod tests {
         // §12.5's 80 ms.
         fx.absorb(&[], Stamp::ZERO + std::time::Duration::from_millis(80));
         assert_eq!(compose(&view, &fx)[19][4], Some(plain));
+    }
+
+    #[test]
+    fn the_falling_piece_is_drawn_as_the_grid_would_have_drawn_it() {
+        // §G6.5: the piece comes out of `compose`'s grid so it can sit between
+        // two rows, and nothing else about it changes. The colour it gets is
+        // the colour the cell would have had — including §12.5's washes, which
+        // is what keeps a piece that tops out mid-wipe greying with the stack
+        // instead of staying bright over it.
+        let mut view = empty_view();
+        view.current = Some(PieceView {
+            kind: PieceKind::T,
+            cells: [(4, 5), (5, 5), (6, 5), (5, 4)],
+        });
+        let quiet = quiet_fx();
+        let plain = paint::piece(PieceKind::T, palette::FULL);
+        assert_eq!(compose(&view, &quiet)[5][4], None, "not in the grid");
+        assert_eq!(
+            falling(&view, &quiet),
+            [
+                Some(((4, 5), plain)),
+                Some(((5, 5), plain)),
+                Some(((6, 5), plain)),
+                Some(((5, 4), plain)),
+            ],
+        );
+
+        // A mino the view clipped is not drawn, exactly as `compose` does not
+        // draw one (§12.7).
+        view.current = Some(PieceView {
+            kind: PieceKind::T,
+            cells: [(4, 0), (5, 0), (6, 0), crate::core::OFF_SCREEN],
+        });
+        assert_eq!(falling(&view, &quiet)[3], None, "the clipped mino");
+
+        // Mid-wipe, the piece is washed by the row it *occupies* — the row the
+        // rules say it is in, not the one it is sliding toward.
+        let mut fx = quiet_fx();
+        fx.absorb(
+            &[GameEvent::ToppedOut(crate::core::TopOutCause::LockOut)],
+            Stamp::ZERO,
+        );
+        fx.absorb(&[], Stamp::ZERO + std::time::Duration::from_millis(250));
+        let wiped = falling(&view, &fx)[0].expect("a mino on row 0").1;
+        assert_eq!(wiped, paint::GREYED, "row 0 went first");
+    }
+
+    #[test]
+    fn a_sliding_piece_is_the_only_thing_that_leaves_its_row() {
+        // §G6.5: `fall_progress` moves the falling piece and nothing else. The
+        // ghost marks a landing row, which is a discrete fact — interpolating
+        // it too would hold the gap between them constant, which is the thing
+        // that would look wrong (`EGUI.md` G10).
+        let layout = match Measure::of(
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(728.0, 672.0)),
+            1.0,
+        ) {
+            Measure::Fits(layout) => layout,
+            small => panic!("{small:?}"),
+        };
+        let mut view = busy_view(5);
+        view.fall_progress = 0;
+        let settled = layout.falling_cell(4, 0, view.fall_progress);
+        assert_eq!(
+            settled,
+            layout.field_cell(4, 0),
+            "nothing accrued, nothing moved"
+        );
+
+        view.fall_progress = u16::MAX / 2;
+        let sliding = layout.falling_cell(4, 0, view.fall_progress);
+        assert!(
+            (sliding.min.y - settled.min.y - layout.cell() / 2.0).abs() <= 1.0,
+            "about half a cell down: {sliding:?} against {settled:?}",
+        );
+        // The ghost is `compose`'s, and `compose` is not given the fraction at
+        // all: it lands on the grid whatever the piece above it is doing.
+        assert_eq!(
+            compose(&view, &quiet_fx())[18][4],
+            Some(paint::piece(PieceKind::T, palette::GHOST)),
+            "the ghost stayed on its landing row",
+        );
     }
 
     #[test]

@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [PLAN.md](PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** G0–G8 complete (**MG5**); G9 next.
+**Status:** G0–G10 complete (**MG5**); G11 next.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -1485,6 +1485,45 @@ next person to notice it knows it was seen.
 A piece at level 1 falls visibly smoothly in both GUI builds; the terminal
 front-end ignores the field and its §12.4 mock-up test is unchanged; `cargo test`
 is green with no snapshot regenerated.
+
+### What G10 found
+
+- **"A landed piece sits at 0.0 because §9.9 clears the accumulator" is wrong,
+  and the stage would have shipped a hovering piece on it.** The reset happens
+  on a *blocked step*, and a step is only attempted when the accumulator clears
+  the period — which at level 1 is tick 60, while §9.11's lock delay expires at
+  tick 30. A piece resting on the stack normally locks without ever attempting
+  the step. So the clause is explicit: `fall_progress` is 0 whenever the piece
+  cannot move down, which is a question about the board and not about the
+  accumulator. §9.9 and §12.7 are amended to say so, and it has a test.
+- **The denominator has to be remembered, because soft drop is not in the
+  state.** The accumulator is a remainder of the period *in force*, and only
+  `Game::tick` knows whether the key was held. Divided by the plain period
+  instead, a soft-dropping piece would crawl through the top twentieth of each
+  row and jump the rest. `Gravity` therefore keeps the period its last `accrue`
+  used. Nothing in the rules reads it — deleting the field would not change a
+  single game.
+- **The terminal had to be told to ignore the field.** `tui::run::Frame`
+  compares the whole `FrameState`, so a field that changes sixty times a second
+  would have turned every tick of every fall into a redraw of a byte-identical
+  screen. `tui/run.rs` zeroes it before the comparison. That is F7's "the
+  decision to compare is the front-end's alone" collecting on a debt, and it is
+  the sort of thing that would never have shown up as a failing test.
+- **The falling piece had to come out of `compose`'s grid**, because a grid of
+  cells cannot hold "half a row down". It is drawn afterwards, with the colour
+  and the washes the cell it occupies would have given it — which is why §12.5's
+  two whole-row transformations became a per-cell function that both paths call,
+  rather than a pass over the field.
+- **No clipping was needed, and that is a consequence rather than luck.** The
+  offset is non-zero only when the piece can move down, so every cell below it
+  is empty and the slide can never overlap the stack, the floor or the walls.
+- **Checked in a tab, by measurement rather than by eye.** A headless Chrome
+  over the DevTools protocol, screenshotted on a timer: the piece descends 13
+  pixels every 500 ms at a 26-pixel cell — one row a second, in sub-cell steps —
+  and then stops dead for the whole of its lock delay. `--virtual-time-budget`
+  is *not* a substitute: it advances `performance.now()` without running the
+  frames, so every screenshot came back with the piece at spawn and the clock at
+  `00:00`.
 
 ---
 

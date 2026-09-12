@@ -281,8 +281,16 @@ fn round(
         //    diffs against its previous buffer, so an unchanged frame is cheap,
         //    and skipping it entirely is cheaper. An animation in flight
         //    changes the screen without changing the view, so it counts as new.
+        let mut state = game.frame(now);
+        // `GameView::fall_progress` is a window's sub-cell offset (`GUI.md`
+        // §G6.5) and a character cell has nowhere to put it, so §12.4 draws a
+        // piece on its row and nothing else. Left in, it would change sixty
+        // times a second and make every tick of every fall a redraw of a screen
+        // that is byte-for-byte the one already there. Dropping a field the
+        // terminal does not draw is exactly what F7 leaves to the front-end.
+        state.view.fall_progress = 0;
         let frame = Frame {
-            state: game.frame(now),
+            state,
             // §12.1's message names the size it has, so the size is on the
             // screen and belongs in the comparison like everything else.
             size: (!room).then_some(area),

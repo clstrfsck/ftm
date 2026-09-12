@@ -615,13 +615,20 @@ Cell by cell, in the terminal's order and for the terminal's reasons (§12.5,
 3. the hard-drop trail, **only where the well is empty** — a trail is behind
    the stack, never over a mino that is really there;
 4. the lock flash, over the cells that have just locked;
-5. the ghost, and the falling piece over it;
-6. the line-clear flash, and then the game-over wipe.
+5. the ghost;
+6. the line-clear flash, and then the game-over wipe;
+7. the falling piece over all of it, a fraction of a row low (§G6.5).
 
-The last two are **transformations of what is already in a cell** rather than
-things drawn over it, so neither can hide a mino: a flashed cell is that cell's
-own colour washed toward white, and a greyed one is that cell's own colour on
-its way out.
+Steps 6 are **transformations of what is already in a cell** rather than things
+drawn over it, so neither can hide a mino: a flashed cell is that cell's own
+colour washed toward white, and a greyed one is that cell's own colour on its
+way out.
+
+The falling piece is last rather than between the ghost and the flash, and it
+is the one thing not in the grid at all, because §G6.5 may put it between two
+rows. It is given the same colour and the same two transformations the cell it
+occupies would have given it, so at rest the composition is unchanged; drawing
+it last is what keeps it over the ghost where the two overlap (§9.8).
 
 §9.17's blanking comes before all of it. A well the pause has emptied
 (`Overlay::blanks`) has nothing in it to animate, and steps 2 to 6 are skipped
@@ -666,15 +673,65 @@ every animation here is a pure function of the moment `Cosmetics` was last
 given, so a frame that does not happen is a step that is not drawn, and nothing
 is left owing.
 
-### G6.5 What is reserved
+### G6.5 Sub-cell gravity
 
-Sub-cell gravity — a falling piece drawn between two rows — is the other thing
-pixels allow, and it is a `GameView` question rather than a rendering one. It
-is `EGUI.md` G10's, and this section is where it will be written.
+At level 1 a piece falls one row a second. In a terminal that is the blocky
+aesthetic; on a forty-pixel tile it is a stutter, once a second, for the first
+minute of every game. The window draws the falling piece a fraction of a row
+low, and the fraction is `GameView::fall_progress` (§12.7) — §9.9's gravity
+accumulator over the fall period in force, which is the piece's exact sub-row
+position and not a tween. Nothing is estimated and nothing can drift out of
+step with the rules, because it *is* the rules' own number.
 
-Horizontal movement and rotation are **not** interpolated, here or there: a
+It scales itself, which is the part a hand-tuned animation would have got
+wrong. At level 1 the period is sixty ticks, so the fraction takes sixty
+distinct values on the way down; by level 10 a handful; above 1 G, and under
+any soft drop at speed, there is nothing left to interpolate — which is exactly
+where nobody could have seen it. Soft drop divides the *period*, so the
+denominator goes down with it and the fall stays smooth all the way.
+
+Three requirements, and the first two are §12.7's:
+
+- **The piece is the only thing that moves.** The ghost marks a landing row,
+  which is a discrete fact; leaving it snapped while the piece slides is what
+  closes the gap smoothly. The stack, the trail and the wipe are all on the
+  grid.
+- **A landed piece does not hover.** `fall_progress` is 0 whenever the piece
+  cannot move down, so it sits still through §9.11's lock delay.
+- **The offset is whole physical pixels.** `Layout::falling_cell` floors it the
+  way every other rect in §G3 is floored, so a sliding piece's edges are as
+  crisp as a settled one's. At the 14-point minimum that is fourteen positions
+  within a cell, and forty or more at a comfortable size.
+
+This is why the falling piece is not in §G6.2's composed grid: a grid of cells
+has no way to hold "half a row down". It is drawn after the grid, in the colour
+and with the washes the cell it occupies would have given it, so a piece at
+rest is drawn exactly where and as it was before it became a separate step. It
+is washed by the row it **occupies**, not the one it is sliding toward.
+
+A front-end on a display faster than 60 Hz may extrapolate within the tick from
+its own elapsed time, clamped so the drawn position can never pass the ghost's
+row. Purely cosmetic, never fed back, and worth doing only if the quantisation
+is visible. This one does not.
+
+Horizontal movement and rotation are **not** interpolated, here or anywhere: a
 piece is where the rules say it is, and §19's second player has to see the same
-thing.
+thing. There is no fractional horizontal state in the core to reveal, a tween
+would add lag to the signal the player is most sensitive to, §10.3's `arr = 0`
+means "to the wall this tick" and contradicts any duration chosen to animate
+it, and an SRS kick has no meaningful intermediate pose (§9.5). What to reach
+for instead, if the movement wants softening, is a brief trailing smear over
+the vacated cells — the shape §12.5's hard-drop trail already has, and
+`GameEvent::PieceMoved` already fires for. `EGUI.md` G10 has the long form.
+
+**A wrinkle, accepted.** §9.4 spawns a piece with minos in row 19 and drops it
+one row, so a freshly spawned `T` has a mino above the visible field that
+`GameView` omits (§12.7): three minos are drawn, not four, until it falls
+again. That is pre-existing — it is why the well has no lid (§G4.1) — but a
+sliding piece makes it more noticeable, because the fourth mino appears
+abruptly against neighbours that are moving smoothly. Carrying a row of the
+buffer zone in the view would fix it and is a much larger §12.7 change with §19
+consequences of its own.
 
 ---
 

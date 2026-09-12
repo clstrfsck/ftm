@@ -71,6 +71,15 @@ pub struct Gravity {
     level: u32,
     period: u32,
     accumulator: u32,
+    /// The period the accumulator is a remainder *of*: the soft-drop period
+    /// while the key was held on the last tick (§9.10), the plain period
+    /// otherwise.
+    ///
+    /// It exists only for [`Gravity::progress`], which needs the denominator
+    /// that made the numerator. Nothing in the rules reads it — `accrue`
+    /// recomputes the period it uses from its argument every tick, and would
+    /// behave identically if this field were deleted.
+    effective: u32,
 }
 
 impl Gravity {
@@ -80,6 +89,7 @@ impl Gravity {
             level,
             period: fall_period(level),
             accumulator: 0,
+            effective: fall_period(level),
         }
     }
 
@@ -123,7 +133,27 @@ impl Gravity {
         self.accumulator = self.accumulator.saturating_add(ONE_ROW);
         let rows = self.accumulator / period;
         self.accumulator -= rows * period;
+        self.effective = period;
         rows
+    }
+
+    /// How far the piece has come toward its next row, as a fraction of the
+    /// period in force: 0 at the top of the row, 65535 just short of the next.
+    ///
+    /// **Presentation only** (§12.7). The accumulator is a remainder of the
+    /// period, so this is the piece's exact sub-row position — the rules' own
+    /// number, not an estimate — but no rule reads it and nothing here is
+    /// allowed to start.
+    ///
+    /// It scales itself: level 1 has sixty distinct values on the way down,
+    /// level 10 a handful, and above 1 G there is nothing left to interpolate.
+    pub fn progress(&self) -> u16 {
+        // `effective` is never 0 (§9.9 clamps a period to at least 1), and the
+        // accumulator is below it, so the quotient is below `ONE_ROW`. The
+        // `min` covers the one tick after `set_level`, when the accumulator is
+        // still a remainder of the *old* period.
+        let progress = u64::from(self.accumulator) * u64::from(ONE_ROW) / u64::from(self.effective);
+        progress.min(u64::from(u16::MAX)) as u16
     }
 
     /// Discard the accrued fraction. §9.9: a blocked downward step resets the
@@ -359,6 +389,80 @@ mod tests {
             assert_eq!(gravity.accrue(None), 0, "tick {tick} after the reset");
         }
         assert_eq!(gravity.accrue(None), 1);
+    }
+
+    #[test]
+    fn the_fraction_is_the_accumulator_over_the_period_in_force() {
+        // G10: the piece's sub-row position is the rules' own number, not an
+        // estimate. At level 1 it takes sixty distinct values on the way down.
+        let mut gravity = Gravity::new(1);
+        for tick in 1..60 {
+            gravity.accrue(None);
+            assert_eq!(
+                gravity.progress(),
+                (tick * ONE_ROW / 60) as u16,
+                "tick {tick}"
+            );
+        }
+        // The row lands on the sixtieth, and the accumulator is a remainder:
+        // the next row starts at nothing rather than a frame low.
+        assert_eq!(gravity.accrue(None), 1);
+        assert_eq!(gravity.progress(), 0, "the row changed");
+
+        // §9.10's soft drop divides the *period*, so the denominator is the
+        // period in force. Dividing by the plain one instead would collapse the
+        // whole fall into the top twentieth of the row.
+        let mut gravity = Gravity::new(1);
+        gravity.accrue(Some(20));
+        assert_eq!(
+            gravity.progress(),
+            (ONE_ROW / 3) as u16,
+            "three ticks a row"
+        );
+    }
+
+    #[test]
+    fn the_fraction_never_leaves_its_row() {
+        // G10: it is a fraction of the row, so it must stay below one at every
+        // speed — including a soft-drop period of a single tick, which divides
+        // the accumulator away entirely and must not divide by zero doing it.
+        for level in [1, 5, 10, 13, 15] {
+            for factor in [None, Some(2), Some(20), Some(u32::MAX)] {
+                let mut gravity = Gravity::new(level);
+                for tick in 1..200 {
+                    gravity.accrue(factor);
+                    assert!(
+                        u32::from(gravity.progress()) < ONE_ROW,
+                        "level {level}, factor {factor:?}, tick {tick}",
+                    );
+                }
+            }
+        }
+        // Above 1 G there is nothing left to interpolate, which is exactly
+        // where nobody could have seen it.
+        let mut gravity = Gravity::new(15);
+        gravity.accrue(Some(u32::MAX));
+        assert_eq!(
+            gravity.progress(),
+            0,
+            "a whole row a tick leaves no remainder"
+        );
+    }
+
+    #[test]
+    fn the_fraction_survives_a_level_up_without_overflowing() {
+        // The one tick where the accumulator is a remainder of the period it
+        // was banked at rather than the period now in force (§9.9 keeps it
+        // across a level change). It is still a fraction, and it is still a
+        // fraction of the row it was accrued against.
+        let mut gravity = Gravity::new(1);
+        for _ in 0..59 {
+            gravity.accrue(None);
+        }
+        let before = gravity.progress();
+        gravity.set_level(15);
+        assert_eq!(gravity.progress(), before, "the denominator went with it");
+        assert!(u32::from(gravity.progress()) < ONE_ROW);
     }
 
     #[test]

@@ -1066,6 +1066,16 @@ that bag before play begins. This applies only to the very first bag of a game.
   the piece sequence is bit-identical on every platform (§3.1, §15.4).
 - If a downward step is blocked, the accumulator is reset to 0 and the lock-down
   state machine takes over (§9.11).
+- The accumulator is also the piece's exact **sub-row position**, and §12.7
+  publishes it as `GameView::fall_progress` so a front-end with pixels can draw
+  a fall as a slide rather than a series of jumps. It is presentation only: no
+  rule reads it, and revealing it changes nothing about the rules. Note that
+  the reset above is *not* on its own enough to keep a resting piece still —
+  the blocked step happens only when the accumulator next clears the period,
+  and at level 1 the lock delay (30 ticks) expires long before the period (60)
+  does, so a piece usually locks without ever attempting it. §12.7 therefore
+  requires `fall_progress` to be 0 whenever the piece cannot move down, which
+  is a question about the board rather than about the accumulator.
 
 ### 9.10 Soft drop and hard drop
 
@@ -1406,6 +1416,7 @@ screen needs to draw, and nothing else.
 pub struct GameView {
     pub rows:      [[Option<PieceKind>; 10]; 20], // visible rows 20..=39 only
     pub current:   Option<PieceView>,             // absent during clear/entry delay
+    pub fall_progress: u16,                       // sub-row position, 0..=65535 (§9.9)
     pub ghost:     Option<PieceView>,             // absent when disabled
     pub hold:      Option<PieceKind>,
     pub hold_locked: bool,
@@ -1433,6 +1444,18 @@ Requirements:
   distinct drawable cells (an omitted mino is encoded as `(255, 255)`).
 - The view is **derived**, never authoritative: building it must not mutate the
   game. `Game::view(&self) -> GameView` is `&self`.
+- `fall_progress` is **presentation only**, and it is the one field on the view
+  that no rule may read. The piece occupies `current.cells` and nothing else;
+  this says how far *between* rows it should be drawn. It is §9.9's gravity
+  accumulator over the fall period in force — the rules' own number, exact, not
+  a tween — so a front-end that draws it can never disagree with where the
+  piece is. Requirements: it is 0 when there is no piece; it is 0 while the
+  piece is **landed**, so a piece cannot appear to hover through §9.11's lock
+  delay; and it never reaches a whole row, so a piece is never drawn a row low
+  for a frame. It is on the view rather than on `PieceView` deliberately — the
+  ghost marks a landing row, which is a discrete fact, and interpolating both
+  would hold the gap between them constant. A server under §19 sends it,
+  because a client cannot compute it without reimplementing §9.9.
 - `GameView` must not reference core internals by lifetime — it is owned, so it
   can be serialised, cached, queued, or diffed against the previous frame.
 - It is cheap enough to build every tick (roughly 200 bytes plus the row array);

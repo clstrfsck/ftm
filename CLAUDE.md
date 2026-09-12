@@ -16,11 +16,12 @@ rename and a feature gate, with no logic changed; G3 took the platform out from
 under the shell; G4 turned §15.2's loop inside out, so the shell is now *pumped*
 by a front-end rather than owning a `while`; G5 hung an `eframe` application on
 the pump; G6 compiled the same application for wasm and gave it a browser's
-four capabilities; G7 gave it the playing screen, G8 the boxes over it and G9
-§12.5's animations under them.
+four capabilities; G7 gave it the playing screen, G8 the boxes over it, G9
+§12.5's animations under them and G10 the one core change the whole plan has:
+a falling piece is drawn between two rows.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0-G9 complete — milestone MG5. Start at G10.** All
+stages G0-G10 complete — milestone MG5. Start at G11.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -44,8 +45,9 @@ cell, and a pause forced whenever the window loses the keyboard. Over it are
 Options panel (seven rows — §12.3's colour depth is the terminal's) and the
 controls table, and under them §G6's animations — the clear flash, the
 hard-drop trail, the lock flash, the two banners and the game-over wipe, all on
-the same `Cosmetics` the terminal reads. What it does not have yet is §G6's
-sub-cell gravity (G10) and the attract screen (G11). `make run-web` serves the
+the same `Cosmetics` the terminal reads, and §G6.5's sub-cell gravity — at
+level 1 the piece slides down its row rather than stepping once a second. What
+it does not have yet is the attract screen (G11). `make run-web` serves the
 same thing in a browser tab through trunk (`index.html`, `Trunk.toml`), with
 `?seed=N` in the URL for `--seed N`, scores in `localStorage`, and §16's
 warnings on the console. `GUI.md` §G1-§G6 and the web build's half of §G8 are
@@ -145,7 +147,7 @@ several hundred doc comments, and each one would still *read* fine.
 | **`FTM.md`** | §1-§7, §9-§11, §12.7, §12.8, §14-§19 | The front-end-agnostic specification: rules, config, states, controls, the view model and the event stream, high scores, timing, errors, testing, §19. |
 | **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
 | **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
-| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8 and §G6 by G9; G10-G13 fill the rest stage by stage. |
+| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9 and §G6.5 by G10; G11-G13 fill the rest stage by stage. |
 
 An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
 owns. `§Gn` means `GUI.md`; a future `MACROQUAD.md` would take `§M`.
@@ -341,6 +343,22 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   quarter brightness, which was exactly the free look §9.17 forbids. It gates
   the *whole* of the window's composition, not each animation in turn — a
   flash or a wipe that outlived the pause would be the same free look.
+
+- **`fall_progress` is the only field on `GameView` no rule may read, and the
+  terminal drops it before comparing frames** (§9.9, §12.7, `GUI.md` §G6.5).
+  It is §9.9's accumulator over the period in force — the piece's exact sub-row
+  position, not a tween — and it is zero whenever the piece cannot move down.
+  That last clause is **explicit and not a consequence of §9.9's reset on a
+  blocked step**: at level 1 the lock delay expires at tick 30 and the period at
+  tick 60, so a resting piece normally locks without ever attempting the step
+  that would clear the accumulator. The denominator is remembered in `Gravity`
+  because only `Game::tick` knows whether soft drop was held. And because the
+  field changes sixty times a second, `tui/run.rs` **zeroes it before building
+  its `Frame`** — a character cell cannot draw it, and leaving it in would make
+  every tick of every fall a redraw of a byte-identical screen. Only the
+  falling piece moves: the ghost marks a landing row and stays snapped, which
+  is what closes the gap smoothly. Horizontal movement and rotation are never
+  interpolated, in any front-end — `GUI.md` §G6.5 has the four reasons.
 
 - **A window's animations are transformations, not layers** (`GUI.md` §G6.2).
   §12.5's flash and wipe change the colour a cell was already going to be
@@ -753,6 +771,38 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   `egui`, so the page looks half-size. Use a scale factor of 1. The native
   window has not been looked at by the session that built G7 (no screen
   capture); it runs the same drawing code.
+
+---
+
+## What G10 settled
+
+- **The core grew one field, and only one.** `GameView::fall_progress`, derived
+  in `Game::view` from state §9.9 already kept. The I1 snapshot and the §19.4
+  canary did not move, which is the assertion rather than a convenience: a
+  snapshot that shifted would have meant the field was computed from the wrong
+  thing, or that a rule had started reading it.
+- **The plan's reasoning about landed pieces was wrong, and the spec is amended
+  for it.** See the invariant above; it is the one thing in this stage that a
+  test suite would not have caught, because nothing else in the tree looks at
+  the number. §9.9 now says the reset on a blocked step is not enough on its
+  own, and §12.7 states the requirement.
+- **`compose` no longer holds the falling piece.** A grid of cells cannot say
+  "half a row down", so the piece is drawn after the grid, and §12.5's flash and
+  wipe became `washed`, a per-cell function both paths call. At rest the
+  composition is byte-identical to G9's — the shape sweep and the animation
+  tests say so.
+- **No clipping was needed.** The offset is non-zero only when the piece can
+  move down, so the cells below it are empty by construction and a sliding piece
+  can never overlap the stack, the floor or the walls.
+- **`--virtual-time-budget` is not a way to screenshot this.** It advances
+  `performance.now()` without running the frames, so every capture came back
+  with the piece at spawn and the clock at `00:00`. What works is the G7 recipe
+  — headless Chrome over the DevTools protocol, scale factor 1 — screenshotted
+  on a real timer; `--enable-unsafe-swiftshader` is needed for WebGL, and
+  `--disable-gpu` gets §G8.5's "could not start" message instead. Measured
+  there: 13 pixels per 500 ms at a 26-pixel cell, then dead still for the lock
+  delay. The native window still has not been looked at by any session that
+  built it.
 
 ---
 

@@ -518,6 +518,7 @@ pub mod tests {
         GameView {
             rows: [[None; VIEW_WIDTH]; VIEW_HEIGHT],
             current: None,
+            fall_progress: 0,
             ghost: None,
             hold: None,
             hold_locked: false,

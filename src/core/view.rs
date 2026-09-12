@@ -42,6 +42,17 @@ pub struct GameView {
     pub rows: [[Option<PieceKind>; VIEW_WIDTH]; VIEW_HEIGHT],
     /// The falling piece; absent during the clear and entry delays.
     pub current: Option<PieceView>,
+    /// How far the falling piece has come toward its next row, as a fraction of
+    /// the fall period in force (§9.9): 0 at the top of the row, 65535 just
+    /// before the next one. Zero whenever there is no piece, and zero while the
+    /// piece is landed, so it cannot appear to hover through its lock delay.
+    ///
+    /// Presentation only. The piece occupies `current.cells` and nothing else;
+    /// this is how far between rows it should be *drawn*, and no rule reads it.
+    /// It is on the view rather than on [`PieceView`] deliberately: the ghost
+    /// marks a landing row, which is a discrete fact, and interpolating both
+    /// would hold the gap between them constant.
+    pub fall_progress: u16,
     /// The landing position; absent when the ghost is disabled.
     pub ghost: Option<PieceView>,
     pub hold: Option<PieceKind>,
@@ -131,6 +142,7 @@ impl Game {
         GameView {
             rows,
             current: self.current().as_ref().map(PieceView::of),
+            fall_progress: self.fall_progress(),
             ghost: self.ghost().as_ref().map(PieceView::of),
             hold: self.held(),
             hold_locked: self.hold_locked(),
@@ -250,6 +262,7 @@ mod tests {
         assert!(!view.back_to_back);
         assert_eq!(view.next.len(), 5, "the default preview_count (§6.3)");
         assert!(view.current.is_some());
+        assert_eq!(view.fall_progress, 0, "nothing has accrued yet (§9.9)");
         assert!(view.ghost.is_some(), "the ghost is on by default (§6.3)");
         assert_eq!(view.hold, None, "the hold slot starts empty (§9.7)");
         assert!(!view.hold_locked);
@@ -270,6 +283,7 @@ mod tests {
         let view = game.view();
         assert_eq!(view.state, PlayState::Clearing);
         assert_eq!(view.current, None);
+        assert_eq!(view.fall_progress, 0, "nothing to offset (G10)");
         assert_eq!(
             view.rows[VIEW_HEIGHT - 1][4],
             Some(PieceKind::I),

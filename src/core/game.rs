@@ -304,6 +304,29 @@ impl Game {
         self.gravity.period()
     }
 
+    /// How far the falling piece has come toward its next row (§9.9), as a
+    /// fraction of the fall period in force: 0 at the top of the row, 65535
+    /// just short of the next one.
+    ///
+    /// **Presentation only** (§12.7): it says how far between rows the piece
+    /// should be *drawn*, and the piece still occupies `current.cells` and
+    /// nothing else. No rule reads it.
+    ///
+    /// Zero when there is no piece, and zero while the piece is **landed**.
+    /// That second clause is explicit rather than a consequence of §9.9's reset
+    /// on a blocked step, and the reason is worth knowing: at level 1 the lock
+    /// delay is 30 ticks and the fall period is 60, so a piece resting on the
+    /// stack locks before it ever attempts the step that would clear the
+    /// accumulator. Without the check it would visibly sink half a cell through
+    /// its lock delay — the hover §9.11 has no business showing.
+    pub fn fall_progress(&self) -> u16 {
+        if self.can_move(0, 1) {
+            self.gravity.progress()
+        } else {
+            0
+        }
+    }
+
     /// Lock-delay ticks left (§9.11), absent while the piece is airborne.
     pub fn lock_delay_remaining(&self) -> Option<u32> {
         self.lock.remaining()
@@ -905,6 +928,63 @@ pub mod tests {
                 "after {row} rows",
             );
         }
+    }
+
+    #[test]
+    fn a_falling_piece_reports_how_far_it_has_come_toward_the_next_row() {
+        // G10: `fall_progress` is presentation only (§12.7). It rises through
+        // the row and resets on the row change — the property that keeps a
+        // piece from being drawn a whole row low for one frame.
+        let mut game = new_game(5);
+        place(&mut game, PieceKind::O, Point::new(4, 19), Rotation::North);
+        assert_eq!(game.fall_progress(), 0, "nothing has accrued yet");
+        let mut previous = 0;
+        for t in 1..60 {
+            idle(&mut game, 1);
+            let progress = game.fall_progress();
+            assert!(progress > previous, "tick {t}: {progress} after {previous}");
+            previous = progress;
+        }
+        assert!(
+            u32::from(previous) < 65_536 - 1_000,
+            "a row short of the next one, not on top of it: {previous}",
+        );
+        let row = game.current().expect("still falling").lowest_row();
+        idle(&mut game, 1);
+        assert_eq!(game.current().expect("still falling").lowest_row(), row + 1);
+        assert_eq!(game.fall_progress(), 0, "the row changed, so it reset");
+    }
+
+    #[test]
+    fn a_landed_piece_does_not_hover_through_its_lock_delay() {
+        // G10, and the one clause that does *not* fall out of §9.9's reset on a
+        // blocked step. At level 1 the lock delay is 30 ticks and the fall
+        // period is 60, so a piece resting on the stack locks before it ever
+        // attempts the step that would clear the accumulator. Without the
+        // explicit check it would sink half a cell through §9.11's delay.
+        let mut game = new_game(5);
+        place(&mut game, PieceKind::O, Point::new(4, 19), Rotation::North);
+        while game.ghost() != game.current() {
+            idle(&mut game, 1);
+        }
+        for t in 0..20 {
+            assert_eq!(game.fall_progress(), 0, "tick {t} of the lock delay");
+            assert!(game.lock_delay_remaining().is_some(), "tick {t}");
+            idle(&mut game, 1);
+        }
+    }
+
+    #[test]
+    fn there_is_no_fall_to_report_without_a_piece() {
+        // G10: zero during the clear and entry delays, where §12.7 has
+        // `current: None` and there is nothing to offset.
+        let mut game = new_game(19);
+        set_matrix(&mut game, from_bottom_rows(&["####.#####"]));
+        place(&mut game, PieceKind::I, Point::new(2, 36), Rotation::East);
+        tick(&mut game, &TickInput::action(Action::HardDrop));
+        assert_eq!(game.state(), PlayState::Clearing);
+        assert_eq!(game.current(), None);
+        assert_eq!(game.fall_progress(), 0);
     }
 
     #[test]

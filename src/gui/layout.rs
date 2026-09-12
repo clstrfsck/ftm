@@ -70,6 +70,9 @@ const STATS_ROWS: u32 = WELL_ROWS - HOLD_ROWS - 1;
 const SLOT_ROWS: u32 = 2;
 /// A slot and the row between it and the next.
 const SLOT_PITCH: u32 = SLOT_ROWS + 1;
+/// One whole row, as `GameView::fall_progress` counts: the field is the 16.16
+/// fraction §9.9's accumulator is kept in, so a row is 65 536 of it.
+const FALL_SCALE: u32 = 65_536;
 /// As many preview slots as the next panel has room for beside the well, which
 /// is exactly the `preview_count` range's top (§6.3), so every slot fits.
 pub const MAX_SLOTS: usize = ((WELL_ROWS - 1) / SLOT_PITCH) as usize;
@@ -173,6 +176,27 @@ impl Layout {
     /// One cell of the well, at visible-field coordinates.
     pub fn field_cell(&self, col: u8, row: u8) -> egui::Rect {
         self.cells(WELL + u32::from(col), TOP + u32::from(row), 1, 1)
+    }
+
+    /// One cell of the well, dropped `progress` toward the next row
+    /// (`GameView::fall_progress`, §G6.5): 0 leaves it exactly where
+    /// [`field_cell`](Self::field_cell) puts it, 65535 is a hair short of the
+    /// row below.
+    ///
+    /// The offset is floored to whole physical pixels before it becomes points,
+    /// so a piece that is sliding has edges as crisp as one that is standing
+    /// still — the rule every other rect here is built under (§G3). At the
+    /// 14-point minimum that gives a cell fourteen distinct positions, and at a
+    /// comfortable size forty or more, which is past what the eye resolves as
+    /// steps.
+    pub fn falling_cell(&self, col: u8, row: u8, progress: u16) -> egui::Rect {
+        let down = u64::from(progress) * u64::from(self.cell) / u64::from(FALL_SCALE);
+        self.pixels(
+            self.origin[0] + i64::from((WELL + u32::from(col)) * self.cell),
+            self.origin[1] + i64::from((TOP + u32::from(row)) * self.cell) + down as i64,
+            self.cell,
+            self.cell,
+        )
     }
 
     /// The hold panel, when there is one (§G4.2).
@@ -373,6 +397,33 @@ mod tests {
         let retina = layout(26.0 * 20.0, 24.0 * 20.0, 2.0);
         assert_eq!(retina.cell_pixels(), 40);
         assert_eq!(retina.cell(), 20.0);
+    }
+
+    #[test]
+    fn a_falling_cell_slides_a_whole_row_in_whole_pixels() {
+        // §G6.5: 0 is exactly where the cell sits, 65535 is a hair short of the
+        // row below, and every step in between is whole physical pixels — the
+        // rule the rest of the metric is built under (§G3), applied to the one
+        // rect that deliberately does not sit on the grid.
+        for ppp in [1.0, 1.25, 1.5, 2.0] {
+            let layout = layout(728.0, 672.0, ppp);
+            let (here, below) = (layout.field_cell(3, 5), layout.field_cell(3, 6));
+            assert_eq!(layout.falling_cell(3, 5, 0), here, "0 does not move it");
+            assert_eq!(
+                layout.falling_cell(3, 5, u16::MAX).min.y,
+                below.min.y - 1.0 / ppp,
+                "65535 is one pixel short of the next row",
+            );
+            let mut previous = here.min.y;
+            for step in 0..=63u16 {
+                let rect = layout.falling_cell(3, 5, step * 1_024);
+                assert!(crisp(rect, ppp), "{ppp}: {rect:?}");
+                assert!(rect.min.y >= previous, "it only ever goes down");
+                assert_eq!(rect.width(), here.width(), "and stays a cell");
+                assert_eq!(rect.height(), here.height());
+                previous = rect.min.y;
+            }
+        }
     }
 
     #[test]
