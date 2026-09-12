@@ -1273,6 +1273,44 @@ reasoning is in G10's second half; it is a rule about the whole project, not a
 GUI preference, so it is stated once there and referenced from the
 [invariants](#invariants-the-front-ends-must-not-break).
 
+### What G9 found
+
+- **The well is composed now, not painted in passes.** The flash and the wipe
+  are *transformations of what is already in a cell* rather than things drawn
+  over it, and a painter has no way to go back and change a rect it has
+  already emitted. So `gui::playfield::compose` builds the field as colours
+  first and draws it once — which is the terminal's shape, arrived at from the
+  other end, and it is what makes every one of these animations a unit test
+  over a pure function rather than a count of shapes.
+- **`Cosmetics` is unchanged, and that constrained the drawing in a useful
+  way.** Two of the three gradients pixels allow are *spatial* — the trail's
+  fade and the wipe's soft front — so they come out of the geometry
+  `Cosmetics` already reports. The third, the clear flash, has only a boolean
+  to work with, and the answer is two strengths of one wash rather than a fade
+  it would have needed a new timer for. §G6.1 records which is which.
+- **The soft front cannot outlive the wipe.** Fading the four rows above the
+  front is right while the front is moving and wrong the moment it reaches the
+  floor: the bottom rows would keep a gradient §12.5 says settles on a grey
+  stack. `wipe_percent` takes the front's position, not a depth, for that one
+  reason — and the test that caught it is the one that asserts the settled
+  state, not the moving one.
+- **A percentage in a `u8` overflows at four rows**, which the same test found
+  a minute earlier. The wash arithmetic is deliberately in the same whole-percent
+  vocabulary as `shell::palette`'s brightness steps, so it is worth saying that
+  the *intermediate* wants a `u16`.
+- **Checked in a tab, with three of the six on camera.** The hard-drop trail
+  fading up the well behind the piece, the lock flash keeping the piece's hue,
+  and the game-over wipe caught mid-way with its gradient front, under §12.6's
+  box. The line-clear flash and the two banners were **not** photographed: a
+  scripted burst of keys cannot reliably clear a line, and the level-up banner
+  wants ten of them. They are held by the unit tests over `compose` and by the
+  size sweep, which now draws every animation at every size — and the lock
+  flash's wash, which is on camera, is the same wash the row flash uses.
+- **A tab that is not the frontmost window reports `document.hidden` and never
+  paints.** Recorded at G6, met again here; a headless Chrome over the DevTools
+  protocol is what this session used, with `--remote-allow-origins=*` (the
+  handshake is refused without it) and a device scale factor of 1.
+
 ---
 
 ## Stage G10 — Sub-cell gravity

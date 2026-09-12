@@ -16,10 +16,11 @@ rename and a feature gate, with no logic changed; G3 took the platform out from
 under the shell; G4 turned §15.2's loop inside out, so the shell is now *pumped*
 by a front-end rather than owning a `while`; G5 hung an `eframe` application on
 the pump; G6 compiled the same application for wasm and gave it a browser's
-four capabilities; G7 gave it the playing screen and G8 the boxes over it.
+four capabilities; G7 gave it the playing screen, G8 the boxes over it and G9
+§12.5's animations under them.
 
 **Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
-stages G0-G8 complete — milestone MG5. Start at G9.** All
+stages G0-G9 complete — milestone MG5. Start at G10.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -41,12 +42,14 @@ status line, `show_debug`'s read-out, the too-small message below a 14-point
 cell, and a pause forced whenever the window loses the keyboard. Over it are
 §G5's boxes: the pause menu, §9.17's countdown, game over, name entry, the
 Options panel (seven rows — §12.3's colour depth is the terminal's) and the
-controls table. What it does not have yet is §12.5's animations (G9) and the
-attract screen (G11). `make run-web` serves the same thing in a browser tab
-through trunk (`index.html`, `Trunk.toml`), with `?seed=N` in the URL for
-`--seed N`, scores in `localStorage`, and §16's warnings on the console.
-`GUI.md` §G1-§G5 and the web build's half of §G8 are written and normative;
-§G6, §G7 and §G9 are still reserved.
+controls table, and under them §G6's animations — the clear flash, the
+hard-drop trail, the lock flash, the two banners and the game-over wipe, all on
+the same `Cosmetics` the terminal reads. What it does not have yet is §G6's
+sub-cell gravity (G10) and the attract screen (G11). `make run-web` serves the
+same thing in a browser tab through trunk (`index.html`, `Trunk.toml`), with
+`?seed=N` in the URL for `--seed N`, scores in `localStorage`, and §16's
+warnings on the console. `GUI.md` §G1-§G6 and the web build's half of §G8 are
+written and normative; §G7 and §G9 are still reserved.
 
 `Game::tick(&TickInput, &mut Vec<GameEvent>)` is still the single entry point
 and `Game::view()` still the only way to see the result — with `Game::debug()`
@@ -67,7 +70,8 @@ crossterm adapter), `cli.rs` (§6.4's grammar), `term.rs` (§8.1-§8.3), `run.rs
 to the pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
 `overlays.rs` and `attract.rs` (§12, §13). `gui/` is the window: `app.rs`
 (`impl eframe::App`, the pump), `keys.rs` (the egui adapter), `layout.rs`
-(§G3's metric), `paint.rs` (colours and primitives), `playfield.rs` (§G4),
+(§G3's metric), `paint.rs` (colours and primitives), `playfield.rs` (§G4, and
+§G6's animations),
 `overlays.rs` (§G5),
 `query.rs` (§6.4 as a URL query string), `cli.rs` and `host_native.rs` for the
 desktop, and `host_web.rs` for a tab — `gui::host` is whichever one the target
@@ -77,7 +81,7 @@ and the batch-invariance canary is in CI.
 There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
-Start at G9. §18 remains out of scope and §19 remains a list of constraints to
+Start at G10. §18 remains out of scope and §19 remains a list of constraints to
 honour rather than a work item — see **Scope discipline** below.
 
 ## The §17.3 sign-off
@@ -141,7 +145,7 @@ several hundred doc comments, and each one would still *read* fine.
 | **`FTM.md`** | §1-§7, §9-§11, §12.7, §12.8, §14-§19 | The front-end-agnostic specification: rules, config, states, controls, the view model and the event stream, high scores, timing, errors, testing, §19. |
 | **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
 | **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
-| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; G6-G13 fill the rest stage by stage. |
+| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8 and §G6 by G9; G10-G13 fill the rest stage by stage. |
 
 An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
 owns. `§Gn` means `GUI.md`; a future `MACROQUAD.md` would take `§M`.
@@ -334,7 +338,19 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 
 - **§9.17's blank well is `Overlay::blanks`, not a front-end's `matches!`.**
   Both front-ends ask it. G5's scrim let the paused stack show through at a
-  quarter brightness, which was exactly the free look §9.17 forbids.
+  quarter brightness, which was exactly the free look §9.17 forbids. It gates
+  the *whole* of the window's composition, not each animation in turn — a
+  flash or a wipe that outlived the pause would be the same free look.
+
+- **A window's animations are transformations, not layers** (`GUI.md` §G6.2).
+  §12.5's flash and wipe change the colour a cell was already going to be
+  drawn, so `gui::playfield::compose` builds the well as colours and paints it
+  once; a painter cannot revisit a rect it has emitted. That is also what makes
+  each of them a unit test over a pure function. The timings and the triggers
+  stay `shell::cosmetics`', and **nothing in a front-end may ask `Cosmetics`
+  for a number the other one does not have** — the trail's fade and the wipe's
+  soft front come out of the geometry it already reports, and the clear flash's
+  two halves are two strengths of one wash because a boolean is all there is.
 
 - **The four capabilities are the front-end's, and three of them travel as
   `shell::host::Host`** (§3.1, `FRONTEND.md` F1-F4). Storage, the seed and the

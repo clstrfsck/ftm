@@ -32,6 +32,13 @@ pub const LABEL: egui::Color32 = egui::Color32::from_rgb(0x9A, 0x9A, 0xA6);
 /// Something that is not in force: a locked-out hold's label, a figure with
 /// nothing to say.
 pub const FAINT: egui::Color32 = egui::Color32::from_rgb(0x58, 0x58, 0x64);
+/// What the line-clear and lock flashes wash toward (§12.5, §G6.3). Not pure
+/// white: the screen's own text is `TEXT`, and a flash brighter than anything
+/// else on it reads as a hole rather than as a highlight.
+pub const FLASH: egui::Color32 = egui::Color32::from_rgb(0xF2, 0xF2, 0xF8);
+/// What the game-over wipe washes toward (§12.5, §G6.3): the stack draining of
+/// its colour, still clearly above the well's ground.
+pub const GREYED: egui::Color32 = egui::Color32::from_rgb(0x55, 0x55, 0x5E);
 
 /// §9.2's colour for a piece, through §12.3's levelled palette, at one of
 /// §12.3's brightness percentages.
@@ -43,6 +50,26 @@ pub fn piece(kind: PieceKind, percent: u8) -> egui::Color32 {
     let (r, g, b) = palette::levelled(kind.colour());
     let scale = |channel: u8| (u16::from(channel) * u16::from(percent.min(100)) / 100) as u8;
     egui::Color32::from_rgb(scale(r), scale(g), scale(b))
+}
+
+/// `colour` blended `percent` of the way toward `toward`.
+///
+/// What §12.5's animations are made of in a window (§G6.1): a terminal reaches
+/// for a *second colour* where a window can move part of the way to one, so a
+/// flash keeps the mino's hue and the wipe can have a soft edge. In the same
+/// whole-percent vocabulary as
+/// [`shell::palette`](crate::shell::palette)'s brightness steps, and for the
+/// same reason — a float here would be the only one on the screen.
+pub fn wash(colour: egui::Color32, toward: egui::Color32, percent: u8) -> egui::Color32 {
+    let percent = u16::from(percent.min(100));
+    let mix = |from: u8, to: u8| {
+        ((u16::from(from) * (100 - percent) + u16::from(to) * percent) / 100) as u8
+    };
+    egui::Color32::from_rgb(
+        mix(colour.r(), toward.r()),
+        mix(colour.g(), toward.g()),
+        mix(colour.b(), toward.b()),
+    )
 }
 
 /// One mino, filling `cell` less its gutter.

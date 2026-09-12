@@ -1,8 +1,8 @@
 # Falling Tetromino Manager — The egui Front-End
 
-**Version:** 0.4 — §G1-§G5 and the web build's half of §G8 are written;
-§G6, §G7 and §G9 are still reserved.
-**Date:** 2026-09-11
+**Version:** 0.5 — §G1-§G6 and the web build's half of §G8 are written;
+§G7 and §G9 are still reserved, and §G6's sub-cell half is `EGUI.md` G10's.
+**Date:** 2026-09-12
 **Companion to:** [FTM.md](FTM.md) (the specification),
 [FRONTEND.md](FRONTEND.md) (the contract every front-end is written against),
 [TUI.md](TUI.md) (the terminal front-end), [EGUI.md](EGUI.md) (the plan that
@@ -17,9 +17,10 @@ their own.
 **It is written stage by stage, not up front.** `EGUI.md`'s stages G5–G13 each
 name the section they fill, and each fills it in the same commit as the code.
 §G1 and §G2 were written by G5, §G8's web build by G6 — its `[gui]` table and
-the rest of its query parameters wait for G12 — §G3 and §G4 by G7, and §G5 by
-G8. The rest is still the namespace and the reservations below, deliberately, so
-that a `§G6` written in a doc comment during G9 has somewhere agreed to land.
+the rest of its query parameters wait for G12 — §G3 and §G4 by G7, §G5 by G8
+and §G6's animations by G9. The rest is still the namespace and the
+reservations below, deliberately, so that a `§G7` written in a doc comment
+during G11 has somewhere agreed to land.
 
 ## The `§G` namespace
 
@@ -38,7 +39,7 @@ that document owns. `§Gn` means this file.
 | G3 | Layout | `EGUI.md` G7 ✅ | The integer-cell metric, `LAYOUT_COLS` / `LAYOUT_ROWS`, the minimum `cell` and the too-small state below it (`FRONTEND.md` F6, §8.4). |
 | G4 | The playing screen | `EGUI.md` G7 ✅ | §12.4's information — field, hold, next, stats, status — drawn as pixels rather than characters, `show_debug`, and the pause that losing the keyboard forces. |
 | G5 | Overlays | `EGUI.md` G8 ✅ | §12.6's pause, game-over and name-entry boxes, and the §13.5 Options and §10.1 controls panels. |
-| G6 | Animations | `EGUI.md` G9, G10 | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
+| G6 | Animations | `EGUI.md` G9 ✅, G10 | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
 | G7 | The attract screen | `EGUI.md` G11 | §13's wordmark, menu, cycling panel and drifting background, laid out for a window rather than a 36 × 20 grid. |
 | G8 | The web build | `EGUI.md` G6 ✅, G12 | The canvas and its keyboard focus, `localStorage` for §6.2 and §14, URL query parameters in place of §6.4's flags, and the `[gui]` config table. |
 | G9 | Testing and acceptance | `EGUI.md` G13 | The headless `egui_kittest` render test, and **B1–B12**, this front-end's answer to §17.3's A1–A10. |
@@ -135,8 +136,8 @@ whatever else is on screen. At G5 it paused nothing; since G7 losing the keyboar
 pauses a game in progress (§G4.7).
 
 **G7 replaced the slice's screen** with §G3's layout and §G4's playing screen,
-and **G8 put §G5's boxes over it**. What is still to come is §G6's animations
-(G9, G10) and §G7's attract screen (G11).
+**G8 put §G5's boxes over it** and **G9 §G6's animations under them**. What is
+still to come is §G6's sub-cell gravity (G10) and §G7's attract screen (G11).
 
 ---
 
@@ -570,7 +571,114 @@ terminal's box names, is **not** shown: there is only the one path here (§G2.2)
 
 ---
 
-§G6 and §G7 are reserved for `EGUI.md` G9–G11 and are not yet written.
+## G6. Animations
+
+§12.5's six animations and §12.4's status line, drawn as pixels. Each is
+started by a `GameEvent` and timed by `shell::cosmetics::Cosmetics`, which sees
+the event stream and a clock and has no path to the core (§12.8) — so the
+durations, the triggers, and the fact that dropping every event changes nothing
+about the game are shared with the terminal and are not restated here.
+
+**`Cosmetics` is not changed by this section.** A window that needed a number
+the terminal's screen does not have would be amending §12.5 for both
+front-ends, and the first thing that would cost is the guarantee that the two
+agree about when an animation is over. Everything below is derived from what
+`Cosmetics` already reports.
+
+### G6.1 What pixels change
+
+A character cell has a foreground colour and little else, so §12.5's animations
+reach a terminal as a **second colour**. A window has alpha, and the same
+timings land softer for it:
+
+| | The terminal | The window |
+|---|---|---|
+| Line clear | white, then the piece's own colour, at 12 Hz | one wash toward white at two strengths, so the row pulses rather than blinks |
+| Hard drop | every trail cell at the ghost's brightness | a fade along the drop: brightest just above where the piece landed, almost gone at the top of it |
+| Lock | the cells white | the cells washed toward white, keeping their hue |
+| Level up | the banner in a faded style | the banner's alpha, and the band under it |
+| Game over | grey from the front row up | the same, with the rows just above the front part-greyed, so the front is a gradient and not a line |
+
+Where `Cosmetics` answers in two states — `flashing` is a boolean — the window
+draws the two states as two strengths of one wash rather than as two colours.
+Where its answer is spatial — the trail's cells, the wipe's row count — the
+gradient is computed from that geometry. Neither needs a timer the terminal
+does not have.
+
+### G6.2 The order the well is composed in
+
+Cell by cell, in the terminal's order and for the terminal's reasons (§12.5,
+§9.8):
+
+1. the well's ground, and `show_grid`'s tiles (§G4.1);
+2. the locked cells of `GameView::rows`;
+3. the hard-drop trail, **only where the well is empty** — a trail is behind
+   the stack, never over a mino that is really there;
+4. the lock flash, over the cells that have just locked;
+5. the ghost, and the falling piece over it;
+6. the line-clear flash, and then the game-over wipe.
+
+The last two are **transformations of what is already in a cell** rather than
+things drawn over it, so neither can hide a mino: a flashed cell is that cell's
+own colour washed toward white, and a greyed one is that cell's own colour on
+its way out.
+
+§9.17's blanking comes before all of it. A well the pause has emptied
+(`Overlay::blanks`) has nothing in it to animate, and steps 2 to 6 are skipped
+whole — an animation that outlived the pause would be exactly the free look at
+the stack §9.17 forbids. The banners are not in the well and are drawn either
+way: a level that arrived as the player hit pause is still worth telling them
+about.
+
+### G6.3 The six
+
+| Animation | §12.5 | The window |
+|---|---|---|
+| Line clear flash | `line_clear_delay_ms`, 12 Hz | every mino of a cleared row washed toward white — fully on one half of the alternation, two fifths of the way on the other. The rows are still there until the core collapses them, and the flash covers that pause exactly. |
+| Hard-drop trail | 120 ms | the cells the piece passed through, in the piece's own colour, fading along the drop from just under the ghost's brightness to almost nothing. Empty cells of the well only. |
+| Lock flash | 80 ms | the cells that locked, three quarters of the way to white, so the piece is still the colour it was. |
+| Level-up banner | 1.2 s | `LEVEL n` across the well, its alpha the fraction `Cosmetics` reports is left of it, on a band that fades with it. |
+| Perfect-clear banner | 1.5 s | `PERFECT CLEAR` in the piece colour `Cosmetics` cycles, on the same band. A perfect clear outranks the level-up it so often arrives with, which is `Cosmetics`' rule and not this screen's. |
+| Game-over wipe | 500 ms | the stack greys from the top row down, the rows just above the front part-greyed so the front reads as a gradient. It settles on a grey stack and stays, under §12.6's box. |
+
+§12.4's status line is the seventh thing `Cosmetics` drives and was drawn at
+G7: the most recent clear's name for its second and a half, and §10.1's restart
+bar in its place (§G4.5).
+
+**The banners are centred over the well**, drawn with the playing screen and
+therefore **under** anything §G5 puts over it — a box that opened while a
+banner was up dims the banner along with the rest of the well, because the box
+is what the player is answering. The band behind a banner is this front-end's
+own: a word in one of §9.2's seven colours over a stack in the other six is not
+reliably legible, and a window, unlike a terminal, cannot clear the row.
+
+### G6.4 There is no `animating()` here
+
+The terminal asks `Cosmetics::animating` because §15.2 step 5 draws only when
+the frame has changed, and an animation changes the frame without changing the
+view. This front-end makes no such comparison (§G1.3), and `Round::deadline` is
+inside a tick whether or not the game's clock is running — a paused game, a
+game-over box — so the repaint an animation needs is one that was going to
+happen anyway.
+
+That is also §12.5's "skipped rather than slowed", satisfied by construction:
+every animation here is a pure function of the moment `Cosmetics` was last
+given, so a frame that does not happen is a step that is not drawn, and nothing
+is left owing.
+
+### G6.5 What is reserved
+
+Sub-cell gravity — a falling piece drawn between two rows — is the other thing
+pixels allow, and it is a `GameView` question rather than a rendering one. It
+is `EGUI.md` G10's, and this section is where it will be written.
+
+Horizontal movement and rotation are **not** interpolated, here or there: a
+piece is where the rules say it is, and §19's second player has to see the same
+thing.
+
+---
+
+§G7 is reserved for `EGUI.md` G11 and is not yet written.
 
 ---
 
