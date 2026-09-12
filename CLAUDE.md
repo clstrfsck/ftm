@@ -755,9 +755,10 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **Two more shared answers left `tui/`**: `menus::controls` (§10.1's words and
   §13.3's gating rule) and `figures::pps`.
 - **The window-to-terminal handoff is proven by a test over the real file
-  store**, not by a person at a window: this session cannot drive the native
-  GUI. `native.rs` has the test; the acceptance check itself still wants a
-  human once.
+  store**, not by a person at a window: the session that built it could not
+  drive the native GUI. `native.rs` has the test. The acceptance check itself
+  wanted a human once, and **it has had one** — see the end of "What G10
+  settled".
 
 ## What G7 settled
 
@@ -823,10 +824,13 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **The native window has now been looked at, by a person**, after G10 — the
   first time any session's work on it has been seen running. The slide and the
   entering piece are right there too, which is what one would expect from shared
-  drawing code but had never actually been confirmed. Still unchecked by anyone:
-  §G8's window-to-terminal high-score handoff (play `ftm-gui` to a top out and
-  find the entry on `ftm`'s attract screen), which is a *different* check and is
-  still held only by `native.rs`'s test over the real file store.
+  drawing code but had never actually been confirmed.
+- **§G8's window-to-terminal high-score handoff has been checked too**, by the
+  same person and at the same time: a top out in `ftm-gui` reaches `ftm`'s
+  attract screen. That was the last thing in this front-end held only by a test
+  standing in for a human, and it is not outstanding any more. §6.2's one config
+  file and §14's one table between the two binaries (`src/native.rs`) have now
+  been seen working end to end, not just asserted.
 
 ---
 
