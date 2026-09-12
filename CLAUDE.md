@@ -875,7 +875,15 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - **A canvas that is not the visible tab is never painted**, so the attract
   screen came up blank on first load and appeared the moment a key was pressed.
   That is G6's recorded trap, not a bug: `App::logic` runs and `App::ui` does
-  not. Worth remembering before debugging a renderer that works.
+  not. Worth remembering before debugging a renderer that works. It bit twice:
+  the second time the tab would not paint at all, and the fix that needed
+  looking at had to be checked by a person at the native window instead.
+- **The native window's attract screen has been seen, by a person**, and it
+  found two things a test had not: the menu sat 0.4 of a cell right of centre,
+  and a panel face shorter than four rows sat against the top of the panel
+  where the terminal centres it. Both are fixed, and both now have a test that
+  measures where the text actually landed — which is the shape this front-end's
+  layout regressions want, since nothing else in the tree can see them.
 
 ---
 

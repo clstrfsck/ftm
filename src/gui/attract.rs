@@ -331,20 +331,32 @@ fn face(painter: &egui::Painter, layout: &Layout, state: &Attract, cx: &Context)
     let cell = layout.cell();
     let panel = layout.cells(1, PANEL_ROW, PANEL_COLS, PANEL_ROWS);
     painter.rect_filled(panel, cell * 0.2, paint::PANEL);
-    let rows: Vec<egui::Rect> = (0..FACE_ROWS)
-        .map(|index| {
-            egui::Rect::from_min_size(
-                egui::pos2(
-                    panel.left() + cell * 0.5,
-                    panel.top() + cell * (1.0 + index as f32),
-                ),
-                egui::vec2(panel.width() - cell, cell),
-            )
-        })
-        .collect();
+    // A face with fewer rows than the panel is **centred in it**, as the
+    // terminal's is, rather than sitting against the top: the summary is three
+    // rows when 180 rotation is off and four when it is on, and a panel that
+    // filled from the top would look like it had lost something.
+    let rows = |used: usize| -> Vec<egui::Rect> {
+        let top = panel.top() + cell * (1.0 + (FACE_ROWS - used.min(FACE_ROWS)) as f32 / 2.0);
+        (0..used)
+            .map(|index| {
+                egui::Rect::from_min_size(
+                    egui::pos2(panel.left() + cell * 0.5, top + cell * index as f32),
+                    egui::vec2(panel.width() - cell, cell),
+                )
+            })
+            .collect()
+    };
     match state.face() % 3 {
-        0 => control_summary(painter, layout, &rows, cx),
-        1 => top_three(painter, layout, &rows, cx),
+        0 => {
+            let entries = summary(cx.config);
+            control_summary(painter, layout, &rows(entries.len().div_ceil(2)), &entries);
+        }
+        1 => top_three(
+            painter,
+            layout,
+            &rows(cx.scores.top(3).len().max(1) + 1),
+            cx,
+        ),
         _ => {
             // One line, in the middle of the panel.
             let reminder = REMINDERS[state.face() / 3 % REMINDERS.len()];
@@ -370,7 +382,7 @@ fn face(painter: &egui::Painter, layout: &Layout, state: &Attract, cx: &Context)
 /// keys with arrows, and a window has no guarantee that its fonts carry them
 /// (§G5.1). The *rule* — which entries are listed at all — is §13.3's, and both
 /// front-ends apply it to their own words.
-fn control_summary(painter: &egui::Painter, layout: &Layout, rows: &[egui::Rect], cx: &Context) {
+fn summary(config: &ConfigFile) -> Vec<(&'static str, &'static str)> {
     let mut entries: Vec<(&str, &str)> = vec![
         ("Left / Right", "move"),
         ("Up", "rotate"),
@@ -378,12 +390,22 @@ fn control_summary(painter: &egui::Painter, layout: &Layout, rows: &[egui::Rect]
         ("Space", "hard drop"),
         ("Z", "rotate ccw"),
     ];
-    if cx.config.gameplay.allow_180_rotation {
+    if config.gameplay.allow_180_rotation {
         entries.push(("A", "rotate 180"));
     }
-    if cx.config.gameplay.hold_enabled {
+    if config.gameplay.hold_enabled {
         entries.push(("C", "hold"));
     }
+    entries
+}
+
+/// The summary, set out two entries to a row.
+fn control_summary(
+    painter: &egui::Painter,
+    layout: &Layout,
+    rows: &[egui::Rect],
+    entries: &[(&str, &str)],
+) {
     let cell = layout.cell();
     for (index, (key, label)) in entries.iter().enumerate() {
         let Some(row) = rows.get(index / 2) else {
@@ -693,6 +715,41 @@ mod tests {
         let off = drawn(&ctx, &config, &scores, 0, None);
         assert!(!off.contains(&"hold".to_string()), "{off:?}");
         assert!(!off.contains(&"rotate 180".to_string()), "{off:?}");
+    }
+
+    #[test]
+    fn the_panel_centres_a_face_that_is_short_of_rows() {
+        // §13.3's panel is four rows and every face is shorter than that at
+        // some setting: the summary is four rows with everything turned on and
+        // three with 180 rotation off, and the high-score face is two when the
+        // table is empty. A face that filled from the top would look like it
+        // had lost a row. The terminal centres its faces for the same reason.
+        let ctx = egui::Context::default();
+        let scores = Table::default();
+        let layout = layout(728.0, 672.0, 1.0);
+        let panel = layout.cells(1, PANEL_ROW, PANEL_COLS, PANEL_ROWS);
+        for rotate_180 in [true, false] {
+            let mut config = ConfigFile::default();
+            config.gameplay.allow_180_rotation = rotate_180;
+            let labels: Vec<&str> = summary(&config).iter().map(|(_, word)| *word).collect();
+            let drawn = placed(&ctx, &config, &scores, 0, None);
+            let rows: Vec<egui::Rect> = drawn
+                .iter()
+                .filter(|(text, _)| labels.contains(&text.as_str()))
+                .map(|(_, rect)| *rect)
+                .collect();
+            assert_eq!(rows.len(), labels.len(), "{drawn:?}");
+            let top = rows.iter().map(|r| r.top()).fold(f32::MAX, f32::min);
+            let bottom = rows.iter().map(|r| r.bottom()).fold(f32::MIN, f32::max);
+            assert!(
+                ((top + bottom) / 2.0 - panel.center().y).abs() <= 1.0,
+                "{} entries sit at {}..{} in a panel centred on {}",
+                labels.len(),
+                top,
+                bottom,
+                panel.center().y,
+            );
+        }
     }
 
     #[test]

@@ -862,7 +862,11 @@ well and its walls.
 The **panel** is a rounded rect on the panels' own ground, four rows inside it,
 and it holds §13.3's three faces: the quick control summary, the top three
 under a heading, and one of §13.3's reminders. The cycle, and its pause while a
-menu item other than **PLAY** is selected, are the state machine's.
+menu item other than **PLAY** is selected, are the state machine's. A face
+shorter than four rows is **centred in the panel**, as the terminal's is: every
+face is short of four at some setting — the summary is three rows with 180°
+rotation off, the high-score face two with an empty table — and one that filled
+from the top would read as a panel that had lost a row.
 
 The control summary's *words* are this front-end's, and it is the one place
 §13.3's panel differs between the two. The terminal names the movement keys
