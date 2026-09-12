@@ -87,7 +87,7 @@ Section numbers remain stable across these documents. If the implementation
 and specification differ, the specification must be amended rather than
 silently ignored.
 
-[PLAN.md](spec/PLAN.md) records the completed twelve-stage implementation of
+[TERMINAL.md](spec/TERMINAL.md) records the completed twelve-stage implementation of
 the original terminal game. [EGUI.md](spec/EGUI.md) tracks the work that added
 the native and browser front-ends.
 

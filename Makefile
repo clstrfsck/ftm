@@ -1,7 +1,7 @@
 # The single source of truth for what "clean" means. CI runs `make check` and
 # nothing else (.github/workflows/ci.yml), so a step added here is a step CI
 # picks up; there is no second list to keep in sync. `make check` must be clean
-# at every stage boundary of PLAN.md and EGUI.md, not just at the end.
+# at every stage boundary of TERMINAL.md and EGUI.md, not just at the end.
 #
 # `--all-features` everywhere, and this is not optional: since EGUI.md G2 the
 # front-ends are behind features, and a bare `cargo test` builds only the `tui`

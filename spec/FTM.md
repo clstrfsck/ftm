@@ -283,12 +283,13 @@ ftm/
 ├── Cargo.toml            # features: tui (default), gui; one [[bin]] each
 ├── Trunk.toml            # the web build
 ├── index.html            # the web build's shell page
-├── FTM.md                # this document: the front-end-agnostic specification
-├── FRONTEND.md           # the contract every front-end is written against
-├── TUI.md                # the terminal front-end (§8, §12.1–§12.6, §13)
-├── GUI.md                # the egui front-end, native and web (§G)
-├── PLAN.md               # the twelve stages that built v1.0
-├── EGUI.md               # the front-end plan, stages G0–G13
+├── spec/                 # every document, and nothing else
+│   ├── FTM.md            # this document: the front-end-agnostic specification
+│   ├── FRONTEND.md       # the contract every front-end is written against
+│   ├── TUI.md            # the terminal front-end (§8, §12.1–§12.6, §13)
+│   ├── GUI.md            # the egui front-end, native and web (§G)
+│   ├── TERMINAL.md       # the twelve stages that built v1.0
+│   └── EGUI.md           # the front-end plan, stages G0–G13
 ├── README.md
 ├── tests/                # integration tests (§17.2), driven through lib.rs
 └── src/
@@ -1882,7 +1883,7 @@ Acceptance is per front-end, because most of it is about a screen and a keyboard
 §17.1 and §17.2 above are shared and are the precondition for both lists.
 
 - **A1–A10 — the terminal front-end.** Moved to [`TUI.md`](TUI.md) §17.3, keeping
-  the number. Signed off at `PLAN.md` Stage 12.
+  the number. Signed off at `TERMINAL.md` Stage 12.
 - **B1–B12 — the egui front-end**, native and web. `GUI.md` §G9, checked one by
   one the way A1–A10 were.
 

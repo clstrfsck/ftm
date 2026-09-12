@@ -23,7 +23,7 @@ a falling piece is drawn between two rows, and enters the well rather than
 appearing in it — and G11 §13's attract screen beside the game, which is what
 turned §13's *words* from the terminal's into everyone's.
 
-**Status: Stage 12 of `PLAN.md` complete — milestone M4, accepted; `EGUI.md`
+**Status: Stage 12 of `TERMINAL.md` complete — milestone M4, accepted; `EGUI.md`
 stages G0-G11 complete. Start at G12.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
@@ -88,7 +88,7 @@ desktop, and `host_web.rs` for a tab — `gui::host` is whichever one the target
 has, so `app.rs` never asks. T1-T17 all pass, plus I1-I4 and `tests/pump.rs`,
 and the batch-invariance canary is in CI.
 
-There is no Stage 13 of `PLAN.md`, and there will not be: that plan is
+There is no Stage 13 of `TERMINAL.md`, and there will not be: that plan is
 finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
 Start at G12. §18 remains out of scope and §19 remains a list of constraints to
@@ -139,7 +139,7 @@ where it is kept, not what it is called.
    are what the rest of it follows from.
 2. **The specification**, in whichever of the four documents below owns the
    sections the current stage names. Read those sections, not the whole thing.
-3. **`PLAN.md`** — the twelve stages that built v1.0. History, not instructions.
+3. **`TERMINAL.md`** — the twelve stages that built v1.0. History, not instructions.
    Worth reading when you want to know why something is the shape it is.
 
 The specification is ground truth. **If the code and the spec disagree, the
@@ -476,7 +476,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 
 ## Working agreements
 
-- Tests land **with** their stage, not after it. `PLAN.md` maps every test in §17
+- Tests land **with** their stage, not after it. `TERMINAL.md` maps every test in §17
   to an owning stage.
 - `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` all clean at
   every stage boundary.

@@ -590,7 +590,7 @@ egui front-end's are B1–B12 in `GUI.md` §G9, and are checked one by one the w
 these were. §17.1 and §17.2 — the core unit tests and the integration tests —
 stay in `FTM.md` and are not front-end-specific.
 
-A1–A10 were signed off at `PLAN.md` Stage 12; `CLAUDE.md` records how each was
+A1–A10 were signed off at `TERMINAL.md` Stage 12; `CLAUDE.md` records how each was
 checked and what two of them turned up.
 
 The terminal front-end is complete when:
