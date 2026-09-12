@@ -23,18 +23,34 @@ core that knows nothing about the terminal it is drawn on. Pieces fall on a
 fixed 60 Hz tick, so the same seed and the same inputs always produce the same
 game.
 
-<p align="center">
-  <img src="ftm.png" alt="FTM in attract mode" />
-</p>
-
-<p align="center">
-  <img src="ftm-game.png" alt="FTM in game mode" />
-</p>
+<table>
+  <tr>
+    <td align="center">
+      <img src="images/ftm-console.png" alt="FTM console attract screen" width="400"><br>
+      <sub><b>FTM console attract screen</b></sub>
+    </td>
+    <td align="center">
+      <img src="images/ftm-console-game.png" alt="FTM console game mode" width="400"><br>
+      <sub><b>FTM console game mode</b></sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="images/ftm-egui.png" alt="FTM egui attract screen" width="400"><br>
+      <sub><b>FTM egui attract screen</b></sub>
+    </td>
+    <td align="center">
+      <img src="images/ftm-egui-game.png" alt="FTM egui game mode" width="400"><br>
+      <sub><b>FTM egui game mode</b></sub>
+    </td>
+  </tr>
+</table>
 
 ```
-cargo run --release            # play it
-cargo run -- --help            # the options
-cargo run -- --print-config    # the effective configuration
+make run                     # play it (console)
+make run-gui                 # play it (egui)
+cargo run -- --help          # the options (console)
+cargo run -- --print-config  # the effective configuration (console)
 ```
 
 Settings live in `config.toml` under the platform config directory
