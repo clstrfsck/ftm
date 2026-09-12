@@ -207,6 +207,15 @@ pub fn report(warnings: &[String]) {
     }
 }
 
+/// `GUI.md` §G8.10: nothing to remember, because there is no window.
+///
+/// A canvas is the size the page gives it, wherever the page happens to be,
+/// and neither is the game's to keep. The two rows of `[gui]` a tab *does*
+/// honour — the scale and the frame cap — are read where they are applied and
+/// need no write-back. It exists so that `gui/app.rs` says the same thing on
+/// both hosts (§G8.1), which is the same reason [`report`] does.
+pub fn remember(_gui: &mut crate::shell::config::GuiSettings, _ctx: &egui::Context) {}
+
 /// The page's query string, `?` and all — what [`query::overrides`] reads
 /// §6.4's flags from (§G8.4).
 ///

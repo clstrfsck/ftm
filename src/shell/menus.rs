@@ -176,6 +176,12 @@ pub enum Setting {
     LockDown,
     Colour,
     Grid,
+    /// `GUI.md` §G8.10's interface scale. A window's, and a canvas's.
+    Scale,
+    /// `GUI.md` §G8.10's `fullscreen`. A window's alone: a canvas fills the
+    /// page it is on, and the browser's own full-screen mode needs a gesture
+    /// the game has no pointer path for (§1.2).
+    Fullscreen,
 }
 
 impl Setting {
@@ -195,13 +201,13 @@ impl Setting {
     ///
     /// [`Setting::Colour`] is §12.3's colour depth and is the terminal's alone —
     /// a window has no depths, no `mono` and no `$NO_COLOR` (`GUI.md`, "What
-    /// does not carry over"). A panel must offer what it can actually apply, so
-    /// which list a front-end navigates is its own answer, carried on
+    /// does not carry over") — and the last three are the window's. A panel must
+    /// offer what it can actually apply, so which list a front-end navigates is
+    /// its own answer, carried on
     /// [`Session::settings`](crate::shell::session::Session::settings).
     ///
-    /// This is the small half of the split `EGUI-PLAN.md` G12 finishes, when
-    /// the `[gui]` table gives the window items of its own to put in
-    /// `Colour`'s place. Until then the window's panel is this list exactly.
+    /// Nothing sets this list on its own: it is the intersection the other three
+    /// are built from, and it is what a fourth front-end starts from.
     pub const SHARED: [Setting; 7] = [
         Setting::Preview,
         Setting::StartLevel,
@@ -210,6 +216,35 @@ impl Setting {
         Setting::Rotate180,
         Setting::LockDown,
         Setting::Grid,
+    ];
+
+    /// The native window's rows: the shared seven, then `[gui]`'s two
+    /// (`GUI.md` §G5.4, §G8.10, §G8.11).
+    pub const WINDOW: [Setting; 9] = [
+        Setting::Preview,
+        Setting::StartLevel,
+        Setting::Ghost,
+        Setting::Hold,
+        Setting::Rotate180,
+        Setting::LockDown,
+        Setting::Grid,
+        Setting::Scale,
+        Setting::Fullscreen,
+    ];
+
+    /// A browser tab's rows: the shared seven and the scale.
+    ///
+    /// The one row the two window builds differ by, for the same reason
+    /// [`MenuChoice::NO_QUIT`] exists — a tab cannot do it.
+    pub const CANVAS: [Setting; 8] = [
+        Setting::Preview,
+        Setting::StartLevel,
+        Setting::Ghost,
+        Setting::Hold,
+        Setting::Rotate180,
+        Setting::LockDown,
+        Setting::Grid,
+        Setting::Scale,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -222,6 +257,8 @@ impl Setting {
             Setting::LockDown => "Lock down",
             Setting::Colour => "Colour",
             Setting::Grid => "Grid",
+            Setting::Scale => "Scale",
+            Setting::Fullscreen => "Full screen",
         }
     }
 
@@ -249,6 +286,8 @@ impl Setting {
             }
             .to_string(),
             Setting::Grid => switch(file.display.show_grid),
+            Setting::Scale => format!("{}%", file.gui.scale_percent),
+            Setting::Fullscreen => switch(file.gui.fullscreen),
         }
     }
 
@@ -288,6 +327,17 @@ impl Setting {
                 file.display.color_depth = cycle(&DEPTHS, file.display.color_depth, forward);
             }
             Setting::Grid => file.display.show_grid = !file.display.show_grid,
+            Setting::Scale => {
+                // Steps rather than `range::SCALE_PERCENT` one per cent: the
+                // panel is walked a keystroke at a time, and 250 presses to
+                // cross the range is not a setting anyone would change here.
+                // Every step is in the range the loader clamps to, so a value
+                // the file asked for that is not on the list joins it at the
+                // first press (`cycle` takes the head).
+                const STEPS: [u32; 9] = [50, 75, 100, 125, 150, 175, 200, 250, 300];
+                file.gui.scale_percent = cycle(&STEPS, file.gui.scale_percent, forward);
+            }
+            Setting::Fullscreen => file.gui.fullscreen = !file.gui.fullscreen,
         }
     }
 }
@@ -393,8 +443,8 @@ impl MenuChoice {
     /// Which list a front-end shows is its own answer, carried on
     /// [`Session::menu`](crate::shell::session::Session::menu) — and the screen
     /// and the shell walk that same list, exactly as they do
-    /// [`Setting::SHARED`], so the cursor can never land on an item nobody can
-    /// see.
+    /// [`Setting::WINDOW`] and [`Setting::CANVAS`], so the cursor can never land
+    /// on an item nobody can see.
     pub const NO_QUIT: [MenuChoice; 4] = [
         MenuChoice::Play,
         MenuChoice::HighScores,

@@ -10,10 +10,17 @@
 //! and §6.2 makes where the bytes live the front-end's question; `--print-config`
 //! is a thing to do instead of playing, and §8.1 does it before the terminal is
 //! ever opened.
+//!
+//! One flag here is a *terminal's* rather than shared: `--color` is §12.3's
+//! colour depth and there is none off a character grid, so `gui/cli.rs` has no
+//! such flag (`GUI.md` §G8.11). What both binaries do share — the spelling of
+//! `--lock-down`'s three values, and of `--color`'s five — is in `src/argv.rs`,
+//! beside `src/native.rs`, because §6.2 gives them one config file to write
+//! those words into.
 
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 
 use crate::shell::config::{ColorDepth, LockDownRule, Overrides};
 
@@ -83,53 +90,13 @@ impl Cli {
             rot180: Overrides::paired(self.rot180, self.no_rot180),
             lock_down: self.lock_down,
             color: self.color,
+            // `GUI.md` §G8.10's table is the window's, and a terminal has no
+            // flag for it (§G8.11): it preserves those settings in the file
+            // (§6.2) and never overrides them for a run.
+            scale: None,
+            fullscreen: None,
             seed: self.seed,
         }
-    }
-}
-
-// `ValueEnum` is written out rather than derived, because the two types are the
-// shell's and `clap` is not: `--lock-down` is a §6.4 spelling of a §6.3 value,
-// and the spelling is the front-end's half. Both lists are the §6.3 tables,
-// which is also what `config::document` writes into the commented file.
-
-impl ValueEnum for LockDownRule {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[
-            LockDownRule::Extended,
-            LockDownRule::Infinite,
-            LockDownRule::Classic,
-        ]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        Some(clap::builder::PossibleValue::new(match self {
-            LockDownRule::Extended => "extended",
-            LockDownRule::Infinite => "infinite",
-            LockDownRule::Classic => "classic",
-        }))
-    }
-}
-
-impl ValueEnum for ColorDepth {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[
-            ColorDepth::Auto,
-            ColorDepth::Truecolor,
-            ColorDepth::Ansi256,
-            ColorDepth::Ansi16,
-            ColorDepth::Mono,
-        ]
-    }
-
-    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
-        Some(clap::builder::PossibleValue::new(match self {
-            ColorDepth::Auto => "auto",
-            ColorDepth::Truecolor => "truecolor",
-            ColorDepth::Ansi256 => "256",
-            ColorDepth::Ansi16 => "16",
-            ColorDepth::Mono => "mono",
-        }))
     }
 }
 

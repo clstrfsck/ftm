@@ -57,20 +57,39 @@ use crate::shell::session::Session;
 /// warnings afterwards — the window's equivalent of §8.3's "after teardown".
 #[cfg(not(target_arch = "wasm32"))]
 pub fn run(session: &mut Session<'_>) -> eframe::Result {
-    // §G5: this front-end's Options panel offers the shared rows and not
-    // §12.3's colour depth, which means nothing in a window. Said once, here,
-    // because it is a property of the front-end rather than of a game.
-    session.settings = &Setting::SHARED;
+    // §G5.4: this front-end's Options panel offers the shared rows, not
+    // §12.3's colour depth — which means nothing in a window — and §G8.10's
+    // scale and full screen, which mean nothing anywhere else. Said once,
+    // here, because it is a property of the front-end rather than of a game.
+    session.settings = &Setting::WINDOW;
     // F1: the clock starts here, and it is the front-end's, so every `Stamp`
     // in the run is measured from one origin.
     let clock = Clock::new();
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(TITLE)
-            .with_inner_size(layout::INITIAL_SIZE)
-            .with_app_id("ftm"),
+    // §G8.10: the window opens where and how the file says. Everything here is
+    // a *start-up* answer — where a window opens is not something the Options
+    // panel can change under it — except `fullscreen`, which `Gui` also applies
+    // while it runs, because that one the panel does offer.
+    let gui = &session.config.gui;
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title(TITLE)
+        .with_inner_size([gui.window_width as f32, gui.window_height as f32])
+        .with_fullscreen(gui.fullscreen)
+        .with_app_id("ftm");
+    if let (Some(x), Some(y)) = (gui.window_x, gui.window_y) {
+        viewport = viewport.with_position([x as f32, y as f32]);
+    }
+    let mut options = eframe::NativeOptions {
+        viewport,
         ..Default::default()
     };
+    // `vsync` is the renderer's rather than the window's, and `GUI.md` §G1.1
+    // pins the renderer: `glow`, so it lives under `glow_options`. Set by
+    // assignment rather than in the literal above, because naming its type
+    // would mean naming `egui_glow`, which §3's table does not list — it is
+    // `eframe`'s own dependency and moves with its pin. It is a start-up
+    // answer either way: a swap interval is chosen when the surface is made,
+    // so it is not a row the §13.5 panel can offer (§G8.11).
+    options.glow_options.vsync = gui.vsync;
     // `run_native` takes a non-`'static` app, which is what lets `Gui` borrow
     // the session rather than swallowing it.
     eframe::run_native(
@@ -107,8 +126,10 @@ pub const STATUS_ID: &str = "status";
 pub fn start(runner: eframe::WebRunner, session: &'static mut Session<'static>) {
     use wasm_bindgen::JsCast as _;
 
-    // §G5, as natively: the panel offers the shared rows.
-    session.settings = &Setting::SHARED;
+    // §G5.4, as natively — less one row. A canvas fills the page it is on and
+    // the browser's own full-screen mode wants a gesture §1.2 has no path for,
+    // so §G8.10's `fullscreen` is not offered here (§G8.11). The scale is.
+    session.settings = &Setting::CANVAS;
     // §13.3, §G8.1: and the menu offers four items rather than five. A tab
     // cannot close itself — `window.close()` is refused to a page the player
     // opened — so **QUIT** here would be an item that did nothing. The shell

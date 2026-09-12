@@ -3,7 +3,7 @@
 **Companion to:** [FTM.md](FTM.md) (the specification), [TERMINAL-PLAN.md](TERMINAL-PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
-**Status:** G0–G10 complete (**MG5**); G11 next.
+**Status:** G0–G12 complete (**MG6**); G13 next.
 
 This plan adds a second and a third front-end to FTM — a native windowed GUI on
 `egui` / `eframe`, and the same GUI built for the browser as WebAssembly — and
@@ -403,7 +403,7 @@ keeps a stub for each moved section reading, e.g., *"§12 — Rendering. Moved t
 | §12.7 (view model), §12.8 (event stream) | `FTM.md` | **The front-end contract.** These stay put precisely because they are what a front-end is written against. §12.1–§12.6 leave around them; the stubs say so. |
 | — | `FRONTEND.md` | **New, and the document a fourth front-end reads first.** What a front-end must provide (the four capabilities of G3, a key event stream, a draw surface), what it may assume, and what it must never do — reach into `core`, own the tick rate, or read a clock the shell has not been told about. It is a short document and it is the one that makes "add a front-end" a bounded task. |
 | §8 (terminal handling), §12.1–§12.6, §13 | `TUI.md` | Raw mode, the alternate screen, keyboard-enhancement flags, the 60 × 24 minimum, cell glyphs, colour depth, the 44 × 23 layout, the character-grid attract screen. |
-| §6.3's `[display]` table | `TUI.md` | `cell_filled`, `cell_empty`, `cell_ghost`, `color_depth` are meaningless off a terminal. `show_grid` and `show_debug` are *shared* and stay in `FTM.md` — see G12. |
+| §6.3's `[display]` table | `TUI.md` | `cell_filled`, `cell_empty`, `cell_ghost`, `color_depth` are meaningless off a terminal. `show_grid` and `show_debug` are *shared* and stay in `FTM.md`. G12 finished this and added its mirror image: `GUI.md` §G8.10's `[gui]` table, meaningless on one. |
 | §17.3's A1–A10 | `TUI.md` | They are terminal acceptance criteria and always were. B1–B12 are `GUI.md`'s. |
 | §G1– | `GUI.md` | New. Written stage by stage, not up front. Covers both the native and the web build, with the differences called out in place rather than in a separate document — they are the same code. |
 
@@ -1676,6 +1676,55 @@ binary loses the other's settings.
 
 **MG6.**
 
+### What it settled
+
+- **`[gui]` is nine keys, and `GUI.md` §G8.10 is normative for them.** Window
+  size and place, `remember_window`, `scale_percent`, `fullscreen`, `vsync` and
+  `frame_cap`. Four take effect at start-up and four while the window runs;
+  §G8.10's table says which, because the difference is not guessable from the
+  key's name — `vsync` cannot be an Options row, since a swap interval is
+  chosen when the surface is made.
+- **`frame_cap` caps drawing and never the game.** It is a floor under §15.2
+  step 6's deadline, so a capped window plays several ticks per repaint and
+  plays the same game. That is cadence invariance reached from a *setting*
+  rather than from a slow compositor, and it is why the property `tests/pump.rs`
+  pins was worth pinning.
+- **`remember_window` remembers size and place, and deliberately not
+  `fullscreen`.** Full screen is a thing the player *chose* — in the file or in
+  the panel — and `--fullscreen` is a flag, which §6.1 never writes back;
+  observing it would turn one run's flag into a permanent setting. The
+  write-back happens only when something moved, so an ordinary run does not
+  rewrite the config, and a run over a read-only one does not add §16's warning
+  to every exit.
+- **The plan said `Setting::ALL` splits in two; it splits in four.** `SHARED` is
+  the intersection and is what a fourth front-end starts from; `ALL`, `WINDOW`
+  and `CANVAS` are the three lists actually navigated. A browser tab has no
+  full-screen row for the same reason it has no **QUIT**.
+- **`--print-config` is shared, and that was not obvious.** The plan listed it
+  as shared and `gui/cli.rs` had a comment saying a window does not ask the
+  question. The plan was right: what it prints is the whole document, `[gui]`
+  and `[display]` alike, and the player comparing what the two binaries
+  resolved from one file is exactly who asks for it.
+- **`clap`'s `ValueEnum` impls had to leave `tui/cli.rs`.** Both native
+  binaries take `--lock-down`, and an impl behind `feature = "tui"` is not
+  there for a `--features gui` build. They are `src/argv.rs` now, beside
+  `src/native.rs` and behind the same gate, for the same reason: an argv is a
+  desktop capability, and the *spelling* of a §6.3 value is shared between the
+  two binaries that write one file. This amends the invariant in `CLAUDE.md`
+  that had them "beside the flags".
+- **`vsync` is `glow_options.vsync`, not a `NativeOptions` field**, in `eframe`
+  0.36 — the renderer's rather than the window's. It is set by assignment
+  rather than in the struct literal, because naming its type means naming
+  `egui_glow`, which §3's table does not list.
+- **Two §16 warnings named a directory a tab has not got**, which §G8.3 had
+  already flagged as this stage's to reword. They say *nowhere to keep the
+  settings / the scores on this platform* now. The shell does not know where
+  the bytes were going (§3.1), so it should never have said.
+- **A URL is edited by hand, and the query grammar had to admit it.** A flag
+  parameter takes five spellings for "on" and four for "off" (§G8.4). A command
+  line has only "written or not written"; someone turning a shared link's
+  setting off will reach for `=0` before they will delete the parameter.
+
 ---
 
 ## Stage G13 — Testing, CI and acceptance
@@ -1897,8 +1946,11 @@ for no benefit.
 | `Session::settings` | G8 | New, in `tests/pump.rs`. The panel offers what the front-end can apply, and the cursor stays inside that list. |
 | Every overlay, headless | G8 | New, in `gui/playfield.rs`. All six drawn at every size, and `overlays::rect_of` asserted to fit inside the block. |
 | The shared §14 table | G8 | New, in `native.rs`. A score one run files is read by the next through the real file store — the two native binaries' half of G8's acceptance. |
-| Config round-trip preservation | G12 | New. Every direction. The data-loss guard. |
-| Query-parameter precedence | G12 | New. §6.1, on the web build. |
+| Config round-trip preservation | G12 | New, in `shell/config.rs`. Every direction, compared **byte for byte within each table** — a save that reflowed the other front-end's half would be the same loss one step removed. Plus the panel case: one shared setting edited, every foreign key intact. |
+| Query-parameter precedence | G12 | New, in `gui/query.rs`. §6.1 over a stored document, with the same clamping and the same warnings as the flags it mirrors, and the seed rule reached from a third build. |
+| §G8.11's flag table | G12 | New, in `gui/cli.rs` and `gui/query.rs`, in both directions: `FLAGS` against clap's own grammar, `PARAMETERS` against `FLAGS`, and every shared flag parsed both ways and compared as `Overrides`. |
+| `[gui]`'s defaults against §G3 | G12 | New, in `gui/layout.rs`. The shell holds the default window size and may not name a front-end's module; this is the join that stops it drifting from `INITIAL_SIZE`. |
+| `keep_window` | G12 | New, in `gui/host_native.rs`. Moved, unmoved, `remember_window` off, and — the one that matters — a run with `--scale` and `--fullscreen` whose geometry is written back without them. |
 | `fall_progress` behaviour | G10 | New. Zero when landed, resets on the row change, well-defined above 1 G. |
 | §19.4 canary + I1 snapshot | G10 | **Unchanged, and that is the assertion.** A snapshot that moves means the new field was computed from the wrong state, or that a rule started reading it. |
 | `tests/gui_render.rs` | G13 | New. The GUI's I4, via `egui_kittest`, headless. |
@@ -1916,7 +1968,7 @@ for no benefit.
 | **Tick/frame coupling.** The easy GUI bug: advancing by frame time, or once per repaint. | G5 onward. | `ticks_due` is the only path; the invariance test runs at several cadences; B8 checks it on real hardware and in a real tab. |
 | **The browser swallows the game's keys.** `Space` scrolls, `Tab` moves focus, the canvas never had focus. | G6, and every web build after. | `GUI.md` §G8.2 makes canvas focus normative, and G6 found `eframe` does not focus the canvas itself; B11 is a dedicated acceptance criterion, because this defect is invisible in every native test. |
 | ~~**A 32-bit target plays a different game.**~~ **Found and retired at G6**: `SmallRng` is another generator on wasm32. | — | §9.6 names the generator; a `const` assertion in `make portable` holds it, because no test on a 64-bit host can. |
-| **Config data loss between binaries.** | G12, in the field. | Round-trip preservation tests in every direction, and `ConfigFile` keeping every table whichever binary is running. |
+| **Config data loss between binaries.** | G12 ✅, in the field. | Retired as planned: `ConfigFile` keeps every table whichever binary is running, and the round trip is compared byte for byte within each table, in every direction. The second half — a run that *writes* the file for a reason of its own — is `remember_window`, and it writes only when something moved. |
 | **CI grows new classes of failure.** `eframe` needs X11/Wayland headers and a GL stack; the web job needs `trunk` and a wasm target. | G13. | An `apt-get` step and a pinned `trunk`; the headless render test uses no GPU; image snapshots stay out of CI deliberately. |
 | **The one core change grows.** `fall_progress` is a foothold, and the next request will be a second field — piece opacity, a spawn animation, a lock-delay fraction. | G10, and every stage after it. | The field is presentation, derived, and read by no rule; G10 is the only stage licensed to touch `src/core/`, and the I1 snapshot going red is what catches a rule that started reading it. Anything further is a §12.7 amendment on its own merits, not a follow-on. |
 | **Feature-gate rot.** A bare `cargo test` stops compiling the GUI, and nobody notices for weeks. | Any stage after G2. | Every Makefile target takes `--all-features`, and the Makefile is the single source of truth CI runs. |

@@ -50,10 +50,11 @@ pub struct Session<'a> {
     /// answer: a panel must offer what it can actually apply.
     ///
     /// [`Setting::ALL`] is a terminal's and is the default; the window front-end
-    /// sets [`Setting::SHARED`], because §12.3's colour depth means nothing off
-    /// a terminal (`GUI.md` §G5). Both screens that draw the panel navigate
-    /// *this* list, so the cursor can never land on a row the screen is not
-    /// showing.
+    /// sets [`Setting::WINDOW`] and a browser tab [`Setting::CANVAS`], because
+    /// §12.3's colour depth means nothing off a terminal and `GUI.md` §G8.10's
+    /// scale and full screen mean nothing on one (`GUI.md` §G5.4, §G8.11). Both
+    /// screens that draw the panel navigate *this* list, so the cursor can never
+    /// land on a row the screen is not showing.
     pub settings: &'static [Setting],
     /// The items §13.3's menu offers, which is the front-end's own answer for
     /// the same reason [`settings`](Self::settings) is: a menu must offer what

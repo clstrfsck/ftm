@@ -101,6 +101,14 @@ pub struct Gui<'session, 'host> {
     focused: bool,
     /// Frames `ui` has drawn, for `show_debug`'s read-out (§G4.6).
     fps: Fps,
+    /// `GUI.md` §G8.10's `fullscreen`, as last handed to the platform.
+    ///
+    /// The Options panel can switch it mid-run, and a viewport command is an
+    /// *instruction* rather than a state: sending it every pump would fight the
+    /// player's own window manager, so it is sent only when this disagrees with
+    /// the config. It starts at what `gui::run` opened the window with, so the
+    /// first pump sends nothing.
+    fullscreen: bool,
     /// How many of the session's §16 warnings have been handed to
     /// [`host::report`] — all of them, on a host that reports as they arise.
     reported: usize,
@@ -111,6 +119,9 @@ impl<'session, 'host> Gui<'session, 'host> {
     /// no game is in progress, and that includes the moment it starts.
     pub fn new(session: &'session mut Session<'host>, clock: Clock) -> Self {
         let now = clock.now();
+        // §G8.10, as `gui::run` opened the window: read before the session is
+        // borrowed for the length of the run.
+        let fullscreen = session.config.gui.fullscreen;
         Self {
             session,
             clock,
@@ -125,7 +136,33 @@ impl<'session, 'host> Gui<'session, 'host> {
             // canvas is focused by `gui::start` the moment it can be.
             focused: true,
             fps: Fps::new(now),
+            fullscreen,
             reported: 0,
+        }
+    }
+
+    /// `GUI.md` §G8.10: the three rows of `[gui]` a running window can act on.
+    ///
+    /// The scale and the full-screen switch are Options-panel rows (§G5.4), so
+    /// they are applied here rather than at start-up: §13.5 says presentation
+    /// takes effect the moment the panel is left. The frame cap is read where
+    /// the deadline is set, below. Everything else in the table is a start-up
+    /// answer (`gui::run`) or is written back on the way out (`host::remember`).
+    ///
+    /// Both of these are honoured in a browser tab too, or would be: `egui`'s
+    /// zoom is the same mechanism on both, and `CANVAS` simply does not offer
+    /// the full-screen row for a tab to have switched (§G8.11).
+    fn apply_settings(&mut self, ctx: &egui::Context) {
+        let gui = &self.session.config.gui;
+        // A whole number of per cent in the file (§6.3 carries no floating
+        // point a human has to read), a factor here.
+        let zoom = gui.scale_percent as f32 / 100.0;
+        if ctx.zoom_factor() != zoom {
+            ctx.set_zoom_factor(zoom);
+        }
+        if self.fullscreen != gui.fullscreen {
+            self.fullscreen = gui.fullscreen;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(gui.fullscreen));
         }
     }
 
@@ -160,12 +197,40 @@ impl<'session, 'host> Gui<'session, 'host> {
     }
 }
 
+/// §15.2 step 6's advice, held back to `GUI.md` §G8.10's `frame_cap`.
+///
+/// A cap lengthens the wait; it never shortens it, so it cannot make the game
+/// ask to be woken sooner than a tick needs. And it caps *drawing* only: the
+/// core advances in fixed 1/60 s ticks whatever the cap says (§15.1), and
+/// `Round::advance`'s accumulator is over elapsed time and never over frames
+/// (§15.2 step 4), so a capped window plays several ticks per repaint and the
+/// same game — the cadence invariance `tests/pump.rs` pins, reached from a
+/// setting rather than from a slow compositor.
+///
+/// Like `deadline` itself it is advice: a key, a resize or a compositor may
+/// wake the window sooner, and nothing here refuses to draw when it does.
+fn capped(deadline: std::time::Duration, cap: u32) -> std::time::Duration {
+    if cap == 0 {
+        return deadline;
+    }
+    deadline.max(std::time::Duration::from_secs(1) / cap)
+}
+
 impl eframe::App for Gui<'_, '_> {
     /// §15.2 steps 1-4 and 6-7, once per callback and also while hidden.
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // F1: one stamp for the whole frame, so every step below agrees about
         // when it is happening.
         let now = self.clock.now();
+
+        // §G8.10, before anything is measured: the scale is `egui`'s zoom, and
+        // `ctx.pixels_per_point()` — which §G3's metric is computed from a few
+        // lines down — carries it. Applying it after the measurement would
+        // leave one frame laid out at the old scale.
+        self.apply_settings(ctx);
+        // ...and the other direction: where the window has been put, for the
+        // §G8.10 write-back. A no-op in a tab, which has no window to move.
+        host::remember(&mut self.session.config.gui, ctx);
 
         // 2. Drain `egui`'s queue and hand every event over. Nothing is held
         //    back for the next frame, which §15.2 forbids and which a
@@ -257,7 +322,7 @@ impl eframe::App for Gui<'_, '_> {
             Screen::Play(round) => round.deadline(now),
             Screen::Attract(state, _) => state.deadline(),
         };
-        ctx.request_repaint_after(deadline);
+        ctx.request_repaint_after(capped(deadline, self.session.config.gui.frame_cap));
     }
 
     /// §15.2 step 5: draw what the last pump reported.
@@ -332,5 +397,27 @@ impl eframe::App for Gui<'_, '_> {
                     paint::unfocused(painter, area);
                 }
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn a_frame_cap_lengthens_the_wait_and_never_shortens_it() {
+        // `GUI.md` §G8.10. The cap is a *floor* on the wait, so the game can
+        // never be made to ask for a repaint sooner than §15.2 step 6 advised —
+        // which would be a cap that raised the frame rate.
+        let tick = Duration::from_micros(16_667);
+        assert_eq!(capped(tick, 0), tick, "no cap is the deadline itself");
+        assert_eq!(capped(tick, 240), tick, "a cap above 60 Hz changes nothing");
+        assert_eq!(capped(tick, 30), Duration::from_secs(1) / 30);
+        assert_eq!(capped(Duration::ZERO, 30), Duration::from_secs(1) / 30);
+        // The attract screen's 10 fps is already slower than a 30 fps cap.
+        let attract = Duration::from_millis(100);
+        assert_eq!(capped(attract, 30), attract);
+        assert_eq!(capped(attract, 5), Duration::from_millis(200));
     }
 }

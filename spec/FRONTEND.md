@@ -164,6 +164,16 @@ The obligations are `FTM.md`'s, not the trait's:
   another front-end wrote. This one is easy to pass by accident and easy to fail
   silently, because each front-end's own settings survive perfectly.
 
+  The answer the shell settled on is that **`ConfigFile` holds every table,
+  whichever binary is running**: `TUI.md` §6.3's four glyph and colour keys and
+  `GUI.md` §G8.10's `[gui]` table are parsed, validated, warned about and
+  written back by both, and only the front-end that owns a table *acts* on it.
+  A fourth front-end's table joins that struct rather than being preserved
+  generically — §6.3's loader is a value-by-value parser precisely so it can
+  warn about what it found, and a table it does not understand is a table it
+  cannot warn about. The test that holds it is a round trip in every direction,
+  compared byte for byte within each table.
+
 ### F3 — Entropy: a seed
 
 One `u64` per game, from `fn() -> u64`. That is the *whole* entropy budget of

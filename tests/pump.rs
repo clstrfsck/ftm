@@ -367,20 +367,44 @@ fn losing_the_keyboard_pauses_the_game_and_lets_go_of_its_keys() {
 
 #[test]
 fn a_panel_offers_the_rows_its_front_end_can_apply() {
-    // §13.5 and `GUI.md` §G5: which rows the Options panel lists is the
+    // §13.5 and `GUI.md` §G5.4: which rows the Options panel lists is the
     // front-end's answer, because a panel must offer what it can actually
-    // apply — §12.3's colour depth means nothing in a window. Whatever the
+    // apply — §12.3's colour depth means nothing in a window, and `GUI.md`
+    // §G8.10's scale and full screen mean nothing anywhere else. Whatever the
     // list, the cursor stays inside it: a cursor that reached a row the screen
     // was not drawing would be a cursor the player could not see.
+    //
+    // The four lists, and what each front-end may not offer (§G8.11).
+    for (list, absent) in [
+        (
+            &Setting::ALL[..],
+            &[Setting::Scale, Setting::Fullscreen][..],
+        ),
+        (&Setting::WINDOW[..], &[Setting::Colour][..]),
+        (
+            &Setting::CANVAS[..],
+            &[Setting::Colour, Setting::Fullscreen][..],
+        ),
+        (
+            &Setting::SHARED[..],
+            &[Setting::Colour, Setting::Scale, Setting::Fullscreen][..],
+        ),
+    ] {
+        for row in absent {
+            assert!(!list.contains(row), "{row:?} is not this front-end's");
+        }
+        for row in Setting::SHARED {
+            assert!(list.contains(&row), "{row:?} is every front-end's");
+        }
+    }
+
     let mut storage = Memory::new();
     let mut session = session(&mut storage, true);
-    session.settings = &Setting::SHARED;
-    assert!(
-        !Setting::SHARED.contains(&Setting::Colour),
-        "the terminal's own row is not in the shared list",
-    );
+    // A window's list, which is the longest of the three and the one whose
+    // extra rows are the newest (`EGUI-PLAN.md` G12).
+    session.settings = &Setting::WINDOW;
     let mut round = Round::new(&session, at(0));
-    assert_eq!(round.settings(), &Setting::SHARED, "what the screen draws");
+    assert_eq!(round.settings(), &Setting::WINDOW, "what the screen draws");
 
     // Into the panel: pause, down to Options, Enter.
     round.key(&mut session, &press(Key::Esc), at(0));
@@ -391,18 +415,18 @@ fn a_panel_offers_the_rows_its_front_end_can_apply() {
     assert_eq!(round.frame(at(0)).overlay, Overlay::Options { selected: 0 });
 
     // Up from the top wraps to the last row this front-end offers, which is
-    // the seventh and not the eighth.
+    // §G8.10's full-screen switch and not §12.3's colour depth.
     round.key(&mut session, &press(Key::Up), at(0));
     assert_eq!(
         round.frame(at(0)).overlay,
         Overlay::Options {
-            selected: Setting::SHARED.len() - 1
+            selected: Setting::WINDOW.len() - 1
         },
     );
     // And changing it there edits the setting the screen is showing.
-    let before = session.config.display.show_grid;
+    let before = session.config.gui.fullscreen;
     round.key(&mut session, &press(Key::Right), at(0));
-    assert_eq!(session.config.display.show_grid, !before);
+    assert_eq!(session.config.gui.fullscreen, !before);
     assert_eq!(
         session.config.display.color_depth,
         ConfigFile::default().display.color_depth,

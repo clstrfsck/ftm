@@ -55,6 +55,18 @@ pub mod range {
     pub const SOFT_DROP_FACTOR: RangeInclusive<u32> = 1..=100;
     pub const LINE_CLEAR_DELAY_MS: RangeInclusive<u32> = 0..=2000;
     pub const ENTRY_DELAY_MS: RangeInclusive<u32> = 0..=2000;
+
+    // `GUI.md` §G8.10's `[gui]` table. The window bounds are generous on
+    // purpose: they exist to keep a typo openable, not to police taste, and a
+    // wall of displays is a real desktop.
+    pub const WINDOW_WIDTH: RangeInclusive<u32> = 320..=7680;
+    pub const WINDOW_HEIGHT: RangeInclusive<u32> = 240..=4320;
+    /// Interface scale, per cent. Below 50 the §G3 minimum is unreachable on
+    /// any ordinary display; above 300 one cell fills a laptop screen.
+    pub const SCALE_PERCENT: RangeInclusive<u32> = 50..=300;
+    /// Repaints asked for per second. 0 is "no cap"; the core's tick rate is
+    /// §15.1's and is not this.
+    pub const FRAME_CAP: RangeInclusive<u32> = 0..=1000;
 }
 
 /// Clamp to an inclusive range from §6.3.
@@ -188,6 +200,69 @@ impl Default for DisplaySettings {
     }
 }
 
+/// The `[gui]` table of `GUI.md` §G8.10.
+///
+/// The window front-end's half of the document, as `[display]`'s four glyph
+/// and colour keys are the terminal's (`TUI.md` §6.3). Every binary parses,
+/// validates and writes it back; only `ftm-gui` acts on it, and a browser tab
+/// acts on the two rows that mean anything in a canvas — [`scale_percent`] and
+/// [`frame_cap`] — and ignores the rest (§6.2, §G8.10).
+///
+/// It is presentation by §6.5: none of it changes what happens, only how large
+/// it is and how often it is drawn.
+///
+/// [`scale_percent`]: Self::scale_percent
+/// [`frame_cap`]: Self::frame_cap
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GuiSettings {
+    /// The window's inner size in points when it opens.
+    pub window_width: u32,
+    pub window_height: u32,
+    /// Where it opens, in points from the top-left of the primary display.
+    /// `None` — the key absent — means "wherever the platform puts it", which
+    /// is what a first run wants and what a tiling window manager insists on.
+    pub window_x: Option<i32>,
+    pub window_y: Option<i32>,
+    /// Write the window's size and position back here when it closes.
+    ///
+    /// Size and position only. `fullscreen` is a setting the player chooses,
+    /// not a state that is observed, because `--fullscreen` is a flag and §6.1
+    /// never writes a flag back.
+    pub remember_window: bool,
+    /// Interface scale, per cent — `egui`'s zoom factor as a whole number, so
+    /// that §6.3 stays free of floating point in a file a human edits.
+    pub scale_percent: u32,
+    pub fullscreen: bool,
+    /// Wait for the display's refresh before presenting a frame.
+    pub vsync: bool,
+    /// The most repaints a second the game will ask for; 0 is "no cap".
+    ///
+    /// It caps *drawing*, never the core: §15.1's tick is fixed and
+    /// `Round::advance` is correct at any cadence (§15.2 step 4), so a capped
+    /// window plays several ticks per frame and the same game.
+    pub frame_cap: u32,
+}
+
+impl Default for GuiSettings {
+    fn default() -> Self {
+        Self {
+            // §G3.2's block at §G3's initial cell, which is what
+            // `gui::layout::INITIAL_SIZE` computes; a test there pins the two
+            // together, since the shell cannot name a front-end's module.
+            window_width: 728,
+            window_height: 672,
+            window_x: None,
+            window_y: None,
+            remember_window: true,
+            scale_percent: 100,
+            fullscreen: false,
+            vsync: true,
+            frame_cap: 0,
+        }
+    }
+}
+
 /// The `[keys]` table of §6.3. Each action maps to a list of key names; any
 /// listed key triggers it (§10.1).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,12 +344,23 @@ impl KeyBindings {
 /// Every table is `#[serde(default)]` and none denies unknown fields: §6.2
 /// requires a missing or unrecognised key to be tolerated, not fatal. A file
 /// listing one key the player invented still supplies the other ten.
+///
+/// **Every binary holds every table, whichever front-end is running** (§6.2,
+/// `EGUI-PLAN.md` G12). `[display]`'s four glyph and colour keys mean nothing
+/// in a window and `[gui]` means nothing in a terminal, but both are parsed,
+/// validated and written back by both — because [`document`] rewrites the whole
+/// file and a table the struct has no field for is a table the next save
+/// silently deletes. Preserving unknown tables generically was the alternative,
+/// and it is the wrong one: §6.3's loader is a value-by-value parser precisely
+/// so it can warn about what it found, and a table it does not understand is a
+/// table it cannot warn about.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ConfigFile {
     pub gameplay: GameplaySettings,
     pub timing: TimingSettings,
     pub display: DisplaySettings,
+    pub gui: GuiSettings,
     pub keys: KeyBindings,
 }
 
@@ -348,11 +434,12 @@ impl RulesConfig {
 }
 
 /// Settings that change only **what it looks like** and which key does what
-/// (§6.5): the `[display]` and `[keys]` classes. Always owned by the player at
-/// the terminal, never by a peer.
+/// (§6.5): the `[display]`, `[gui]` and `[keys]` classes. Always owned by the
+/// player at the front-end, never by a peer.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PresentationConfig {
     pub display: DisplaySettings,
+    pub gui: GuiSettings,
     pub keys: KeyBindings,
 }
 
@@ -363,6 +450,7 @@ impl ConfigFile {
             RulesConfig::from_settings(&self.gameplay, &self.timing),
             PresentationConfig {
                 display: self.display.clone(),
+                gui: self.gui.clone(),
                 keys: self.keys.clone(),
             },
         )
@@ -405,8 +493,13 @@ pub fn load(storage: &dyn Storage, warnings: &mut Vec<String>) -> Loaded {
         }
         Err(error) => {
             warnings.push(match error {
+                // Neutral about *where*, because the shell does not know:
+                // natively there is no config directory, in a browser tab
+                // `localStorage` is blocked or refused (§3.1, `GUI.md` §G8.3).
+                // The wording named a directory until `EGUI-PLAN.md` G12, and
+                // a tab has not got one.
                 StorageError::Unavailable => {
-                    "no config directory on this platform; using defaults".to_string()
+                    "nowhere to keep the settings on this platform; using defaults".to_string()
                 }
                 StorageError::Failed(message) => format!("{message}; using defaults"),
             });
@@ -514,6 +607,28 @@ fn parse(text: &str, warnings: &mut Vec<String>) -> ConfigFile {
             *glyph = field(table, "display", key, std::mem::take(glyph), warnings);
         }
     }
+    // `GUI.md` §G8.10. Read by every binary and acted on by one: §6.2 makes
+    // dropping another front-end's table a bug, and the only way to write a
+    // table back is to have parsed it.
+    if let Some(table) = section(&root, "gui", warnings) {
+        report_unknown(table, "gui", &GUI_KEYS, warnings);
+        let it = &mut file.gui;
+        it.window_width = field(table, "gui", "window_width", it.window_width, warnings);
+        it.window_height = field(table, "gui", "window_height", it.window_height, warnings);
+        it.window_x = field(table, "gui", "window_x", it.window_x, warnings);
+        it.window_y = field(table, "gui", "window_y", it.window_y, warnings);
+        it.remember_window = field(
+            table,
+            "gui",
+            "remember_window",
+            it.remember_window,
+            warnings,
+        );
+        it.scale_percent = field(table, "gui", "scale_percent", it.scale_percent, warnings);
+        it.fullscreen = field(table, "gui", "fullscreen", it.fullscreen, warnings);
+        it.vsync = field(table, "gui", "vsync", it.vsync, warnings);
+        it.frame_cap = field(table, "gui", "frame_cap", it.frame_cap, warnings);
+    }
     if let Some(table) = section(&root, "keys", warnings) {
         report_unknown(table, "keys", &KEY_ACTIONS, warnings);
         for (action, bound) in file.keys.each_mut() {
@@ -523,8 +638,9 @@ fn parse(text: &str, warnings: &mut Vec<String>) -> ConfigFile {
     file
 }
 
-/// The §6.3 tables, in the order they are written.
-const TABLES: [&str; 4] = ["gameplay", "timing", "display", "keys"];
+/// The §6.3 tables, in the order they are written. `[gui]` is `GUI.md`
+/// §G8.10's and is here because every binary preserves it (§6.2).
+const TABLES: [&str; 5] = ["gameplay", "timing", "display", "gui", "keys"];
 const GAMEPLAY_KEYS: [&str; 7] = [
     "preview_count",
     "ghost_piece",
@@ -549,6 +665,18 @@ const DISPLAY_KEYS: [&str; 6] = [
     "cell_ghost",
     "show_grid",
     "show_debug",
+];
+/// `GUI.md` §G8.10's keys, in the order the document writes them.
+const GUI_KEYS: [&str; 9] = [
+    "window_width",
+    "window_height",
+    "window_x",
+    "window_y",
+    "remember_window",
+    "scale_percent",
+    "fullscreen",
+    "vsync",
+    "frame_cap",
 ];
 /// The `[keys]` actions of §6.3, in the order §10.1 lists them.
 const KEY_ACTIONS: [&str; 11] = [
@@ -670,6 +798,31 @@ fn validate(file: &mut ConfigFile, warnings: &mut Vec<String>) {
             &mut t.entry_delay_ms,
             &range::ENTRY_DELAY_MS,
         ),
+    ] {
+        clamp_reported(name, value, range, warnings);
+    }
+
+    // `GUI.md` §G8.10. Clamped and reported here like everything else, by the
+    // binary that will never open a window as well as by the one that will:
+    // §6.2's warning is about the *file*, and the player edits one file.
+    let w = &mut file.gui;
+    for (name, value, range) in [
+        (
+            "gui.window_width",
+            &mut w.window_width,
+            &range::WINDOW_WIDTH,
+        ),
+        (
+            "gui.window_height",
+            &mut w.window_height,
+            &range::WINDOW_HEIGHT,
+        ),
+        (
+            "gui.scale_percent",
+            &mut w.scale_percent,
+            &range::SCALE_PERCENT,
+        ),
+        ("gui.frame_cap", &mut w.frame_cap, &range::FRAME_CAP),
     ] {
         clamp_reported(name, value, range, warnings);
     }
@@ -830,6 +983,7 @@ pub fn document(file: &ConfigFile) -> String {
     let g = &file.gameplay;
     let t = &file.timing;
     let d = &file.display;
+    let w = &file.gui;
     let keys: String = file
         .keys
         .each()
@@ -890,6 +1044,31 @@ show_grid     = {grid}
 # Show frame rate, tick rate and internal timers.
 show_debug    = {debug}
 
+[gui]
+# The window front-end's own table (ftm-gui). The terminal ignores every key
+# here and writes them all back untouched, exactly as the window does with
+# color_depth and the three cell glyphs above.
+# The window's inner size in points when it opens.
+# Ranges: {width_range} and {height_range}.
+window_width    = {width}
+window_height   = {height}
+# Where it opens, in points from the top-left of the primary display. With
+# these commented out the platform decides.
+{position}# Write the size and position above back here when the window closes.
+remember_window = {remember}
+# Interface scale, per cent. Range: {scale_range}. Honoured in a browser tab
+# too, where nothing else in this table is.
+scale_percent   = {scale}
+# Open full screen.
+fullscreen      = {fullscreen}
+# Wait for the display's refresh before presenting a frame.
+vsync           = {vsync}
+# The most repaints a second the game asks for; 0 is \"no cap\". Range:
+# {cap_range}. It caps drawing only -- the game advances in fixed 1/60 s ticks
+# whatever this says, so a capped window plays the same game more coarsely
+# animated. Honoured in a browser tab.
+frame_cap       = {cap}
+
 [keys]
 # Each action maps to a list of key names; any listed key triggers it. Names are
 # Left, Right, Up, Down, Space, Enter, Tab, Esc, Backspace, F1-F12, and single
@@ -925,7 +1104,35 @@ show_debug    = {debug}
         ghost_cell = quoted(&d.cell_ghost),
         grid = d.show_grid,
         debug = d.show_debug,
+        width_range = range_text(&range::WINDOW_WIDTH),
+        width = w.window_width,
+        height_range = range_text(&range::WINDOW_HEIGHT),
+        height = w.window_height,
+        position = position(w),
+        remember = w.remember_window,
+        scale_range = range_text(&range::SCALE_PERCENT),
+        scale = w.scale_percent,
+        fullscreen = w.fullscreen,
+        vsync = w.vsync,
+        cap_range = range_text(&range::FRAME_CAP),
+        cap = w.frame_cap,
     )
+}
+
+/// `[gui]`'s two optional keys, live when the window's place is remembered and
+/// commented out when it is not (`GUI.md` §G8.10).
+///
+/// Commented rather than given a sentinel value, because "absent" is what
+/// §6.3's parser reads as "the platform decides" and a magic number in a file a
+/// human edits would need explaining in the comment above it.
+fn position(gui: &GuiSettings) -> String {
+    [("window_x", gui.window_x), ("window_y", gui.window_y)]
+        .iter()
+        .map(|(name, value)| match value {
+            Some(value) => format!("{name:<15} = {value}\n"),
+            None => format!("# {name} = 0\n"),
+        })
+        .collect()
 }
 
 /// A setting as TOML would write it.
@@ -984,8 +1191,12 @@ pub struct Overrides {
     pub rot180: Option<bool>,
     /// `--lock-down <RULE>`
     pub lock_down: Option<LockDownRule>,
-    /// `--color <MODE>`
+    /// `--color <MODE>`, which only a terminal has (§12.3, `TUI.md` §6.3).
     pub color: Option<ColorDepth>,
+    /// `--scale <PERCENT>`, which only a window has (`GUI.md` §G8.10, §G8.11).
+    pub scale: Option<u32>,
+    /// `--fullscreen` / `--no-fullscreen`, likewise.
+    pub fullscreen: Option<bool>,
     /// `--seed <N>`: §6.4 makes the run reproducible and §14 never records it.
     pub seed: Option<u64>,
 }
@@ -1026,6 +1237,12 @@ impl Overrides {
         }
         if let Some(depth) = self.color {
             file.display.color_depth = depth;
+        }
+        if let Some(scale) = self.scale {
+            file.gui.scale_percent = scale;
+        }
+        if let Some(fullscreen) = self.fullscreen {
+            file.gui.fullscreen = fullscreen;
         }
     }
 }
@@ -1089,6 +1306,7 @@ impl Startup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::menus::Setting;
     use crate::shell::storage::{Homeless, Memory, Unwritable};
 
     /// The conversion table of §6.6, transcribed literally.
@@ -1412,6 +1630,14 @@ lock_delay_ms = 1000
                 lock_delay_ms: 1000,
                 ..TimingSettings::default()
             },
+            gui: GuiSettings {
+                window_width: 1000,
+                window_x: Some(-40),
+                scale_percent: 150,
+                fullscreen: true,
+                frame_cap: 30,
+                ..GuiSettings::default()
+            },
             keys: KeyBindings {
                 hold: vec!["Tab".to_string()],
                 rotate_180: Vec::new(),
@@ -1435,6 +1661,7 @@ lock_delay_ms = 1000
             .iter()
             .chain(&TIMING_KEYS)
             .chain(&DISPLAY_KEYS)
+            .chain(&GUI_KEYS)
             .chain(&KEY_ACTIONS)
         {
             assert!(text.contains(key), "{key} missing from the document");
@@ -1444,6 +1671,154 @@ lock_delay_ms = 1000
             .filter(|l| l.trim_start().starts_with('#'))
             .count();
         assert!(comments > 20, "only {comments} comment lines");
+    }
+
+    /// A document holding a non-default value in every table, for the
+    /// preservation tests below: each front-end has to carry the other's
+    /// settings through a save untouched (§6.2).
+    fn every_table_set() -> ConfigFile {
+        ConfigFile {
+            gameplay: GameplaySettings {
+                preview_count: 3,
+                ..GameplaySettings::default()
+            },
+            timing: TimingSettings {
+                das_ms: 120,
+                ..TimingSettings::default()
+            },
+            // The four keys `TUI.md` §6.3 owns: a window has no use for any of
+            // them.
+            display: DisplaySettings {
+                color_depth: ColorDepth::Ansi16,
+                cell_filled: "[]".to_string(),
+                cell_empty: "..".to_string(),
+                cell_ghost: "::".to_string(),
+                show_grid: true,
+                show_debug: false,
+            },
+            // `GUI.md` §G8.10's table: a terminal has no use for any of it.
+            gui: GuiSettings {
+                window_width: 1024,
+                window_height: 900,
+                window_x: Some(12),
+                window_y: Some(34),
+                remember_window: false,
+                scale_percent: 125,
+                fullscreen: true,
+                vsync: false,
+                frame_cap: 120,
+            },
+            keys: KeyBindings {
+                hold: vec!["Tab".to_string()],
+                ..KeyBindings::default()
+            },
+        }
+    }
+
+    /// One `[table]` of a document, heading included, for a byte comparison.
+    fn table_of(text: &str, name: &str) -> String {
+        text.split(&format!("\n[{name}]\n"))
+            .nth(1)
+            .map(|rest| rest.split("\n[").next().unwrap_or(rest).to_string())
+            .unwrap_or_else(|| panic!("[{name}] is not in the document"))
+    }
+
+    #[test]
+    fn a_save_by_either_front_end_keeps_the_other_ones_table_byte_for_byte() {
+        // §6.2's last bullet, and the bug `EGUI-PLAN.md` G12 exists to stop: a
+        // GUI run that saved the config used to erase `[display]`, because its
+        // `ConfigFile` had no field to write back. Both directions, because a
+        // terminal run would lose `[gui]` the same way.
+        //
+        // Byte-identical in the table, not merely equal as a struct: the player
+        // reads this file, and a save that reflowed someone else's half would be
+        // the same loss one step removed.
+        let before = document(&every_table_set());
+        let mut warnings = Vec::new();
+        let loaded = parse(&before, &mut warnings);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let after = document(&loaded);
+        for table in TABLES {
+            assert_eq!(
+                table_of(&after, table),
+                table_of(&before, table),
+                "[{table}] did not survive the round trip",
+            );
+        }
+        assert_eq!(after, before, "and neither did anything else");
+    }
+
+    #[test]
+    fn the_front_end_that_does_not_own_a_table_still_writes_it_back() {
+        // The same rule where it actually bites: the §13.5 Options panel edits
+        // one shared setting and saves the whole document, so what the *other*
+        // front-end wrote has to come through a change it knew nothing about.
+        let mut file = every_table_set();
+        let original = file.clone();
+        // A window's panel, which offers `Setting::WINDOW` — no colour depth.
+        Setting::Grid.step(&mut file, true);
+        Setting::Scale.step(&mut file, true);
+        let mut warnings = Vec::new();
+        let saved = parse(&document(&file), &mut warnings);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        // What the window changed.
+        assert!(!saved.display.show_grid);
+        assert_eq!(saved.gui.scale_percent, 150);
+        // ...and every terminal-only key exactly as the terminal left it.
+        assert_eq!(saved.display.color_depth, original.display.color_depth);
+        assert_eq!(saved.display.cell_filled, original.display.cell_filled);
+        assert_eq!(saved.display.cell_empty, original.display.cell_empty);
+        assert_eq!(saved.display.cell_ghost, original.display.cell_ghost);
+
+        // And the other way: a terminal's panel changing §12.3's colour depth
+        // leaves every one of `GUI.md` §G8.10's nine keys alone.
+        let mut file = every_table_set();
+        Setting::Colour.step(&mut file, true);
+        let saved = parse(&document(&file), &mut warnings);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_ne!(saved.display.color_depth, original.display.color_depth);
+        assert_eq!(saved.gui, original.gui);
+    }
+
+    #[test]
+    fn a_file_written_before_the_gui_table_existed_still_loads() {
+        // §6.2's forwards compatibility, backwards: a config saved by v1.0 has
+        // no `[gui]` at all, and the window has to open on the defaults rather
+        // than warn about a table nobody wrote yet.
+        let text = "[gameplay]\npreview_count = 2\n";
+        let mut warnings = Vec::new();
+        let file = parse(text, &mut warnings);
+        assert_eq!(file.gui, GuiSettings::default());
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn the_gui_table_is_clamped_and_reported_by_every_binary() {
+        // §6.3's ranges are the file's, and the file is one file: a terminal run
+        // warns about a `[gui]` value it will never use, because the player who
+        // typed it is the same player.
+        let text = "\
+[gui]
+window_width = 4
+scale_percent = 1000
+frame_cap = 99999
+window_x = -1200
+";
+        let mut warnings = Vec::new();
+        let mut file = parse(text, &mut warnings);
+        assert!(warnings.is_empty(), "the parse itself: {warnings:?}");
+        validate(&mut file, &mut warnings);
+        assert_eq!(file.gui.window_width, *range::WINDOW_WIDTH.start());
+        assert_eq!(file.gui.scale_percent, *range::SCALE_PERCENT.end());
+        assert_eq!(file.gui.frame_cap, *range::FRAME_CAP.end());
+        // A position is not clamped: a second display can be to the left of the
+        // first, and a negative x is where the window belongs.
+        assert_eq!(file.gui.window_x, Some(-1200));
+        assert_eq!(warnings.len(), 3, "{warnings:?}");
+        assert!(
+            warnings.iter().all(|w| w.starts_with("gui.")),
+            "{warnings:?}"
+        );
     }
 
     #[test]

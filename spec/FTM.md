@@ -1,7 +1,8 @@
 # Falling Tetromino Manager — Software Specification
 
 **Version:** 1.0
-**Date:** 2026-09-05 (split into four documents 2026-09-10)
+**Date:** 2026-09-05 (split into four documents 2026-09-10; §6.3 and §6.4
+amended for the `[gui]` table and the per-build flag split 2026-09-12)
 **Target language:** Rust (edition 2024, MSRV 1.95)
 **Name:** Falling Tetromino Manager (a tetromino game; binary name `ftm`)
 
@@ -505,6 +506,12 @@ show_debug    = false
 # and are specified in TUI.md §6.3; other front-ends ignore them and leave them
 # in the file untouched (§6.2).
 
+[gui]
+# The window front-end's own table -- window size and place, interface scale,
+# full screen, vsync and a frame cap. Every key in it is specified in GUI.md
+# §G8.10; a terminal ignores them all and leaves them in the file untouched
+# (§6.2), and a browser tab honours the two that mean anything in a canvas.
+
 [keys]
 # See §10. Each action maps to a list of key names; any listed key triggers it.
 # An empty list leaves that action unbound, which is a supported way to disable
@@ -551,6 +558,20 @@ setting turned off in the config file can still be turned on for one run.
 `--seed` makes a run fully deterministic and is intended for testing and for
 reproducing bug reports. A seeded run is never written to the high-score table
 (§14).
+
+**§6.4 splits the way §6.2 does.** The synopsis above is `ftm`'s. A flag exists
+in a build when the setting it names does: `--color` is §12.3's and only the
+terminal has one, and `GUI.md` §G8.10's table gives the window `--scale` and
+`--fullscreen`, which no terminal has. Everything else is shared, and so is
+`--print-config`, which writes the whole document either way. `GUI.md` §G8.11
+is the table of which flag exists where, and it is a test.
+
+**The grammar of the command line is a front-end's; what a flag means is
+shared.** What crosses into the shell is the set of settings one run asked to
+override, with nothing left of how they were written — which is why a build
+with no argv at all can say the same things. A browser tab reads them off the
+page's URL, as query parameters with these same names (`GUI.md` §G8.4), and
+§6.1's precedence is unchanged by which of the two wrote them.
 
 ### 6.5 Rules settings versus presentation settings
 

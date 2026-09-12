@@ -1,6 +1,6 @@
 # Falling Tetromino Manager — The egui Front-End
 
-**Version:** 0.6 — §G1-§G8's web half are written; §G9 is still reserved.
+**Version:** 0.7 — §G1-§G8 are written; §G9 is still reserved.
 **Date:** 2026-09-12
 **Companion to:** [FTM.md](FTM.md) (the specification),
 [FRONTEND.md](FRONTEND.md) (the contract every front-end is written against),
@@ -15,12 +15,12 @@ their own.
 
 **It is written stage by stage, not up front.** `EGUI-PLAN.md`'s stages G5–G13 each
 name the section they fill, and each fills it in the same commit as the code.
-§G1 and §G2 were written by G5, §G8's web build by G6 — its `[gui]` table and
-the rest of its query parameters wait for G12 — §G3 and §G4 by G7, §G5 by G8,
-§G6's animations by G9 and its sub-cell half by G10, and §G7 by G11. What is
-left is §G9, still the namespace and the reservation below, deliberately, so
-that a `§G9` written in a doc comment during G13 has somewhere agreed to
-land.
+§G1 and §G2 were written by G5, §G8's web build by G6, §G3 and §G4 by G7, §G5
+by G8, §G6's animations by G9 and its sub-cell half by G10, §G7 by G11, and
+§G8.10 and §G8.11 — the `[gui]` table and which flag exists in which build —
+by G12. What is left is §G9, still the namespace and the reservation below,
+deliberately, so that a `§G9` written in a doc comment during G13 has somewhere
+agreed to land.
 
 ## The `§G` namespace
 
@@ -41,7 +41,7 @@ that document owns. `§Gn` means this file.
 | G5 | Overlays | `EGUI-PLAN.md` G8 ✅ | §12.6's pause, game-over and name-entry boxes, and the §13.5 Options and §10.1 controls panels. |
 | G6 | Animations | `EGUI-PLAN.md` G9 ✅, G10 ✅ | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
 | G7 | The attract screen | `EGUI-PLAN.md` G11 ✅ | §13's wordmark, menu, cycling panel and drifting background, laid out for a window rather than a 36 × 20 grid. |
-| G8 | The web build | `EGUI-PLAN.md` G6 ✅, G12 | The canvas and its keyboard focus, `localStorage` for §6.2 and §14, URL query parameters in place of §6.4's flags, and the `[gui]` config table. |
+| G8 | The web build, and the `[gui]` table | `EGUI-PLAN.md` G6 ✅, G12 ✅ | The canvas and its keyboard focus, `localStorage` for §6.2 and §14, URL query parameters in place of §6.4's flags, this front-end's own config table, and which flag exists in which build. |
 | G9 | Testing and acceptance | `EGUI-PLAN.md` G13 | The headless `egui_kittest` render test, and **B1–B12**, this front-end's answer to §17.3's A1–A10. |
 
 ---
@@ -548,19 +548,30 @@ its own, and it must not be answered by accident here (§1.2, §G8.8).
 **OPTIONS**, one row per setting — label left, value right, the selected row
 lit — and `Left / Right change, Esc saves`.
 
-**The panel offers seven rows, not §13.5's eight.** §12.3's colour depth is the
-terminal's alone: a window has no depths, no `mono` and no `$NO_COLOR`. Which
-rows a panel offers is therefore the front-end's own answer, and it is carried
-on `Session::settings`, which this front-end sets to `Setting::SHARED` at
-start-up. **Both the screen and the shell navigate that same list**, so the
-cursor can never land on a row the screen is not drawing — the failure a panel
-that simply drew fewer rows than the menu walked would have.
+**The panel offers a different list in each of the three builds**, because a
+panel must offer what it can actually apply. Seven rows are shared —
+`Setting::SHARED`, and the list a fourth front-end starts from. §12.3's colour
+depth is the terminal's alone: a window has no depths, no `mono` and no
+`$NO_COLOR`. §G8.10's scale and full-screen switch are this front-end's, and a
+browser tab takes only the first of the two, for the same reason it has no
+**QUIT** (§G8.11).
 
-This is the small half of the split `EGUI-PLAN.md` G12 finishes, when a `[gui]`
-table gives this front-end settings of its own to put in `Colour`'s place.
+| Build | List | Rows |
+|---|---|---|
+| `ftm` | `Setting::ALL` | the seven, then `Colour` |
+| `ftm-gui` | `Setting::WINDOW` | the seven, then `Scale` and `Full screen` |
+| Browser tab | `Setting::CANVAS` | the seven, then `Scale` |
+
+Which one is carried on `Session::settings`, set once at start-up in
+`gui::run` and `gui::start`. **Both the screen and the shell navigate that same
+list**, so the cursor can never land on a row the screen is not drawing — the
+failure a panel that simply drew fewer rows than the menu walked would have.
+
 What §13.5 says about the panel is unchanged: presentation applies at once,
 rules never — a game keeps the rules it started under, and a `Hold` switched
-off here leaves the running game's hold box exactly where it was.
+off here leaves the running game's hold box exactly where it was. The two new
+rows are presentation, and both apply the moment the panel is left; the rest of
+§G8.10 is start-up's (§G8.10's table says which is which).
 
 ### G5.5 The controls table
 
@@ -922,8 +933,11 @@ an entry point is made of — where the flags come from, where `FRONTEND.md` F1�
 come from, and whether a run has an end — and all of it is in
 `gui/host_web.rs`, `gui/query.rs` and the wasm `main` of `src/bin/ftm-gui.rs`.
 
-`EGUI-PLAN.md` G6 wrote §G8.1–§G8.9. G12 adds the `[gui]` table and the rest of
-§6.4's flags as query parameters, with the list of which exists in which build.
+`EGUI-PLAN.md` G6 wrote §G8.1–§G8.9; G12 added §G8.10 and §G8.11 and finished
+§G8.4. The last two are not the web build's alone — the `[gui]` table is this
+front-end's in both of its builds, and §G8.11's table has a column for each —
+but they are here because a browser tab is where the questions they answer bite
+first: a canvas has no window to size and no argv to read.
 
 ### G8.1 The page, and a run with no end
 
@@ -987,9 +1001,10 @@ in the browser's storage inspector knows what each is.
 - **A page with storage switched off plays anyway.** Where `localStorage` is
   blocked — cookies disabled for the site, a sandboxed frame — asking for it
   throws or answers `null`, both are `StorageError::Unavailable`, and the shell
-  says so once, on the read. Its wording is the shell's and names a directory,
-  which a tab has not got; that is G12's to reword along with the rest of §6.2's
-  web half.
+  says so once, on the read. Its wording is the shell's and says *nowhere to
+  keep the settings on this platform* rather than naming a directory: the shell
+  does not know where the bytes were going (§3.1), and a tab has no directory
+  to be told about. (It named one until `EGUI-PLAN.md` G12.)
 - **The default document is never written.** §6.2 writes it on the first clean
   exit, and a tab has none. The config key is written when the §13.5 Options
   panel saves, and not before.
@@ -999,15 +1014,28 @@ in the browser's storage inspector knows what each is.
 A tab has no argv; it has a URL. §6.4's flags are query parameters with the same
 names, parsed in `gui/query.rs` into the same `Overrides` that `clap` produces
 natively, and §6.1's precedence is unchanged: the query over the stored config
-over the defaults. After G6 there is one — **`?seed=N`**, which makes a run
-reproducible and, like `--seed`, never recorded (§14). Three rules differ from a
-command line, because a URL is not only the game's:
+over the defaults. G6 had one — **`?seed=N`** — and G12 has the rest: §G8.11
+is the list. Four rules differ from a command line, because a URL is not only
+the game's:
 
 - **A parameter the game does not know is ignored, silently.** Links pick up
   tracking tags on their travels, and a warning about each is noise.
 - **A value that does not parse is a warning (§G8.6), and the run goes ahead
-  without it** — `clap` refuses a bad flag and exits, which a tab cannot do.
+  without it** — `clap` refuses a bad flag and exits, which a tab cannot do. A
+  bad value does not retract an earlier good one: `?seed=1&seed=x` is seeded 1.
 - **A parameter given twice takes its last value.**
+- **A flag's parameter may be written five ways and switched off in four.**
+  `?no-hold`, `?no-hold=`, `?no-hold=1`, `?no-hold=true`, `?no-hold=on` all ask
+  for it; `=0`, `=false`, `=off`, `=no` leave the file's own answer alone;
+  anything else is a warning. A command line has only "written or not written",
+  but a URL is edited by hand and pasted between people, and someone turning a
+  shared link's setting off will reach for `=0` before they will delete the
+  parameter.
+
+The paired halves keep their own names — `?hold` and `?no-hold` are two
+parameters, not one with a value — because §6.4's names are the point: a player
+who knows the flag knows the parameter. They override each other in the order
+written, exactly as the flags do.
 
 ### G8.5 Panics, and a canvas that will not start
 
@@ -1076,6 +1104,125 @@ recorded here because it is the defect this build is best placed to find: every
 test in the tree runs on a 64-bit host, so a difference that only a 32-bit target
 has is invisible to all of them, and `make portable` — which does build the core
 for wasm32 — is where the guard lives.
+
+### G8.10 The `[gui]` table
+
+§6.3's document has a table for this front-end, as it has `TUI.md` §6.3's four
+glyph and colour keys for the terminal's. It is **presentation** by §6.5: none
+of it changes what happens, only how large it is and how often it is drawn.
+
+```toml
+[gui]
+# The window's inner size in points when it opens.
+# Ranges: 320..=7680 and 240..=4320.
+window_width    = 728
+window_height   = 672
+# Where it opens, in points from the top-left of the primary display. With
+# these commented out the platform decides.
+# window_x = 0
+# window_y = 0
+# Write the size and position above back here when the window closes.
+remember_window = true
+# Interface scale, per cent. Range: 50..=300. Honoured in a browser tab too,
+# where nothing else in this table is.
+scale_percent   = 100
+# Open full screen.
+fullscreen      = false
+# Wait for the display's refresh before presenting a frame.
+vsync           = true
+# The most repaints a second the game asks for; 0 is "no cap". Range: 0..=1000.
+frame_cap       = 0
+```
+
+The defaults are §G3's: `window_width` and `window_height` are the §G3.2 block
+at §G3.1's initial cell, which is where `INITIAL_SIZE` came from before this
+table existed. `shell/config.rs` holds the two numbers, because a fresh file has
+to name a size and the shell may not name a front-end's module (§3.1); a test in
+`gui/layout.rs` is the join.
+
+**Every binary parses, validates and writes back every table** (§6.2). A
+terminal run clamps `scale_percent = 1000` and says so, because §6.2's warning
+is about the *file* and the player who typed it edits one file. Only the window
+acts on any of it.
+
+Four of the rows are answered once, when the window is made, and four are not:
+
+| Row | When it takes effect | In a tab |
+|---|---|---|
+| `window_width` / `window_height` | Start-up, and written back if the window moved | Ignored: a canvas is the size the page gives it |
+| `window_x` / `window_y` | Start-up, and written back if the window moved | Ignored |
+| `remember_window` | Whenever the window closes | Ignored: there is nothing to remember |
+| `scale_percent` | At once — an Options row (§G5.4) | **Honoured**: it is `egui`'s zoom either way |
+| `fullscreen` | At once — an Options row, natively only | Not offered (§G8.11) |
+| `vsync` | Start-up only: a swap interval is chosen when the surface is made | Meaningless |
+| `frame_cap` | At once, on the next deadline | **Honoured** |
+
+Three things about that table are load-bearing.
+
+**`frame_cap` caps drawing and never the game.** It is a floor under §15.2 step
+6's deadline — it lengthens the wait, never shortens it — so a capped window
+plays several ticks per repaint and plays *the same game*: `Round::advance`'s
+accumulator is over elapsed time and never over frames (§15.2 step 4), which is
+the cadence invariance `tests/pump.rs` pins. It is advice for the same reason
+`deadline` is: a key, a resize or a compositor may wake the window sooner, and
+nothing refuses to draw when one does.
+
+**`remember_window` remembers size and position, and not `fullscreen`.** A
+window's geometry is a thing the player *did*; full screen is a thing they
+*chose*, in the file or in the §13.5 panel — and `--fullscreen` is a flag, which
+§6.1 never writes back. Observing it would turn one run's flag into a permanent
+setting. For the same reason in reverse, a window that is full screen or
+maximised when it closes is not remembered at all: the size it reports is the
+display's, and restoring that later would hand the player a window they never
+chose.
+
+**The write-back happens only when something moved.** Otherwise every run would
+rewrite the player's config for nothing, and every run over a read-only one
+would add §16's warning to the pile. What is written is the document *without*
+the command line applied (§6.1), with the four numbers copied across —
+`gui::host_native::keep_window` is the decision, and it is the native host's
+because a tab has no window and no exit to make it at.
+
+### G8.11 Which flag exists in which build
+
+§6.4 splits the way §6.2 does: the grammar belongs to a front-end and the
+meaning to the shell, so a flag exists where the setting it names does.
+`--color` is §12.3's and there is no colour depth in a window; `--scale` and
+`--fullscreen` are §G8.10's and there is no window in a terminal.
+
+| §6.4 | `ftm` | `ftm-gui` | Browser tab | Why not |
+|---|---|---|---|---|
+| `--preview <N>` | ✅ | ✅ | `?preview=N` | |
+| `--level <N>` | ✅ | ✅ | `?level=N` | |
+| `--no-ghost` | ✅ | ✅ | `?no-ghost` | |
+| `--hold` / `--no-hold` | ✅ | ✅ | `?hold` / `?no-hold` | |
+| `--rot180` / `--no-rot180` | ✅ | ✅ | `?rot180` / `?no-rot180` | |
+| `--lock-down <RULE>` | ✅ | ✅ | `?lock-down=RULE` | |
+| `--seed <N>` | ✅ | ✅ | `?seed=N` | |
+| `--color <MODE>` | ✅ | — | — | §12.3 is a character grid's (`TUI.md` §6.3) |
+| `--scale <PERCENT>` | — | ✅ | `?scale=N` | §G8.10's, and there is no scale in a terminal |
+| `--fullscreen` / `--no-fullscreen` | — | ✅ | `?fullscreen` | §G8.10's. A tab accepts it and can do nothing with it |
+| `--config <PATH>` | ✅ | ✅ | — | A tab has one storage key, not a path (§G8.3) |
+| `--print-config` | ✅ | ✅ | — | A thing to do instead of playing; a page cannot be asked to do it |
+
+Two of those rows deserve a word.
+
+**`--print-config` is shared.** What it writes is the whole document, `[gui]`
+and `[display]` alike, and the player comparing what the two binaries resolved
+from one file is exactly who asks for it. `ftm-gui` prints it before the window
+opens, as `ftm` prints it before raw mode — with one line fewer, because §8.2's
+input mode has only one value here (§G2.2).
+
+**A tab accepts `?fullscreen` and does nothing.** The alternative is a warning
+on a link shared from a desktop, which scolds whoever opens it for something
+they did not write. The same reasoning is why an unknown parameter is silent
+(§G8.4); the difference is that this one is not unknown, so §G8.11 says out loud
+that it is inert rather than leaving it to be discovered.
+
+**The list is a test**, in both directions: `gui::cli::FLAGS` against `clap`'s
+own grammar, `gui::query::PARAMETERS` against `FLAGS`, and every shared flag
+parsed both ways and compared as `Overrides`. A flag added to one build and not
+the other fails a test rather than becoming a link that quietly does nothing.
 
 ---
 

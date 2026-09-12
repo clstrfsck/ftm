@@ -20,11 +20,13 @@ the pump; G6 compiled the same application for wasm and gave it a browser's
 four capabilities; G7 gave it the playing screen, G8 the boxes over it, G9
 §12.5's animations under them, G10 the one core change the whole plan has —
 a falling piece is drawn between two rows, and enters the well rather than
-appearing in it — and G11 §13's attract screen beside the game, which is what
-turned §13's *words* from the terminal's into everyone's.
+appearing in it — G11 §13's attract screen beside the game, which is what
+turned §13's *words* from the terminal's into everyone's, and G12 the config
+and the command line, which is what made the two binaries safe to run over one
+file.
 
 **Status: Stage 12 of `TERMINAL-PLAN.md` complete — milestone M4, accepted; `EGUI-PLAN.md`
-stages G0-G11 complete. Start at G12.** All
+stages G0-G12 complete — milestone MG6. Start at G13.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
 §13 attract screen — wordmark, menu, the six-second cycling panel, the drifting
@@ -72,8 +74,10 @@ panel offers), `attract.rs` (§13's state machine),
 `Stamp`), `storage.rs` (F2's `Slot`/`Storage`), `host.rs` (F2-F4 as one
 borrowed bundle), and since G4 `session.rs` (`Session`, `Next`) and `round.rs`
 (`Round`, `FrameState`, `Debug`, and the `App` inside them). `src/native.rs` is
-the *desktop* — F1-F4 over `std::fs`, `directories`, `chrono` and `rand` — and
-both native front-ends take it. `tui/` is the terminal front-end: `keys.rs` (the
+the *desktop* — F1-F4 over `std::fs`, `directories`, `chrono` and `rand` — with
+`src/argv.rs` beside it for the capability that is none of those four, an argv:
+§6.4's two enumerated value spellings, which both native binaries share.
+Both native front-ends take both. `tui/` is the terminal front-end: `keys.rs` (the
 crossterm adapter), `cli.rs` (§6.4's grammar), `term.rs` (§8.1-§8.3), `run.rs`
 (§7's state machine and both loops of §15, which is now what a *terminal* adds
 to the pump and nothing else), `mod.rs`, `theme.rs`, `cells.rs`, `playfield.rs`,
@@ -160,7 +164,7 @@ several hundred doc comments, and each one would still *read* fine.
 | **`FTM.md`** | §1-§7, §9-§11, §12.7, §12.8, §14-§19 | The front-end-agnostic specification: rules, config, states, controls, the view model and the event stream, high scores, timing, errors, testing, §19. |
 | **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
 | **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
-| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9, §G6.5-§G6.6 by G10 and §G7 by G11; G12 and G13 fill §G8's remainder and §G9. |
+| **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. §G1 (the application, the version pin, the loop) and §G2 (input) are written, by G5; §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9, §G6.5-§G6.6 by G10, §G7 by G11 and §G8.10-§G8.11 by G12. Only §G9 is left, for G13. |
 
 An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
 owns. `§Gn` means `GUI.md`; a future `MACROQUAD.md` would take `§M`.
@@ -346,13 +350,17 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   is the exception and is placed freely; `egui` rounds it.
 
 - **A screen offers what its front-end can do, and the shell navigates the
-  same list** (§13.3, §13.5, `GUI.md` §G5, §G7.5). There are two of these now.
-  `Session::settings` is the §13.5 panel's — `Setting::ALL` for the terminal,
-  `Setting::SHARED` for the window, which has no §12.3 colour depth — and
-  `Session::menu` is §13.3's — `MenuChoice::ALL`, or `MenuChoice::NO_QUIT` in a
-  browser tab, which cannot close itself. Drawing a different list from the one
-  the shell walks puts the cursor on a row nobody can see. G12 finishes the
-  settings split and adds the `[gui]` rows.
+  same list** (§13.3, §13.5, `GUI.md` §G5.4, §G7.5, §G8.11). There are two of
+  these. `Session::settings` is the §13.5 panel's — `Setting::ALL` for the
+  terminal (the shared seven plus §12.3's colour depth), `Setting::WINDOW` for
+  the native window (plus §G8.10's scale and full screen) and
+  `Setting::CANVAS` for a tab (plus the scale alone, since a canvas cannot go
+  full screen) — and `Session::menu` is §13.3's — `MenuChoice::ALL`, or
+  `MenuChoice::NO_QUIT` in a browser tab, which cannot close itself.
+  `Setting::SHARED` is the intersection the other three are built from and is
+  what a fourth front-end starts from; nothing sets it directly. Drawing a
+  different list from the one the shell walks puts the cursor on a row nobody
+  can see.
 
 - **§13's words are shared, and only the blocks are a front-end's** (§13.2,
   §13.3, §13.4, `GUI.md` §G7). §13.2's letterforms live in `shell/attract.rs`
@@ -436,11 +444,38 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   never heard of the temp file.
 
 - **§6.4's grammar is a front-end's and its meaning is the shell's.** `clap`
-  lives in `tui/cli.rs`; what crosses into `shell/config.rs` is `Overrides`,
-  which a URL query string will fill in just as well (G12). `ColorDepth` and
-  `LockDownRule` therefore have hand-written `ValueEnum` impls beside the flags
-  rather than derives on the types, and the test that they still match §6.3's
-  tables lives with them.
+  lives in `tui/cli.rs` and `gui/cli.rs`; what crosses into `shell/config.rs` is
+  `Overrides`, which `gui/query.rs` fills in from a URL just as well. A flag
+  exists in a build when the setting it names does — `--color` is the
+  terminal's, `--scale` and `--fullscreen` the window's, `--print-config`
+  shared — and `GUI.md` §G8.11's table is the list, held by tests in both
+  directions. `ColorDepth` and `LockDownRule` have hand-written `ValueEnum`
+  impls rather than derives on the types, because a derive would put `clap` in
+  `shell/config.rs`; since G12 they are in **`src/argv.rs`**, not beside the
+  flags, because both native binaries take `--lock-down` and an impl behind
+  `feature = "tui"` is not there for a `--features gui` build. `argv.rs` is
+  `native.rs`'s neighbour and is gated the same way: an argv is a desktop
+  capability.
+
+- **Every binary holds every table, and only one acts on each** (§6.2,
+  `GUI.md` §G8.10, `TUI.md` §6.3). `ConfigFile` has `[gui]` in the terminal
+  build and `[display]`'s four glyph and colour keys in the window build,
+  because `config::document` rewrites the whole file and a table the struct has
+  no field for is a table the next save silently deletes. They are parsed,
+  clamped and *warned about* by both — §6.2's warning is about the file and the
+  player edits one file. Preserving unknown tables generically is the rejected
+  alternative: §6.3's loader is value-by-value precisely so it can warn, and a
+  table it does not understand is one it cannot warn about. A fourth
+  front-end's table joins the struct.
+
+- **`remember_window` writes only when something moved** (`GUI.md` §G8.10).
+  `gui::host_native::remember` records the window's geometry into the session
+  every pump; `keep_window` copies it onto `startup.on_disk` at exit and
+  answers whether to save. Two things it deliberately does not do: it does not
+  remember `fullscreen`, because that is a *choice* and `--fullscreen` is a
+  flag §6.1 never writes back; and it does not save an unchanged file, because
+  that would rewrite the player's config every run and add §16's warning to
+  every run over a read-only one.
 
 - **Keys reach the shell neutral, and only the adapter knows otherwise**
   (`FRONTEND.md` F5). `shell::keys::{Key, Mods, KeyKind, KeyEvent}` is the
@@ -890,6 +925,52 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   where the terminal centres it. Both are fixed, and both now have a test that
   measures where the text actually landed — which is the shape this front-end's
   layout regressions want, since nothing else in the tree can see them.
+
+---
+
+## What G12 settled
+
+- **The data-loss bug the stage exists for was real and is now a test.** A GUI
+  run that saved the config would have erased `[display]`, because `document`
+  rewrites the whole file. Both halves are in `ConfigFile` now — see the
+  invariant above — and the round trip is compared **byte for byte within each
+  table**, in both directions: a save that reflowed the other front-end's half
+  would be the same loss one step removed.
+- **`[gui]` is nine keys, four of them start-up answers.** `GUI.md` §G8.10's
+  table says which take effect when, because it is not guessable: `vsync` is
+  chosen when the GL surface is made and so can never be an Options row, while
+  `scale_percent` and `fullscreen` are rows and apply the moment the panel is
+  left. `frame_cap` is a floor under §15.2 step 6's deadline — it caps
+  *drawing*, and the game plays several ticks per repaint and stays the same
+  game, which is `tests/pump.rs`'s cadence invariance reached from a setting.
+- **`vsync` lives on `glow_options`, not on `NativeOptions`**, in `eframe`
+  0.36 — the renderer's rather than the window's. It is set by assignment
+  rather than in the struct literal, because naming its type means naming
+  `egui_glow`, which §3's dependency table does not list.
+- **`clap`'s `ValueEnum` impls had to leave `tui/cli.rs`**, and `src/argv.rs`
+  is where they went. Both native binaries take `--lock-down`; an impl behind
+  `feature = "tui"` simply is not there for a `--features gui` build, and the
+  failure is a compile error in the *other* front-end. See the amended
+  invariant.
+- **`--print-config` is shared after all.** `gui/cli.rs` carried a comment
+  saying a window does not ask the question; the plan said otherwise and the
+  plan was right — what it prints is the whole document, and the player
+  comparing what two binaries resolved from one file is exactly who wants it.
+- **Two §16 warnings named a directory a browser tab has not got**, which
+  `GUI.md` §G8.3 had already booked as this stage's to fix. They say *nowhere
+  to keep the settings / the scores on this platform* now: §3.1 means the shell
+  does not know where the bytes were going, so it should never have said.
+- **A URL is edited by hand and the grammar admits it.** A flag parameter takes
+  five spellings for "on" and four for "off" (§G8.4); a command line has only
+  "written or not written". `?fullscreen` in a tab is accepted and inert rather
+  than warned about, because a link shared from a desktop should not scold
+  whoever opens it.
+- **Nothing here has been seen by a person yet.** The window's size, place,
+  scale, full-screen switch, vsync and frame cap are held by unit tests and by
+  the compiler; `keep_window` is tested over `Startup` rather than over a real
+  window, and `remember` — the half that reads `egui`'s viewport info — has no
+  test at all, because it needs a window manager. G13's acceptance is where a
+  human looks.
 
 ---
 

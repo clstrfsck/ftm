@@ -21,18 +21,22 @@
 //! deliberately not a `trait Frontend`. `FRONTEND.md` is the contract they
 //! share, written down instead of typed.
 //!
-//! [`native`] is the odd one out and is not a layer: it is the desktop both
-//! native front-ends answer `FRONTEND.md` F1-F4 with — a clock, a filesystem,
-//! an entropy source and a calendar — kept in one place because §6.2 and §14
-//! give `ftm` and `ftm-gui` one config file and one high-score table between
-//! them. The web build of `gui` takes nothing from it, and is not compiled
-//! with it: a browser tab has none of the four.
+//! [`native`] and [`argv`] are the odd ones out and are not a layer: they are
+//! the *desktop* both native front-ends stand on. [`native`] is `FRONTEND.md`
+//! F1-F4 — a clock, a filesystem, an entropy source and a calendar — kept in
+//! one place because §6.2 and §14 give `ftm` and `ftm-gui` one config file and
+//! one high-score table between them; [`argv`] is the one capability beside
+//! those four, and holds the two §6.4 value spellings both binaries share. The
+//! web build of `gui` takes nothing from either, and is not compiled with
+//! them: a browser tab has no clock of that kind, no files, and no argv.
 
 #![forbid(unsafe_code)]
 
 pub mod core;
 pub mod shell;
 
+#[cfg(all(any(feature = "tui", feature = "gui"), not(target_arch = "wasm32")))]
+pub mod argv;
 #[cfg(all(any(feature = "tui", feature = "gui"), not(target_arch = "wasm32")))]
 pub mod native;
 

@@ -160,8 +160,12 @@ pub fn load(storage: &dyn Storage, warnings: &mut Vec<String>) -> Table {
         Ok(Some(text)) => text,
         Ok(None) => return Table::default(),
         Err(StorageError::Unavailable) => {
-            warnings
-                .push("no data directory on this platform; scores are not recorded".to_string());
+            // Neutral about *where*, as §6.2's twin is: natively there is no
+            // data directory, in a browser tab `localStorage` is blocked
+            // (§3.1, `GUI.md` §G8.3).
+            warnings.push(
+                "nowhere to keep the scores on this platform; they are not recorded".to_string(),
+            );
             return Table::default();
         }
         Err(StorageError::Failed(message)) => {

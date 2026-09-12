@@ -49,6 +49,18 @@ mod desktop {
         let mut files = Files::new(cli.config.clone());
         let mut startup = Startup::resolve(&cli.overrides(), &files, native::seed);
 
+        // §6.4, and shared with `ftm`: what it writes is the whole document,
+        // `[gui]` included, and a player comparing what the two binaries
+        // resolved is exactly who asks for it. Before the window, as the
+        // terminal front-end does it before raw mode — it is a thing to do
+        // instead of playing. §8.2's input mode is not printed: there is only
+        // the one path here (§G2.2).
+        if cli.print_config {
+            print!("{}", config::document(&startup.file));
+            report(&startup.warnings);
+            return Ok(());
+        }
+
         // §8.2 has no second path here: `egui` reports a true release for every
         // press, so this front-end is unconditionally the enhanced case and the
         // hold timeout is never reached (`GUI.md` §G2).
@@ -69,11 +81,17 @@ mod desktop {
             outcome.map_err(|error| anyhow!("could not open a window: {error}"))
         };
 
+        // `GUI.md` §G8.10: where the player left the window. `Gui` recorded it
+        // into the session as the window moved, and `finish` has just handed
+        // that back on `startup.file`; what is *written* is `on_disk`, because
+        // a flag is for one run and none of the four numbers below is one.
+        let moved = gui::host_native::keep_window(&mut startup);
+
         // §6.2: the commented default file is written on the first clean exit,
         // and never over a file the player already has. What is written is the
         // file without the command line applied: a flag is for one run (§6.1).
         let write_defaults = !startup.existed && result.is_ok() && !startup.wrote_config;
-        if write_defaults
+        if (write_defaults || moved)
             && let Err(error) = config::save(&mut files, &startup.on_disk)
             // §16: an unwritable config never aborts — and a store with nowhere
             // to keep it has already said so, at load.
@@ -83,10 +101,16 @@ mod desktop {
         }
         // §16: the warnings go to stderr once the window has gone, where the
         // terminal front-end prints them after teardown.
-        for warning in &startup.warnings {
+        report(&startup.warnings);
+        result
+    }
+
+    /// §16, once the window has gone — where the terminal front-end prints
+    /// them after teardown (§8.3).
+    fn report(warnings: &[String]) {
+        for warning in warnings {
             eprintln!("ftm-gui: {warning}");
         }
-        result
     }
 }
 

@@ -43,6 +43,13 @@ pub const MIN_CELL: f32 = 14.0;
 pub const INITIAL_CELL: f32 = 28.0;
 
 /// The window's initial inner size, in points: the layout at [`INITIAL_CELL`].
+///
+/// It is the *default* of `GUI.md` §G8.10's `window_width` and `window_height`,
+/// not the size a window opens at — since `EGUI-PLAN.md` G12 that is whatever
+/// the config file says, and a window whose place is remembered writes its own
+/// back. The two numbers are in `shell/config.rs`, which cannot name this
+/// module; `the_config_defaults_are_this_layouts_initial_size` below is what
+/// keeps them the same number.
 pub const INITIAL_SIZE: [f32; 2] = [
     LAYOUT_COLS as f32 * INITIAL_CELL,
     LAYOUT_ROWS as f32 * INITIAL_CELL,
@@ -392,6 +399,19 @@ mod tests {
         assert_eq!(LAYOUT_ROWS, 1 + 20 + 2 + 1);
         assert_eq!(MAX_SLOTS, 6, "the top of `preview_count`'s range fits");
         assert_eq!(INITIAL_SIZE, [728.0, 672.0]);
+    }
+
+    #[test]
+    fn the_config_defaults_are_this_layouts_initial_size() {
+        // `GUI.md` §G8.10. `shell/config.rs` holds the two numbers, because a
+        // fresh file has to name a size and the shell may not name a
+        // front-end's module (§3.1). This is the join, and without it the
+        // default window and §G3's initial cell would drift apart silently.
+        let gui = crate::shell::config::GuiSettings::default();
+        assert_eq!(
+            [gui.window_width as f32, gui.window_height as f32],
+            INITIAL_SIZE,
+        );
     }
 
     #[test]

@@ -74,8 +74,14 @@ How each is drawn is the front-end's business; §12.4 has the terminal's answer.
 
 A front-end that cannot honour a key **ignores** it and leaves it in the file
 untouched, which is §6.2's existing rule for a key it does not recognise. The
-four keys above therefore survive a GUI run, and `GUI.md` §G8's `[gui]` table
-survives a terminal run.
+four keys above therefore survive a GUI run, and `GUI.md` §G8.10's `[gui]` table
+survives a terminal run. "Ignores" means *does not act on*, not *does not
+read*: both binaries parse, validate and warn about every table, because §6.2's
+warning is about the file and the player edits one file. `ftm` clamping a
+`[gui]` window size it will never use is that rule, working.
+
+`--color` is this front-end's flag for the same reason `color_depth` is its
+key. `GUI.md` §G8.11 is the table of which §6.4 flag exists in which build.
 
 ---
 
