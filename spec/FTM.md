@@ -91,7 +91,7 @@ Where this specification and those pages disagree, **this specification wins**.
 
   **Touch too, and that is a decision rather than an omission.** A web build is
   a link someone opens on a phone, and with no touch input it is a game that
-  visibly does not work there. `EGUI.md` G6 settled it: there are no touch
+  visibly does not work there. `EGUI-PLAN.md` G6 settled it: there are no touch
   controls, and the web build's page says so plainly, so that a visitor on a
   phone is told why nothing responds rather than left to find out (`GUI.md`
   §G8.8). An on-screen control layer would be an amendment to this section and a
@@ -155,7 +155,7 @@ The implementation is a single Rust crate, **edition 2024**, with one binary per
 front-end behind a cargo feature. The MSRV is **1.95**, which is `egui`'s and
 `eframe`'s; edition 2024 itself needs only 1.85, so the floor is set by a
 dependency rather than by the language and moves when one of them moves — as it
-did at `EGUI.md` stage G5, from `ratatui`'s 1.88. The toolchain is pinned no
+did at `EGUI-PLAN.md` stage G5, from `ratatui`'s 1.88. The toolchain is pinned no
 further than that.
 
 > The alternative at G5 was `eframe` 0.33, whose floor is 1.88 exactly. It was
@@ -212,7 +212,7 @@ tree under `eframe`'s web build and move with its pin; they are declared so that
 the web host asks for the `web-sys` interfaces it uses by name. The native crates
 and the web ones are declared per target in `Cargo.toml`, not per feature,
 because `gui` is both builds and a feature cannot tell them apart. `GUI.md` §G8
-is normative for what each becomes. Two crates `EGUI.md` expected are not taken:
+is normative for what each becomes. Two crates `EGUI-PLAN.md` expected are not taken:
 `web-time`, because F1 in a tab is `performance.now()` through `web-sys`
 directly, and `console_error_panic_hook`, because `eframe::WebRunner` installs a
 hook that does the same (§G8.5).
@@ -225,7 +225,7 @@ because this is the first front-end for which the distinction matters.
 `unsafe` is forbidden (`#![forbid(unsafe_code)]` at crate root).
 
 > The **Shared** and **Terminal front-end** halves of the split are real as of
-> `EGUI.md` stage G3, and the compiler holds them: `cargo check
+> `EGUI-PLAN.md` stage G3, and the compiler holds them: `cargo check
 > --no-default-features --target wasm32-unknown-unknown` builds the first list
 > and nothing else. The **egui front-end** row is real as of G5, and the wasm
 > row as of G6.
@@ -264,7 +264,7 @@ This is not tidiness. It is the property that makes a browser build the *same*
 build rather than a port, and it is checkable by the compiler rather than by
 review: `shell/` and `core/` together must compile for
 `wasm32-unknown-unknown` with no `cfg` and no shim. `FRONTEND.md` states the four
-capabilities and the obligations that come with them; `EGUI.md` stage G3 is where
+capabilities and the obligations that come with them; `EGUI-PLAN.md` stage G3 is where
 they land and where that CI step is added.
 
 The front-end owns everything else: the screen, key decoding into §10.1's neutral
@@ -288,8 +288,8 @@ ftm/
 │   ├── FRONTEND.md       # the contract every front-end is written against
 │   ├── TUI.md            # the terminal front-end (§8, §12.1–§12.6, §13)
 │   ├── GUI.md            # the egui front-end, native and web (§G)
-│   ├── TERMINAL.md       # the twelve stages that built v1.0
-│   └── EGUI.md           # the front-end plan, stages G0–G13
+│   ├── TERMINAL-PLAN.md       # the twelve stages that built v1.0
+│   └── EGUI-PLAN.md           # the front-end plan, stages G0–G13
 ├── README.md
 ├── tests/                # integration tests (§17.2), driven through lib.rs
 └── src/
@@ -375,7 +375,7 @@ build of `gui` answers the same four with `web_sys` and takes nothing from here.
 Nothing in `shell/` or `core/` may name it, which is what the two
 `--no-default-features` checks keep true.
 
-> `src/shell/`, `src/tui/`, `src/gui/` and `src/bin/` are `EGUI.md`'s work,
+> `src/shell/`, `src/tui/`, `src/gui/` and `src/bin/` are `EGUI-PLAN.md`'s work,
 > stages G1–G6. `src/ui/`, `src/main.rs` and the four modules beside them are
 > gone as of G2. As of G6 what is left to arrive is the rest of `src/gui/`:
 > `layout.rs`, `playfield.rs`, `overlays.rs` and `attract.rs` (G7–G11).
@@ -928,7 +928,7 @@ games but not during one.
   nothing else. It is not `SmallRng`, which is that generator on a 64-bit target
   and `Xoshiro128PlusPlus` on a 32-bit one: `wasm32-unknown-unknown` is 32-bit,
   and under `SmallRng` the web build dealt a different game for every seed until
-  `EGUI.md` G6 found it. On a 64-bit target the two are the same stream, so no
+  `EGUI-PLAN.md` G6 found it. On a 64-bit target the two are the same stream, so no
   recorded seed changed meaning. Two things `rand` would otherwise decide are
   specified here instead, because it has changed both before and documents its
   small generators as non-portable:
@@ -1883,7 +1883,7 @@ Acceptance is per front-end, because most of it is about a screen and a keyboard
 §17.1 and §17.2 above are shared and are the precondition for both lists.
 
 - **A1–A10 — the terminal front-end.** Moved to [`TUI.md`](TUI.md) §17.3, keeping
-  the number. Signed off at `TERMINAL.md` Stage 12.
+  the number. Signed off at `TERMINAL-PLAN.md` Stage 12.
 - **B1–B12 — the egui front-end**, native and web. `GUI.md` §G9, checked one by
   one the way A1–A10 were.
 

@@ -21,12 +21,12 @@ use crate::core::piece::PieceKind;
 ///
 /// `SmallRng` is `Xoshiro256PlusPlus` on a 64-bit target and
 /// `Xoshiro128PlusPlus` on a 32-bit one — and `wasm32-unknown-unknown` is a
-/// 32-bit one. Under `SmallRng` the web build of `EGUI.md` G6 dealt seed 42
-/// as J L S O where every native build deals J T S I L Z O: a different game
-/// for every seed, which §15.4 forbids and which a §19 peer on a 32-bit
+/// 32-bit one. Under `SmallRng` the web build of `EGUI-PLAN.md` G6 dealt seed
+/// 42 as J L S O where every native build deals J T S I L Z O: a different
+/// game for every seed, which §15.4 forbids and which a §19 peer on a 32-bit
 /// machine would have found the hard way. On a 64-bit target `SmallRng` is a
-/// transparent wrapper around this type, so naming it changes nothing that
-/// was ever recorded; the I1 snapshot is what says so.
+/// transparent wrapper around this type, so naming it changes nothing that was
+/// ever recorded; the I1 snapshot is what says so.
 type Generator = Xoshiro256PlusPlus;
 
 // The guard, where the compiler can see it on every target: `make portable`

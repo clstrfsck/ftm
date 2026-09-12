@@ -4,7 +4,7 @@
 **Date:** 2026-09-10
 **Companion to:** [FTM.md](FTM.md) (the specification),
 [FRONTEND.md](FRONTEND.md) (the contract every front-end is written against),
-[GUI.md](GUI.md) (the egui front-end), [EGUI.md](EGUI.md) (the front-end plan)
+[GUI.md](GUI.md) (the egui front-end), [EGUI-PLAN.md](EGUI-PLAN.md) (the front-end plan)
 
 This document is normative for the **terminal front-end** — the `ftm` binary,
 built with the `tui` feature. It is one of the ways the game of `FTM.md` is
@@ -590,7 +590,7 @@ egui front-end's are B1–B12 in `GUI.md` §G9, and are checked one by one the w
 these were. §17.1 and §17.2 — the core unit tests and the integration tests —
 stay in `FTM.md` and are not front-end-specific.
 
-A1–A10 were signed off at `TERMINAL.md` Stage 12; `CLAUDE.md` records how each was
+A1–A10 were signed off at `TERMINAL-PLAN.md` Stage 12; `CLAUDE.md` records how each was
 checked and what two of them turned up.
 
 The terminal front-end is complete when:

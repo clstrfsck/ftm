@@ -6,8 +6,8 @@
 //! into the shell as the same [`Overrides`] that `clap` fills in natively. The
 //! grammar is the front-end's and the meaning is the shell's (§6.1).
 //!
-//! **This is `EGUI.md` G6's half, and G6 needs one parameter**: `seed`, which is
-//! what makes the web slice reproducible and comparable with the native binary.
+//! **This is `EGUI-PLAN.md` G6's half, and G6 needs one parameter**: `seed`,
+//! which makes the web slice reproducible and comparable with the native one.
 //! G12 adds the rest, together with §G8's list of which flag exists in which
 //! build.
 //!
@@ -79,9 +79,9 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn the_query_and_the_command_line_ask_for_the_same_thing() {
-        // `EGUI.md` G6: "the same seed produces the same game as the native
-        // binary". The core makes that true of a seed; this is what makes it
-        // true of the *way the seed is written* in each build.
+        // `EGUI-PLAN.md` G6: "the same seed produces the same game as the
+        // native binary". The core makes that true of a seed; this is what
+        // makes it true of the *way the seed is written* in each build.
         use crate::gui::cli::Cli;
         use clap::Parser as _;
         let native = Cli::parse_from(["ftm-gui", "--seed", "42"]).overrides();

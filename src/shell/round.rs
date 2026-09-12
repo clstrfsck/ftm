@@ -8,7 +8,7 @@
 //! reports and waits at most [`Round::deadline`] before coming back.
 //!
 //! The steps are still in order, and the order is still §15.2's; what changed
-//! at `EGUI.md` stage G4 is which side of the call they are on.
+//! at `EGUI-PLAN.md` stage G4 is which side of the call they are on.
 //!
 //! Nothing here reads a clock. Every entry point takes the [`Stamp`] the
 //! front-end was called at (F1), which is also what makes the whole of a game

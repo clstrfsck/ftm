@@ -3,8 +3,8 @@
 //!
 //! A terminal owns its loop and a window does not: the compositor calls the
 //! application and the application asks to be called again. That is the whole
-//! of the difference, and `EGUI.md` G4 is what made it a difference of a few
-//! lines rather than of a rewrite — [`Round`] is §15.2's loop body as an
+//! of the difference, and `EGUI-PLAN.md` G4 is what made it a difference of a
+//! few lines rather than of a rewrite — [`Round`] is §15.2's loop body as an
 //! object, and this module is what a *window* adds to it: `egui`'s event
 //! queue, a painter, and a repaint request.
 //!
@@ -45,8 +45,9 @@ use crate::shell::time::Stamp;
 /// §7's two screens, as a field rather than a `match` in a `loop`.
 ///
 /// The terminal's state machine is a loop over [`Next`] and this is the same
-/// machine turned inside out, exactly as §15.2's steps were (`EGUI.md` G4): the
-/// compositor calls, and what it finds is whichever screen the run is on. §15's
+/// machine turned inside out, exactly as §15.2's steps were (`EGUI-PLAN.md`
+/// G4): the compositor calls, and what it finds is whichever screen the run is
+/// on. §15's
 /// *two* loops are here too — the attract screen asks to be repainted ten times
 /// a second and has no accumulator (§15.3), a game sixty (§15.2) — as two
 /// answers to [`Round::deadline`](crate::shell::round::Round::deadline)'s

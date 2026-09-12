@@ -6,7 +6,7 @@
 //! [`shell::menus`](crate::shell::menus) through
 //! [`Round::key`](crate::shell::round::Round::key), exactly as the terminal's
 //! are, so the two front-ends cannot come to disagree about what an item means
-//! (`EGUI.md` G2, G8). This module is the boxes they are drawn in.
+//! (`EGUI-PLAN.md` G2, G8). This module is the boxes they are drawn in.
 //!
 //! Two of them are worth saying out loud. Name entry is fed neutral keys and
 //! is **not** an `egui::TextEdit`: §12.6's twelve printable ASCII and its

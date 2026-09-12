@@ -16,11 +16,11 @@ jobs:
         with:
           components: rustfmt, clippy
           # `make portable` checks that `core/` + `shell/` build with no
-          # platform under them, which is what keeps the web build of EGUI.md
+          # platform under them, which is what keeps the web build of EGUI-PLAN.md
           # G6 a capability provider rather than a port (FTM.md §3.1).
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      # `make check` builds the `gui` front-end too since EGUI.md G5, and
+      # `make check` builds the `gui` front-end too since EGUI-PLAN.md G5, and
       # `eframe` brings a windowing and rendering stack with it (GUI.md §G1.1:
       # glow + x11 + wayland). None of this is needed to *run* the tests --
       # nothing in `cargo test` opens a window -- only to compile winit and
@@ -43,7 +43,7 @@ jobs:
       # do not skip the test.
       - run: make check
 
-  # The web build's artefact (EGUI.md G6, GUI.md §G8): `ftm-gui` for wasm32,
+  # The web build's artefact (EGUI-PLAN.md G6, GUI.md §G8): `ftm-gui` for wasm32,
   # through trunk, exactly as a player would be served it. `make check` above
   # already compiles and lints the web front-end (`make web-check`); what this
   # adds is wasm-bindgen, wasm-opt and index.html, which only trunk runs.
@@ -68,7 +68,7 @@ jobs:
 
   # Not a Makefile target: it is the one command here that means nothing
   # without a pinned toolchain of its own. The version is `rust-version` in
-  # Cargo.toml and the MSRV of FTM.md §3 -- `egui`'s floor since EGUI.md G5,
+  # Cargo.toml and the MSRV of FTM.md §3 -- `egui`'s floor since EGUI-PLAN.md G5,
   # `ratatui`'s before that, and never the language's -- and it moves when a
   # dependency moves it. Change it in all three places or this job stops
   # checking what it claims to.

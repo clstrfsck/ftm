@@ -8,7 +8,7 @@
 //! modules never say which.
 //!
 //! What it draws today is the playing screen of `GUI.md` §G4 over §G3's cell
-//! metric (`EGUI.md` G7) — [`layout`] says where, [`paint`] how, and
+//! metric (`EGUI-PLAN.md` G7) — [`layout`] says where, [`paint`] how, and
 //! [`playfield`] what — served natively and as wasm. §12.6's overlays, §12.5's
 //! animations and §13's attract screen arrive at G8-G11, each over the same
 //! [`Round`](crate::shell::round::Round) this one already pumps.

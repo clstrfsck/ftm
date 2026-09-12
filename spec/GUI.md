@@ -4,7 +4,7 @@
 **Date:** 2026-09-12
 **Companion to:** [FTM.md](FTM.md) (the specification),
 [FRONTEND.md](FRONTEND.md) (the contract every front-end is written against),
-[TUI.md](TUI.md) (the terminal front-end), [EGUI.md](EGUI.md) (the plan that
+[TUI.md](TUI.md) (the terminal front-end), [EGUI-PLAN.md](EGUI-PLAN.md) (the plan that
 builds this one)
 
 This document will be normative for the **egui front-end** — the `ftm-gui`
@@ -13,7 +13,7 @@ browser. They are one front-end with two hosts, not two front-ends, so the
 differences between them are called out in place rather than in a document of
 their own.
 
-**It is written stage by stage, not up front.** `EGUI.md`'s stages G5–G13 each
+**It is written stage by stage, not up front.** `EGUI-PLAN.md`'s stages G5–G13 each
 name the section they fill, and each fills it in the same commit as the code.
 §G1 and §G2 were written by G5, §G8's web build by G6 — its `[gui]` table and
 the rest of its query parameters wait for G12 — §G3 and §G4 by G7, §G5 by G8,
@@ -34,15 +34,15 @@ that document owns. `§Gn` means this file.
 
 | § | Section | Filled by | Covers |
 |---|---|---|---|
-| G1 | The application | `EGUI.md` G5 ✅ | The `eframe` application, the pinned `egui` / `eframe` versions and the MSRV they set, the window, the loop that pumps the shell. |
-| G2 | Input | `EGUI.md` G5 ✅ | The `egui` → `shell::keys` adapter (`FRONTEND.md` F5), repeats, focus loss, and the keys the browser wants for itself. |
-| G3 | Layout | `EGUI.md` G7 ✅ | The integer-cell metric, `LAYOUT_COLS` / `LAYOUT_ROWS`, the minimum `cell` and the too-small state below it (`FRONTEND.md` F6, §8.4). |
-| G4 | The playing screen | `EGUI.md` G7 ✅ | §12.4's information — field, hold, next, stats, status — drawn as pixels rather than characters, `show_debug`, and the pause that losing the keyboard forces. |
-| G5 | Overlays | `EGUI.md` G8 ✅ | §12.6's pause, game-over and name-entry boxes, and the §13.5 Options and §10.1 controls panels. |
-| G6 | Animations | `EGUI.md` G9 ✅, G10 ✅ | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
-| G7 | The attract screen | `EGUI.md` G11 ✅ | §13's wordmark, menu, cycling panel and drifting background, laid out for a window rather than a 36 × 20 grid. |
-| G8 | The web build | `EGUI.md` G6 ✅, G12 | The canvas and its keyboard focus, `localStorage` for §6.2 and §14, URL query parameters in place of §6.4's flags, and the `[gui]` config table. |
-| G9 | Testing and acceptance | `EGUI.md` G13 | The headless `egui_kittest` render test, and **B1–B12**, this front-end's answer to §17.3's A1–A10. |
+| G1 | The application | `EGUI-PLAN.md` G5 ✅ | The `eframe` application, the pinned `egui` / `eframe` versions and the MSRV they set, the window, the loop that pumps the shell. |
+| G2 | Input | `EGUI-PLAN.md` G5 ✅ | The `egui` → `shell::keys` adapter (`FRONTEND.md` F5), repeats, focus loss, and the keys the browser wants for itself. |
+| G3 | Layout | `EGUI-PLAN.md` G7 ✅ | The integer-cell metric, `LAYOUT_COLS` / `LAYOUT_ROWS`, the minimum `cell` and the too-small state below it (`FRONTEND.md` F6, §8.4). |
+| G4 | The playing screen | `EGUI-PLAN.md` G7 ✅ | §12.4's information — field, hold, next, stats, status — drawn as pixels rather than characters, `show_debug`, and the pause that losing the keyboard forces. |
+| G5 | Overlays | `EGUI-PLAN.md` G8 ✅ | §12.6's pause, game-over and name-entry boxes, and the §13.5 Options and §10.1 controls panels. |
+| G6 | Animations | `EGUI-PLAN.md` G9 ✅, G10 ✅ | §12.5's six animations in a pixel-native idiom, and the sub-cell gravity that `GameView::fall_progress` makes drawable. |
+| G7 | The attract screen | `EGUI-PLAN.md` G11 ✅ | §13's wordmark, menu, cycling panel and drifting background, laid out for a window rather than a 36 × 20 grid. |
+| G8 | The web build | `EGUI-PLAN.md` G6 ✅, G12 | The canvas and its keyboard focus, `localStorage` for §6.2 and §14, URL query parameters in place of §6.4's flags, and the `[gui]` config table. |
+| G9 | Testing and acceptance | `EGUI-PLAN.md` G13 | The headless `egui_kittest` render test, and **B1–B12**, this front-end's answer to §17.3's A1–A10. |
 
 ---
 
@@ -89,7 +89,7 @@ moment, and reports them on the console as they arise (§G8.6).
 
 `eframe` calls the application and the application asks to be called again, so
 §15.2's seven steps are **not** a loop here — they are calls into
-`shell::round::Round`, which `EGUI.md` G4 made a front-end's to drive
+`shell::round::Round`, which `EGUI-PLAN.md` G4 made a front-end's to drive
 (`FRONTEND.md` F7).
 
 `eframe` 0.36 splits its callback in two, and the split lands where §15.2's does:
@@ -106,7 +106,7 @@ Three rules bind that, and each is `FTM.md`'s rather than this document's:
    the window is hidden and `App::ui` is not, so a hidden window keeps pumping
    and simply is not drawn. A backgrounded tab is the same case at a throttled
    cadence (§G8.7), and §15.2 step 4's catch-up cap is what stops either from
-   resuming into an instant death. (Since `EGUI.md` G7 a *game* in either is
+   resuming into an instant death. (Since `EGUI-PLAN.md` G7 a *game* in either is
    paused rather than played, because neither has the keyboard — §G4.7. The
    pump runs regardless, and has to be correct at that cadence.)
 2. **`deadline` is advice, not a frame rate** (§15.2 step 6). The compositor may
@@ -204,7 +204,7 @@ Focus loss also **pauses a game in progress**, which is §G4.7's rule and is
 amended here from what G5 wrote: that §8.4's forced pause was about a viewport
 alone, and a game left unattended should top out as it would in a terminal behind
 another window. G6 measured what that meant in a hidden tab (§G8.7) — a game
-that went on placing pieces for its absent player — and `EGUI.md` G7 settled it
+that went on placing pieces for its absent player — and `EGUI-PLAN.md` G7 settled it
 the other way. The adapter's part is unchanged: it synthesises the releases, and
 the pause that follows them is the shell's.
 
@@ -556,7 +556,7 @@ start-up. **Both the screen and the shell navigate that same list**, so the
 cursor can never land on a row the screen is not drawing — the failure a panel
 that simply drew fewer rows than the menu walked would have.
 
-This is the small half of the split `EGUI.md` G12 finishes, when a `[gui]`
+This is the small half of the split `EGUI-PLAN.md` G12 finishes, when a `[gui]`
 table gives this front-end settings of its own to put in `Colour`'s place.
 What §13.5 says about the panel is unchanged: presentation applies at once,
 rules never — a game keeps the rules it started under, and a `Hold` switched
@@ -723,7 +723,7 @@ means "to the wall this tick" and contradicts any duration chosen to animate
 it, and an SRS kick has no meaningful intermediate pose (§9.5). What to reach
 for instead, if the movement wants softening, is a brief trailing smear over
 the vacated cells — the shape §12.5's hard-drop trail already has, and
-`GameEvent::PieceMoved` already fires for. `EGUI.md` G10 has the long form.
+`GameEvent::PieceMoved` already fires for. `EGUI-PLAN.md` G10 has the long form.
 
 ### G6.6 A piece enters the well
 
@@ -829,7 +829,7 @@ quiet. That is `shell::attract::wordmark_colour`, and both front-ends ask it.
 arrives, how many exist at once and how fast they fall are §13.4's numbers and
 are shared; where a piece *is* is measured in cells of the viewport, so the
 drift itself is `gui::attract::Drift` and the terminal keeps its own
-(`EGUI.md` G2). Three differences from a character grid, and each is the same
+(`EGUI-PLAN.md` G2). Three differences from a character grid, and each is the same
 animation rather than another one:
 
 - **Outlines are strokes.** §13.4 draws `░░`; a window strokes the cell, a
@@ -846,7 +846,7 @@ animation rather than another one:
   legible, and nothing has to be blanked to make it so.
 
 The drift's entropy is F3's — `host::seed` — and not the operating system's,
-because a browser tab has no OS entropy source to reach for (`EGUI.md` G3).
+because a browser tab has no OS entropy source to reach for (`EGUI-PLAN.md` G3).
 Nothing here is ever replayed, so the generator only has to look random; it is
 `Xoshiro256PlusPlus` because that is the generator this project names (§9.6),
 and reaching for `SmallRng` here would be reaching for the one that is a
@@ -891,7 +891,7 @@ Under a box the whole screen dims, as the well does under §G5's. There is no
 ### G7.5 Two screens, one pump
 
 §7's state machine is a loop over `Next` in the terminal and a **field** here,
-for the same reason §15.2's steps became method calls (`EGUI.md` G4): the
+for the same reason §15.2's steps became method calls (`EGUI-PLAN.md` G4): the
 compositor calls, and what it finds is whichever screen the run is on. §15's
 *two* loops are two answers to the same question — a game asks to be woken
 inside a tick (§15.2), the attract screen at a flat 10 fps with no accumulator
@@ -922,7 +922,7 @@ an entry point is made of — where the flags come from, where `FRONTEND.md` F1�
 come from, and whether a run has an end — and all of it is in
 `gui/host_web.rs`, `gui/query.rs` and the wasm `main` of `src/bin/ftm-gui.rs`.
 
-`EGUI.md` G6 wrote §G8.1–§G8.9. G12 adds the `[gui]` table and the rest of
+`EGUI-PLAN.md` G6 wrote §G8.1–§G8.9. G12 adds the `[gui]` table and the rest of
 §6.4's flags as query parameters, with the list of which exists in which build.
 
 ### G8.1 The page, and a run with no end
@@ -1041,7 +1041,7 @@ and returning to it costs nothing: there is no burst of arrears, and the player
 is not killed by coming back. Measured in Chrome at G6: 36 seconds minimised
 advanced a level-1 game by about nine seconds of play.
 
-**Since `EGUI.md` G7 a game in progress does not creep: it pauses.** A hidden
+**Since `EGUI-PLAN.md` G7 a game in progress does not creep: it pauses.** A hidden
 tab reports no focus — `eframe` counts a hidden document as unfocused — so the
 first `App::logic` pass after hiding forces the pause of §G4.7, and the player
 comes back to the pause menu rather than to a game that went on without them. The
@@ -1063,7 +1063,7 @@ There are no touch controls, and the page says so in its footer: *Falling
 Tetromino Manager is played with a keyboard. There are no touch controls.* A web
 build is a link someone will open on a phone, and a game that silently ignores a
 finger is worse than one that explains itself; an on-screen control layer would
-be a §1.2 amendment and a piece of design in its own right, and `EGUI.md` G6
+be a §1.2 amendment and a piece of design in its own right, and `EGUI-PLAN.md` G6
 declined it.
 
 ### G8.9 The same seed, the same game
@@ -1096,7 +1096,7 @@ are where each is most likely to be broken.
   rotation stay snapped to the cell. This is the rule that a framework with
   per-frame tweening in its idiom makes most tempting to break.
 - **No pointer path** (§1.2). No click-to-select in a menu, in either build,
-  and no touch controls in the web build: `EGUI.md` G6 settled that, and the
+  and no touch controls in the web build: `EGUI-PLAN.md` G6 settled that, and the
   page says so (§G8.8). A click that focuses the canvas is the browser's, not
   the game's.
 - **The other front-end's config survives** (§6.2). `ftm` and `ftm-gui` share one
@@ -1112,7 +1112,7 @@ are where each is most likely to be broken.
 ## What does not carry over from `TUI.md`
 
 Named here because the temptation is to port the terminal front-end's structure
-wholesale and inherit its constraints for no benefit. `EGUI.md`'s *Hazards that
+wholesale and inherit its constraints for no benefit. `EGUI-PLAN.md`'s *Hazards that
 do not carry over* is the longer version.
 
 - §15.2 step 5's frame comparison, and the generation counter behind it. They

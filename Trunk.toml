@@ -1,4 +1,4 @@
-# The web build (GUI.md §G8, EGUI.md G6): `ftm-gui` compiled for
+# The web build (GUI.md §G8, EGUI-PLAN.md G6): `ftm-gui` compiled for
 # wasm32-unknown-unknown, and `index.html` around it.
 #
 #   trunk serve               # http://127.0.0.1:8080, rebuilt on save
@@ -12,5 +12,5 @@
 target = "index.html"
 dist = "dist"
 # Relative asset URLs, so that `dist/` works wherever it is put -- where the
-# web build is served is still an open decision in EGUI.md.
+# web build is served is still an open decision in EGUI-PLAN.md.
 public_url = "./"

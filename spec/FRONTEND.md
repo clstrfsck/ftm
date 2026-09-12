@@ -4,7 +4,7 @@
 **Date:** 2026-09-10
 **Companion to:** [FTM.md](FTM.md) (the specification), [TUI.md](TUI.md) (the
 terminal front-end), [GUI.md](GUI.md) (the egui front-end),
-[EGUI.md](EGUI.md) (the plan that builds it)
+[EGUI-PLAN.md](EGUI-PLAN.md) (the plan that builds it)
 
 This is the document a **fourth** front-end reads first. It is short on purpose:
 it says what a front-end must provide, what it may assume, and what it must never
@@ -17,7 +17,7 @@ fall on the outermost layer, with a reference to where each is stated. Where thi
 document and `FTM.md` disagree, `FTM.md` wins and one of them is amended in the
 same commit.
 
-> **Status.** F1–F7 are built and are the code's own shapes as of `EGUI.md`
+> **Status.** F1–F7 are built and are the code's own shapes as of `EGUI-PLAN.md`
 > stage G4: `shell::keys` (F5), `shell::time::Stamp` (F1), `shell::storage`
 > (F2) and `shell::host::Host`, which carries F2's store beside F3's seed and
 > F4's date. `crate::native` is the *desktop's* answer to all four, in about a
@@ -26,7 +26,7 @@ same commit.
 > one high-score table between them. F6 and F7 are `shell::round::Round` and
 > `shell::attract::Attract` over the `shell::session::Session` they share:
 > §15.2's seven steps are methods, two front-ends call them from their own
-> loops, and `tests/pump.rs` calls them with no screen at all. Since `EGUI.md`
+> loops, and `tests/pump.rs` calls them with no screen at all. Since `EGUI-PLAN.md`
 > G6, `gui/host_web.rs` is the *browser's* answer to F1–F4 — `performance.now()`,
 > `localStorage`, `Math.random()` and `Date` — in about two hundred lines, and
 > the same `gui/app.rs` runs over it unchanged, which is the checklist below
@@ -325,7 +325,7 @@ advance and no way to end itself.
   answer belongs in `GameView` or in the event.
 - **Add a pointer path.** §1.2 makes mouse input a non-goal in every front-end,
   and it is a rule about the game rather than about terminals. Touch is settled
-  the same way (`EGUI.md` G6): the web build has none and its page says so, and
+  the same way (`EGUI-PLAN.md` G6): the web build has none and its page says so, and
   a front-end that wanted touch controls would need a §1.2 amendment, not a
   change of its own.
 - **Merge `RulesConfig` into `PresentationConfig`** (§6.5), or let the Options

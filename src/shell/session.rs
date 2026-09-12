@@ -8,10 +8,10 @@
 //! F2-F4).
 //!
 //! Nothing here belongs to a front-end. What used to sit beside these fields
-//! and did — §12.2's interned glyphs — moved out to `tui/run.rs` at `EGUI.md`
-//! stage G4, because leaking three `&'static str` so a ratatui `Theme` can be
-//! `Copy` is a terminal's problem and a browser tab that is reloaded
-//! repeatedly is the wrong place to inherit it.
+//! and did — §12.2's interned glyphs — moved out to `tui/run.rs` at
+//! `EGUI-PLAN.md` stage G4, because leaking three `&'static str` so a ratatui
+//! `Theme` can be `Copy` is a terminal's problem and a browser tab that is
+//! reloaded repeatedly is the wrong place to inherit it.
 
 use crate::core::GameView;
 use crate::shell::config::{self, ConfigFile, Startup};

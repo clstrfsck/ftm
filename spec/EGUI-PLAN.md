@@ -1,6 +1,6 @@
 # Falling Tetromino Manager — Front-End Plan
 
-**Companion to:** [FTM.md](FTM.md) (the specification), [TERMINAL.md](TERMINAL.md)
+**Companion to:** [FTM.md](FTM.md) (the specification), [TERMINAL-PLAN.md](TERMINAL-PLAN.md)
 (the twelve stages that built v1.0)
 **Date:** 2026-09-06
 **Status:** G0–G10 complete (**MG5**); G11 next.
@@ -12,7 +12,7 @@ than another restructure. A Macroquad front-end is anticipated and is named
 throughout as the thing the boundary must not foreclose; nothing in this plan
 implements it.
 
-It is written for the tree as it stands at the end of `TERMINAL.md` Stage 12: the
+It is written for the tree as it stands at the end of `TERMINAL-PLAN.md` Stage 12: the
 core is sealed behind its façade (A10), the shell is `app.rs`, `config.rs`,
 `input.rs`, `highscore.rs` and `ui/`, and `main.rs` is the terminal entry point.
 
@@ -177,7 +177,7 @@ data-loss bug that a casual test will not catch, because each front-end's own
 settings survive perfectly.
 
 The two vertical slices (G5 native, G6 web) are deliberately thin and
-deliberately early, for the same reason TERMINAL.md's Stage 6 was: a window that
+deliberately early, for the same reason TERMINAL-PLAN.md's Stage 6 was: a window that
 opens, shows a falling piece and responds to a hard drop retires the whole
 eframe/winit/GPU stack as a question, and the same slice in a browser tab
 retires the wasm toolchain, before nine stages of layout work are sunk into
@@ -198,8 +198,8 @@ ftm/
 │   ├── TUI.md            # the terminal front-end (§8, §12, §13)
 │   ├── GUI.md            # the egui front-end, native and web (§G1–)
 │   ├── MACROQUAD.md      # written if and when it is built; not now
-│   ├── TERMINAL.md       # the twelve stages that built v1.0
-│   └── EGUI.md           # this plan
+│   ├── TERMINAL-PLAN.md       # the twelve stages that built v1.0
+│   └── EGUI-PLAN.md           # this plan
 ├── tests/
 │   ├── scripted_game.rs      # I1, I2 + the §19.4 canary — untouched
 │   ├── pump.rs               # NEW: the shell driven headlessly (G4)
@@ -330,7 +330,7 @@ failure mode is silent — the GUI simply stops being compiled.
 
 ## Working agreements
 
-The `TERMINAL.md` agreements all still hold. These are the ones this plan adds.
+The `TERMINAL-PLAN.md` agreements all still hold. These are the ones this plan adds.
 
 - **The core is touched exactly once, in exactly one place.** Every stage but
   one leaves `src/core/` alone; if a stage seems to need a core change, that is a
@@ -381,7 +381,7 @@ The `TERMINAL.md` agreements all still hold. These are the ones this plan adds.
 
 The obvious split renumbers everything, and the cost is enormous and hidden:
 `§12.4`, `§9.13`, `§8.2` and their siblings appear in several hundred doc
-comments across `src/`, in `CLAUDE.md`, in `TERMINAL.md` and in commit messages. A
+comments across `src/`, in `CLAUDE.md`, in `TERMINAL-PLAN.md` and in commit messages. A
 renumber invalidates every one of them silently — the reference still *reads*
 fine, it just points somewhere else.
 
@@ -910,7 +910,7 @@ thing that makes every future front-end testable without a window:
 
 **Depends on:** G4. **Spec:** `GUI.md` §G1 (the front-end), §G2 (input).
 
-The thin slice, for the same reason TERMINAL.md's Stage 6 was thin: prove the stack.
+The thin slice, for the same reason TERMINAL-PLAN.md's Stage 6 was thin: prove the stack.
 
 ### The work
 

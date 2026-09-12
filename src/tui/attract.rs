@@ -106,7 +106,7 @@ struct Drifter {
 /// It stays here rather than in `shell::attract` because it is positioned in
 /// **matrix cells of a character grid**: a window measures the same drift in
 /// pixels, so each front-end keeps its own and folds its "did anything move"
-/// answer in beside [`Attract::step`]'s (`EGUI.md` G2).
+/// answer in beside [`Attract::step`]'s (`EGUI-PLAN.md` G2).
 pub struct Background {
     pieces: Vec<Drifter>,
     rng: SmallRng,

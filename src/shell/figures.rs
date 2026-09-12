@@ -3,8 +3,8 @@
 //! A score, a clock: two numbers every front-end prints, and prints the same
 //! way, because the way they are written is the specification's and not a
 //! rendering technique. The same reasoning put the menus' labels in
-//! [`menus`](crate::shell::menus) (`EGUI.md` G2) — a second front-end that
-//! wrote its own would be a second §12.4.
+//! [`menus`](crate::shell::menus) (`EGUI-PLAN.md` G2) — a second front-end
+//! that wrote its own would be a second §12.4.
 //!
 //! *Where* a figure is drawn, and at what size, is each front-end's own.
 

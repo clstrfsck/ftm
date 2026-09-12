@@ -6,7 +6,7 @@ directories. The specification is `FTM.md`, and since G0 it has three companion
 documents — see **The four documents** below. All six documents, the two plans
 included, live in **`spec/`**.
 
-It is no longer only a terminal game, and no longer a single binary: `EGUI.md`
+It is no longer only a terminal game, and no longer a single binary: `EGUI-PLAN.md`
 builds a second and third front-end (a native egui window, and the same code as
 wasm in a browser) and anticipates a fourth (Macroquad). As of G8 the tree is
 `core/` + `shell/` + `native.rs` + `tui/` + `gui/`, with `src/bin/ftm.rs` and
@@ -23,7 +23,7 @@ a falling piece is drawn between two rows, and enters the well rather than
 appearing in it — and G11 §13's attract screen beside the game, which is what
 turned §13's *words* from the terminal's into everyone's.
 
-**Status: Stage 12 of `TERMINAL.md` complete — milestone M4, accepted; `EGUI.md`
+**Status: Stage 12 of `TERMINAL-PLAN.md` complete — milestone M4, accepted; `EGUI-PLAN.md`
 stages G0-G11 complete. Start at G12.** All
 twelve stages are done and §17.3's A1-A10 are signed off one by one (the table
 below). Everything in §1.1 is implemented. `cargo run --release` opens on the
@@ -88,8 +88,8 @@ desktop, and `host_web.rs` for a tab — `gui::host` is whichever one the target
 has, so `app.rs` never asks. T1-T17 all pass, plus I1-I4 and `tests/pump.rs`,
 and the batch-invariance canary is in CI.
 
-There is no Stage 13 of `TERMINAL.md`, and there will not be: that plan is
-finished. **The live work is `EGUI.md`, stages G0-G13**, which adds the egui
+There is no Stage 13 of `TERMINAL-PLAN.md`, and there will not be: that plan is
+finished. **The live work is `EGUI-PLAN.md`, stages G0-G13**, which adds the egui
 and web front-ends and restructures the tree so a fourth front-end is additive.
 Start at G12. §18 remains out of scope and §19 remains a list of constraints to
 honour rather than a work item — see **Scope discipline** below.
@@ -133,13 +133,13 @@ does — `GUI.md §G7`, not `spec/GUI.md §G7`. A document is referred to by its
 name because that is what several hundred doc comments say; the directory is
 where it is kept, not what it is called.
 
-1. **`EGUI.md`** — the live plan, stages G0-G13. Find the current stage; it
+1. **`EGUI-PLAN.md`** — the live plan, stages G0-G13. Find the current stage; it
    names the spec sections it depends on and the tests that close it. Read that
    stage, plus "The decisions this plan rests on" and "The central idea", which
    are what the rest of it follows from.
 2. **The specification**, in whichever of the four documents below owns the
    sections the current stage names. Read those sections, not the whole thing.
-3. **`TERMINAL.md`** — the twelve stages that built v1.0. History, not instructions.
+3. **`TERMINAL-PLAN.md`** — the twelve stages that built v1.0. History, not instructions.
    Worth reading when you want to know why something is the shape it is.
 
 The specification is ground truth. **If the code and the spec disagree, the
@@ -476,7 +476,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 
 ## Working agreements
 
-- Tests land **with** their stage, not after it. `TERMINAL.md` maps every test in §17
+- Tests land **with** their stage, not after it. `TERMINAL-PLAN.md` maps every test in §17
   to an owning stage.
 - `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test` all clean at
   every stage boundary.
@@ -506,12 +506,12 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
 - The attract screen (§13) is explicitly provisional. It has now been built
   plainly and looked at; iterate on it if it wants it, but §17.3 never judged
   its looks and the plan is finished either way.
-- **`EGUI.md`'s scope is its stages and nothing beside them.** A window, and
+- **`EGUI-PLAN.md`'s scope is its stages and nothing beside them.** A window, and
   especially a browser tab, makes sound, themes, mouse and touch input feel
   newly reachable. §1.2 is unchanged: the game is keyboard-driven. Touch got a
   real answer rather than a reflex, before the web slice: **no touch controls**,
   and the page says so (§1.2, `GUI.md` §G8.8). Adding them is a §1.2 amendment.
-- **Macroquad is `EGUI.md`'s §19**: a list of constraints so the front-end stays
+- **Macroquad is `EGUI-PLAN.md`'s §19**: a list of constraints so the front-end stays
   cheap later, not a thing to build. Do not write `MACROQUAD.md`, and do not add
   a `trait Frontend` — the front-ends share the shell by calling it, not by
   satisfying an interface designed before the third one existed.
@@ -668,7 +668,7 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   front-end draws rectangles, and OpenGL reaches a browser as WebGL2 without a
   WebGPU fallback path.
 - **`tui/host.rs` became `src/native.rs`**, and that is a deliberate amendment
-  to `EGUI.md`'s target layout, which had a copy under `gui/`. See the
+  to `EGUI-PLAN.md`'s target layout, which had a copy under `gui/`. See the
   invariant above.
 - **`eframe` 0.36 splits its callback in two, and the split is §15.2's.**
   `App::logic` is steps 1-4 and 6-7; `App::ui` is step 5. `logic` is called

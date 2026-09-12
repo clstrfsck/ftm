@@ -12,8 +12,8 @@
 //! The clock is one of four things the shell has none of (§3.1), and none of
 //! them is a *terminal's* question: all four come from
 //! [`crate::native`](crate::native), which the window front-end shares
-//! (`EGUI.md` G5). What stays here is `cli`, §6.4's grammar, which is the one
-//! module below `main` in this directory that names `clap`.
+//! (`EGUI-PLAN.md` G5). What stays here is `cli`, §6.4's grammar, which is the
+//! one module below `main` in this directory that names `clap`.
 
 pub mod attract;
 pub mod cells;

@@ -1,11 +1,11 @@
 //! The four capabilities of `FRONTEND.md` F1-F4, in a browser tab
 //! (`GUI.md` §G8).
 //!
-//! This is the web build's whole platform, and it is the file `EGUI.md` G3 was
-//! betting on when it called the web build "a fourth capability provider
-//! rather than a port": the shell above it is the native build's, unchanged
-//! and uncompiled-for-differently, because since G3 it asks the platform for
-//! nothing it is not handed.
+//! This is the web build's whole platform, and it is the file `EGUI-PLAN.md`
+//! G3 was betting on when it called the web build "a fourth capability
+//! provider rather than a port": the shell above it is the native build's,
+//! unchanged and uncompiled-for-differently, because since G3 it asks the
+//! platform for nothing it is not handed.
 //!
 //! The same names as [`host_native`](super) — `Clock`, a store, `seed`,
 //! `today` — so that `gui/app.rs` never learns which of the two it is running

@@ -6,20 +6,20 @@ rust-version = "1.95"
 description = "A guideline-conformant falling-block game"
 license = "MIT"
 publish = false
-# Two binaries as of EGUI.md G2, so `cargo run` needs telling which one it
+# Two binaries as of EGUI-PLAN.md G2, so `cargo run` needs telling which one it
 # means. The terminal front-end is the one you play.
 default-run = "ftm"
 
 # `default` is the terminal front-end, so `cargo build` and `cargo run` are
 # what they always were. `--no-default-features` builds `core` and `shell`
 # alone, which is the compiler holding the shell boundary the way §17.3's A10
-# holds the core's (EGUI.md G2). `gui` is the window front-end of GUI.md, and
-# since EGUI.md G5 it has something behind it.
+# holds the core's (EGUI-PLAN.md G2). `gui` is the window front-end of GUI.md, and
+# since EGUI-PLAN.md G5 it has something behind it.
 #
 # The two front-end features overlap in four crates, and that is not an
 # accident: `directories`, `clap`, `chrono` and `anyhow` are the *native*
 # platform's answers to FRONTEND.md F1-F4 and §6.4, and `src/native.rs` is
-# where both native binaries get them. The web build of EGUI.md G6 is `gui` on
+# where both native binaries get them. The web build of EGUI-PLAN.md G6 is `gui` on
 # `wasm32-unknown-unknown`, and answers the same four with `web-sys` and
 # `js-sys` instead.
 #
@@ -67,7 +67,7 @@ required-features = ["gui"]
 # Versions are pinned to the minor versions in FTM.md §3. No other runtime
 # dependencies may be added without amending that table.
 #
-# Since EGUI.md G3 the shell has no clock, no filesystem, no entropy and no
+# Since EGUI-PLAN.md G3 the shell has no clock, no filesystem, no entropy and no
 # calendar of its own (§3.1), so the crates that supply those are front-end
 # dependencies, declared per target below. What is left always-on is what
 # parses and what plays.
@@ -79,7 +79,7 @@ required-features = ["gui"]
 # nothing turns it on for wasm. `getrandom` refuses to compile for
 # `wasm32-unknown-unknown` without a build-time `--cfg`, which is what makes
 # `make portable` and `make web-check` the guard against it drifting back.
-# (Until EGUI.md G6 the front-end *features* turned it on; a feature cannot
+# (Until EGUI-PLAN.md G6 the front-end *features* turned it on; a feature cannot
 # tell a desktop from a browser tab, and `gui` is now both.)
 [dependencies]
 ratatui = { version = "0.30", optional = true }
@@ -88,7 +88,7 @@ crossterm = { version = "0.29", optional = true }
 # 1.95, which is `egui`'s and is now the floor. `glow` rather than the default
 # `wgpu` backend, because what this front-end draws is rectangles and OpenGL is
 # the smaller and more widely available of the two -- and because the web build
-# of EGUI.md G6 reaches WebGL2 through it without a WebGPU fallback path.
+# of EGUI-PLAN.md G6 reaches WebGL2 through it without a WebGPU fallback path.
 eframe = { version = "0.36", default-features = false, features = [
     "default_fonts",
     "glow",

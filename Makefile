@@ -1,9 +1,9 @@
 # The single source of truth for what "clean" means. CI runs `make check` and
 # nothing else (.github/workflows/ci.yml), so a step added here is a step CI
 # picks up; there is no second list to keep in sync. `make check` must be clean
-# at every stage boundary of TERMINAL.md and EGUI.md, not just at the end.
+# at every stage boundary of TERMINAL-PLAN.md and EGUI-PLAN.md, not just at the end.
 #
-# `--all-features` everywhere, and this is not optional: since EGUI.md G2 the
+# `--all-features` everywhere, and this is not optional: since EGUI-PLAN.md G2 the
 # front-ends are behind features, and a bare `cargo test` builds only the `tui`
 # half. The failure mode is silent -- the other front-end simply stops being
 # compiled -- so the flag is on every command that compiles anything.
@@ -28,7 +28,7 @@ shell:
 	cargo check --no-default-features
 
 # The same check with the platform taken out too, and the stronger of the two
-# (EGUI.md G3, FRONTEND.md's "The three layers"). `wasm32-unknown-unknown` has
+# (EGUI-PLAN.md G3, FRONTEND.md's "The three layers"). `wasm32-unknown-unknown` has
 # no clock, no filesystem and no OS entropy, so an `Instant::now()`, a
 # `std::fs` or a `rand::random` that crept into `shell/` goes red here in the
 # same commit -- and `getrandom` refuses to compile for the target at all,
@@ -39,7 +39,7 @@ shell:
 portable:
 	cargo check --no-default-features --target wasm32-unknown-unknown
 
-# The web front-end, linted for the only target it exists on (EGUI.md G6,
+# The web front-end, linted for the only target it exists on (EGUI-PLAN.md G6,
 # GUI.md §G8). `clippy` above lints `--all-features` for the host, which
 # compiles `gui/host_native.rs` and never `gui/host_web.rs` or the web `main`,
 # so without this the half of the window front-end that lives in a browser tab
@@ -62,7 +62,7 @@ web:
 run:
 	cargo run --release
 
-# The window front-end (GUI.md, EGUI.md G5). `default-run` picks `ftm` of the
+# The window front-end (GUI.md, EGUI-PLAN.md G5). `default-run` picks `ftm` of the
 # two binaries, so this one has to be named.
 run-gui:
 	cargo run --release --features gui --bin ftm-gui

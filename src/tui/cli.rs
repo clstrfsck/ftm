@@ -1,8 +1,8 @@
 //! §6.4's command line, as `clap` sees it.
 //!
 //! The *grammar* of a command line is a front-end's: a browser tab has no argv
-//! and reads §6.4's flags off the URL instead (`EGUI.md` G12), so `clap` is a
-//! front-end dependency and what crosses into the shell is
+//! and reads §6.4's flags off the URL instead (`EGUI-PLAN.md` G12), so `clap`
+//! is a front-end dependency and what crosses into the shell is
 //! [`Overrides`](crate::shell::config::Overrides) — the settings one run asked
 //! for, with nothing left of how they were written.
 //!

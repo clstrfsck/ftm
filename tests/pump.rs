@@ -1,4 +1,4 @@
-//! The shell driven headlessly (`EGUI.md` stage G4, `FRONTEND.md` F7).
+//! The shell driven headlessly (`EGUI-PLAN.md` stage G4, `FRONTEND.md` F7).
 //!
 //! `tools/drive.py` can play a whole game, but only through a pty against the
 //! release binary; §17.1 is core-only by design, and what `cargo test` reaches

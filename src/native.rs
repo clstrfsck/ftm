@@ -9,15 +9,16 @@
 //! **This is not a layer.** It is a desktop, and it sits beside the front-ends
 //! rather than under the shell: `ftm` and `ftm-gui` both run on one, and §6.2
 //! and §14 say they share one config file and one high-score table, so a
-//! setting written by either is read by the other. `EGUI.md` G5 moved it here
-//! from `tui/host.rs` for that reason — two copies of §14's atomic write is
-//! two places for it to drift, and `CLAUDE.md` says that write has one home.
-//! Each front-end still decides *whether* to use it: the browser tab of G6
-//! answers the same four with `web_sys`, and takes nothing from here.
+//! setting written by either is read by the other. `EGUI-PLAN.md` G5 moved it
+//! here from `tui/host.rs` for that reason — two copies of §14's atomic write
+//! is two places for it to drift, and `CLAUDE.md` says that write has one
+//! home. Each front-end still decides *whether* to use it: the browser tab of
+//! G6 answers the same four with `web_sys`, and takes nothing from here.
 //!
 //! It is about a hundred and fifty lines, most of them §6.2's and §14's paths
-//! and §14's atomic write. That is the number `EGUI.md` G6 is betting on when
-//! it calls the web build a fourth capability provider rather than a port.
+//! and §14's atomic write. That is the number `EGUI-PLAN.md` G6 is betting on
+//! when it calls the web build a fourth capability provider rather than a
+//! port.
 
 use std::fs;
 use std::io;
@@ -238,8 +239,8 @@ mod tests {
         // table between them, and this module is where that is decided — both
         // native binaries answer `FRONTEND.md` F2 from here, so a score the
         // window files at name entry is a score the terminal reads at start-up
-        // (`EGUI.md` G8). The two runs below are the two binaries: the only
-        // thing either of them adds is which front-end drew the box.
+        // (`EGUI-PLAN.md` G8). The two runs below are the two binaries: the
+        // only thing either of them adds is which front-end drew the box.
         use crate::shell::config::{ConfigFile, Startup};
         use crate::shell::host::Host;
         use crate::shell::input::InputMode;

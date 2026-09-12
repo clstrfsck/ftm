@@ -4,14 +4,14 @@
 //! what crosses the boundary here is the same
 //! [`Overrides`](crate::shell::config::Overrides) the terminal front-end hands
 //! over — and the same value a URL query string will fill in when the web
-//! build has no argv at all (`EGUI.md` G12).
+//! build has no argv at all (`EGUI-PLAN.md` G12).
 //!
 //! **This is the vertical slice's half of §6.4, not the whole of it.** Two
 //! flags, chosen because they are what makes a slice checkable: `--seed`,
-//! which makes a run reproducible so that the same game can be played on a
-//! 60 Hz display, a 144 Hz display and in a browser tab and compared; and
-//! `--config`, which keeps a test off the player's own file. `EGUI.md` G12
-//! fills in the rest together with the query-string form, at which point
+//! which makes a run reproducible so that the same game can be played on a 60
+//! Hz display, a 144 Hz display and in a browser tab and compared; and
+//! `--config`, which keeps a test off the player's own file. `EGUI-PLAN.md`
+//! G12 fills in the rest together with the query-string form, at which point
 //! §6.4's tables are shared with `tui/cli.rs` rather than split between them.
 //! What is **not** here is deliberate: `--color` is §12.3's and means nothing
 //! off a terminal (`GUI.md`), and `--print-config` is §8.1's answer to a

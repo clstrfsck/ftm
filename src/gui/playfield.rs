@@ -755,11 +755,11 @@ mod tests {
 
     #[test]
     fn the_screen_draws_at_every_size_without_panicking() {
-        // F6, and the headless half of what `EGUI.md` G13's render test will
-        // do with a harness: every size from nothing to enormous, at several
-        // densities, with and without hold and the grid, paused and not, with
-        // the widest figures a view can hold — and with every §12.5 animation
-        // part-way through, which is what G9 added to the sweep.
+        // F6, and the headless half of what `EGUI-PLAN.md` G13's render test
+        // will do with a harness: every size from nothing to enormous, at
+        // several densities, with and without hold and the grid, paused and
+        // not, with the widest figures a view can hold — and with every §12.5
+        // animation part-way through, which is what G9 added to the sweep.
         let ctx = egui::Context::default();
         let chromes = [
             Chrome {
@@ -1098,7 +1098,7 @@ mod tests {
         // §G6.5: `fall_progress` moves the falling piece and nothing else. The
         // ghost marks a landing row, which is a discrete fact — interpolating
         // it too would hold the gap between them constant, which is the thing
-        // that would look wrong (`EGUI.md` G10).
+        // that would look wrong (`EGUI-PLAN.md` G10).
         let layout = match Measure::of(
             egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(728.0, 672.0)),
             1.0,

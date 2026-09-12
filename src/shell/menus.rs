@@ -199,9 +199,9 @@ impl Setting {
     /// which list a front-end navigates is its own answer, carried on
     /// [`Session::settings`](crate::shell::session::Session::settings).
     ///
-    /// This is the small half of the split `EGUI.md` G12 finishes, when the
-    /// `[gui]` table gives the window items of its own to put in `Colour`'s
-    /// place. Until then the window's panel is this list exactly.
+    /// This is the small half of the split `EGUI-PLAN.md` G12 finishes, when
+    /// the `[gui]` table gives the window items of its own to put in
+    /// `Colour`'s place. Until then the window's panel is this list exactly.
     pub const SHARED: [Setting; 7] = [
         Setting::Preview,
         Setting::StartLevel,

@@ -2,15 +2,16 @@
 //!
 //! Everything above the core that no front-end owns: §6's config, §10's input
 //! model, §14's high-score table, the menus of §12.6 and §13, the attract
-//! screen's state machine, §12.5's animation timers, and — since `EGUI.md`
-//! stage G4 — §7's two pumpable screens themselves, [`round::Round`] and
-//! [`attract::Attract`], over the [`session::Session`] they share.
+//! screen's state machine, §12.5's animation timers, and — since
+//! `EGUI-PLAN.md` stage G4 — §7's two pumpable screens themselves,
+//! [`round::Round`] and [`attract::Attract`], over the [`session::Session`]
+//! they share.
 //!
 //! Nothing here may name a front-end's toolkit, and the compiler holds that
 //! boundary the way it holds the core's (§17.3 A10): `cargo check
 //! --no-default-features` builds `core` and `shell` with neither front-end
 //! feature on, so a `ratatui` or an `egui` that crept in here goes red in the
-//! same commit. Since `EGUI.md` stage G3 the same check runs again for
+//! same commit. Since `EGUI-PLAN.md` stage G3 the same check runs again for
 //! `wasm32-unknown-unknown`, which is what takes the *platform* out too: no
 //! `Instant::now`, no `std::fs`, no `rand::random`, no calendar, and no `cfg`
 //! anywhere in here pretending otherwise.

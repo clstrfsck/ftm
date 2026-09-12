@@ -105,11 +105,11 @@ struct Drifter {
 /// of.
 ///
 /// Its entropy is F3's, `host::seed`, rather than the OS's directly: a browser
-/// tab has no OS entropy source to reach for (`EGUI.md` G3), and the seed is a
-/// capability the front-end already supplies. Nothing here is ever replayed —
-/// §15.4's obligations are the core's alone — so the generator only has to look
-/// random, and it is [`Xoshiro256PlusPlus`] because that is the one this
-/// project names (§9.6).
+/// tab has no OS entropy source to reach for (`EGUI-PLAN.md` G3), and the seed
+/// is a capability the front-end already supplies. Nothing here is ever
+/// replayed — §15.4's obligations are the core's alone — so the generator only
+/// has to look random, and it is [`Xoshiro256PlusPlus`] because that is the
+/// one this project names (§9.6).
 pub struct Drift {
     pieces: Vec<Drifter>,
     rng: Xoshiro256PlusPlus,

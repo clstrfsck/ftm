@@ -204,10 +204,11 @@ fn attract(
 
 /// One game (§15.2), from the first piece to the attract screen or a restart.
 ///
-/// The seven numbered steps are still here and still in order; four of them are
-/// now on the other side of a call (`EGUI.md` G4). What stayed is what a
-/// terminal does about them: draining crossterm's queue, deciding §12.1's
-/// answer about the size it has, and skipping a draw that would change nothing.
+/// The seven numbered steps are still here and still in order; four of them
+/// are now on the other side of a call (`EGUI-PLAN.md` G4). What stayed is
+/// what a terminal does about them: draining crossterm's queue, deciding
+/// §12.1's answer about the size it has, and skipping a draw that would change
+/// nothing.
 fn round(
     terminal: &mut Tui,
     session: &mut Session<'_>,
