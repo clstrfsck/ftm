@@ -126,7 +126,14 @@ impl Pilot {
         Self {
             rules: rules.clone(),
             settings,
-            weights: Weights::default(),
+            // §P5: the T-slot weight is the generator's, not the board's. A
+            // planner that cannot turn a `T` into a cavity must not be paid
+            // for digging one.
+            weights: if settings.exact {
+                Weights::exact()
+            } else {
+                Weights::default()
+            },
             knowledge: None,
             plan: Plan::spent(),
             counted: Counted::default(),

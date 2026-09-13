@@ -926,3 +926,67 @@ to answer with evidence rather than now:
   preferred to soft drops — is **P7's**, not a weight's: the default generator is
   §P4.1 and cannot slide at all. It is `Settings::exact`, and it stays off for
   the reason P7 gives.
+
+- ~~**T-spins (§9.13).**~~ **Answered after the second retune, from watching a
+  game again.** The player's observation was that there was very little T-spin
+  scoring; measured over four seeds × 500 pieces there was **none at all** on
+  the default path, and two accidental mini singles on `exact`'s. Three causes,
+  and they stack — which is why the answer is two changes and not one:
+
+  1. **§P4.1 cannot perform one.** It rotates at spawn, shifts and hard-drops,
+     and a T-spin is by construction a placement no hard drop reaches.
+  2. **§P5 could not see one when it happened.** The planner folded
+     `LinesCleared` by `rows.len()` and dropped the `ClearKind` the event
+     carries, so a T-spin double was counted as a plain double and charged the
+     plain double's **-600** — §P5 was not failing to reward a spin, it was
+     punishing one §9.14 pays four times as much for.
+  3. **And pricing it correctly would still not be enough**, for the reason the
+     quad taught: at two plies a spin is invisible until the slot already
+     exists.
+
+  Cause 2 is a *fact* being discarded rather than an opinion being wrong, so it
+  is fixed rather than tuned: `Outcome::clears` and `Weights::clears` are indexed
+  by §9.14's kind now, and the spin rows are priced from §9.14 at about twice
+  their base value net of `lines`. It is worth **+3.1%** on `exact`'s path and
+  +0.06% on the default one — which is the expected shape, since only one of the
+  two generators can reach a spin at all. Both weight-sensitive snapshots were
+  **unmoved** by the representation change itself, which is what said the
+  re-indexing was faithful before any weight was touched.
+
+  Cause 3 is `well_rows`'s trick applied again: **`t_slots`**, cavities shaped
+  like a `T`'s South footprint with three of §9.13's four corners already
+  filled, capped at one. Four seeds × 400 pieces on `exact`:
+
+  | `t_slots` | dev score | held-out score | lines | T-spin singles/doubles | quads | top out |
+  |---|---|---|---|---|---|---|
+  | 0 | 1,474,998 | 1,394,071 | 627 | 7 / 13 | 125 | 0 |
+  | 500 | 1,560,910 | — | 626 | 7 / 18 | 120 | 0 |
+  | 1,000 | 1,558,028 | 1,426,554 | 626 | 6 / 19 | 119 | 0 |
+  | 2,000 | 1,547,122 | — | 626 | 9 / 13 | 123 | 0 |
+  | **3,000** | **1,583,304** | **1,589,891** | 624 | 13 / 25 | 110 | 0 |
+  | 5,000 | 1,432,238 | — | **523** | 24 / 41 | **60** | **1 of 4** |
+
+  **+7.3% on the development seeds and +14.0% held out**, and +8.5% over a
+  longer run (four seeds × 1,200 pieces: 13,207,656 → 14,325,117, lines 1,904 →
+  1,902, no top out). Four things this settled:
+
+  - **The far side is a cliff, not `well_rows`' plateau.** 5,000 tops a game out
+    and takes the line count from 627 to 523. 4,000 scored *higher* than 3,000
+    on a combined eight-seed batch (3,342,311 against 3,173,195) and is not
+    taken: it has one short batch behind it and one step of margin, where 3,000
+    is confirmed on three independent runs. A hand-tuned weight next to a cliff
+    should be the conservative side of the peak.
+  - **The two strategies compete for the same surface**, and the table shows the
+    trade directly: as the T-spin doubles rise from 13 to 25 the quads fall from
+    125 to 110, and at 5,000 they halve. A quad wants a flat nine-wide stack
+    with one clean column, which is a board with no overhang anywhere — which is
+    a board with no T-slot in it. This is the first feature in §P5 that is not
+    simply additive with the others.
+  - **The weight belongs to the generator, not to the board.** On §P4.1 the same
+    3,000 is worth **-19%** (63.2M → 51.2M on 8 × 2,000, quads 1,271 → 713): the
+    planner digs slots and can never turn a piece into one. So there are two
+    weight sets — `Weights::default` and `Weights::exact` — differing in this one
+    number, which is a first for §P5 and is asserted as such by a test.
+  - **The default path is untouched by any of it.** `Weights::default` moved only
+    by the spin *pricing* (+0.06%), because §P4.1 essentially never produces a
+    spin to price.

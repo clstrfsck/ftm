@@ -402,7 +402,7 @@ the game will not perform.
   | Feature | Measured as |
   |---|---|
   | Completed lines | rows cleared by the lock |
-  | Clear kind | those clears counted by how many rows each took |
+  | Clear kind | those clears counted by §9.14's kind, spins told from plain |
   | Holes | empty cells with a filled cell above them in the same column |
   | Covered-hole depth | filled cells above each hole, summed |
   | Aggregate height | sum of column heights |
@@ -413,6 +413,7 @@ the game will not perform.
   | Blockades | filled cells sitting above a hole |
   | Wells | depth of each column relative to both neighbours, **less the deepest** |
   | Well rows | rows filled but for the exempt well column, **capped at four** |
+  | T-slots | cavities shaped like a `T`'s South footprint with three of §9.13's four corners filled, **capped at one** |
   | Top out | whether the branch ended in §9.16 |
   | Combo, back-to-back | §9.15's state as the branch leaves it |
   | Perfect clear | §9.15's bonus, as an event |
@@ -449,6 +450,34 @@ the game will not perform.
   a planner that digs a well it can never cash and tops out seven games in eight.
   The failure is the same one an over-large negative on the single produces, and
   for the same reason: a stack nothing is allowed to clear reaches the ceiling.
+- **Clear kind is §9.14's kind and not a row count**, and the difference is
+  §9.13's spins. A T-spin double pays **1,200** where the plain double it has
+  the same row count as pays 300, and a T-spin single pays **800** — a quad's
+  price for one row — where a plain single pays 100 and breaks the chain
+  besides. A planner that counts rows files each spin as the cheap clear it
+  resembles, which under the weights above does not merely fail to reward a
+  spin but actively *punishes* one. That is a fact being discarded rather than
+  an opinion being wrong: the `LinesCleared` event carries its `ClearKind`. The
+  spin rows are therefore priced from §9.14 rather than tuned, at roughly twice
+  their base value net of *completed lines* — the ratio a plain triple already
+  sits at, and deliberately not the quad's, whose weight is not what §9.14 pays
+  for four rows but what cashing a long-held well is worth.
+- **A T-spin needs both halves, and the second one is a generator.** *T-slots*
+  is to the spin what *well rows* is to the quad — the progress made visible at
+  a ply where the prize is not — and it is capped at one for the same reason.
+  But a slot is only worth building if it can be cashed, and **§P4.1 cannot
+  reach a spin at all**: it rotates at spawn, shifts and hard-drops, while a
+  T-spin is by construction a placement no hard drop reaches. Rewarding the
+  slot under that generator buys nothing and, weighted high enough, is a
+  straightforward loss — the planner builds overhangs it can never turn a piece
+  into. **It is therefore the one weight in §P5 whose value belongs to the
+  generator rather than to the board**, and there are two weight sets: the
+  default, in which it is zero, and `exact`'s, in which it is 3,000. Measured
+  both ways on eight seeds — **+7 to +14%** with the walk and **-19%** without
+  it. The far side is a *cliff* and not `well rows`' shallow plateau: at 5,000 a
+  game tops out and the line count collapses, so the value taken is the one
+  confirmed on development seeds, on held-out ones and over a longer run rather
+  than the one that scored highest on a single short batch.
 - **Feature extraction and weights are separate structures.** Weights are
   hand-tuned integers in this release; automated tuning is not in
   `PILOT-PLAN.md`'s scope and would consume §P8's report.

@@ -20,7 +20,32 @@
 
 use std::cmp::Reverse;
 
-use crate::core::{PieceKind, VIEW_HEIGHT, VIEW_WIDTH};
+use crate::core::{ClearKind, PieceKind, VIEW_HEIGHT, VIEW_WIDTH};
+
+/// The number of §9.14 clear kinds, which is what [`Outcome::clears`] and
+/// [`Weights::clears`] are indexed by.
+pub const CLEAR_KINDS: usize = 11;
+
+/// Where a clear kind sits in those two arrays.
+///
+/// Deliberately an exhaustive match rather than `as usize`: a thirteenth row of
+/// §9.14 would be a compile error here, which is a decision someone has to
+/// make rather than a bucket that silently stays empty.
+pub const fn clear_slot(clear: ClearKind) -> usize {
+    match clear {
+        ClearKind::Single => 0,
+        ClearKind::Double => 1,
+        ClearKind::Triple => 2,
+        ClearKind::Quad => 3,
+        ClearKind::TSpin => 4,
+        ClearKind::TSpinSingle => 5,
+        ClearKind::TSpinDouble => 6,
+        ClearKind::TSpinTriple => 7,
+        ClearKind::TSpinMini => 8,
+        ClearKind::TSpinMiniSingle => 9,
+        ClearKind::TSpinMiniDouble => 10,
+    }
+}
 
 /// The visible field, exactly as `GameView::rows` reports it (§12.7).
 ///
@@ -80,6 +105,24 @@ pub struct Board {
     /// not a scale: a well five deep is no better than one four deep, because
     /// the fifth row is one no `I` reaches.
     pub well_rows: i32,
+    /// Cavities shaped like a T's South footprint with §9.13's corner rule
+    /// already satisfied — **capped at one**, because a planner can only cash
+    /// one at a time and [`Board::well_rows`]'s cap is there for the same
+    /// reason.
+    ///
+    /// This is the T-spin made visible at every ply, and it is
+    /// [`Board::well_rows`]'s counterpart: at §P6.1's two plies the spin itself
+    /// is invisible until the slot already exists, so the lever has to be the
+    /// slot. It deliberately says nothing about whether a T can *reach* the
+    /// cavity — that is the generator's question, and §P4.2 answers it by
+    /// playing the moves rather than by predicting them. §P4.1 cannot reach one
+    /// at all, which is why this feature does nothing without `exact`.
+    ///
+    /// A slot is an overhang, so `holes`, `covered`, `blockades` and
+    /// `row_transitions` all charge for it already. The weight has to outbid
+    /// them or the feature does nothing; that it *can* outbid them is what the
+    /// sweep had to establish.
+    pub t_slots: i32,
 }
 
 /// What a branch did: the outcome features of §P5's table.
@@ -87,14 +130,20 @@ pub struct Board {
 pub struct Outcome {
     /// Rows cleared by the lock (§9.12).
     pub lines: i32,
-    /// The clears the branch made, counted by how many rows each took: a quad is
-    /// `clears[4]` and index 0 is never used.
+    /// The clears the branch made, counted by [`clear_slot`] — that is, by
+    /// §9.14's *kind* and not by rows.
     ///
     /// [`Outcome::lines`] is the same event summed, and the pair is two features
     /// rather than one for the reason §9.14 gives: a quad pays **800** and four
     /// singles **400**, so a figure linear in rows cannot tell apart the two
     /// things the scoring table prices most differently.
-    pub clears: [i32; 5],
+    ///
+    /// It is indexed by kind rather than by row count because §9.13's spins are
+    /// rows of the same table and are priced differently in it — a T-spin double
+    /// pays **1,200** against a plain double's 300. Counting by rows files one
+    /// as the other, which is not a weight that is wrong but a *fact* that is:
+    /// the event carries its `ClearKind` and the planner was throwing it away.
+    pub clears: [i32; CLEAR_KINDS],
     /// Whether the branch ended in §9.16.
     pub topped_out: bool,
     /// §9.15's combo counter as the branch leaves it. It starts at -1 and a
@@ -127,8 +176,8 @@ pub struct Features {
 pub struct Weights {
     pub lines: i32,
     /// What a clear is worth for its *kind*, on top of [`Weights::lines`] for
-    /// its rows, indexed by rows cleared (§9.14).
-    pub clears: [i32; 5],
+    /// its rows, indexed by [`clear_slot`] (§9.14).
+    pub clears: [i32; CLEAR_KINDS],
     pub holes: i32,
     pub covered: i32,
     pub aggregate_height: i32,
@@ -139,6 +188,7 @@ pub struct Weights {
     pub blockades: i32,
     pub wells: i32,
     pub well_rows: i32,
+    pub t_slots: i32,
     pub top_out: i32,
     pub combo: i32,
     pub back_to_back: i32,
@@ -175,14 +225,36 @@ impl Default for Weights {
     /// is the other, and the larger: it is worth **+45%** score and turns 35
     /// quads in 16,000 pieces into 1,262.
     ///
-    /// With it, `clears[4]` stops being inert and starts paying: removing the
+    /// With it, the quad bonus stops being inert and starts paying: removing the
     /// 10,000 now costs 19%, where before it cost nothing. The two are one
     /// decision — the bonus is the prize and `well_rows` is what makes the
     /// planner able to see it coming.
+    ///
+    /// **§9.13's spin rows are priced from §9.14 rather than tuned**, at roughly
+    /// twice their base value net of [`Weights::lines`] — the ratio a plain
+    /// triple already sits at. They were `-1,200`/`-600` until the fold learned
+    /// to read `ClearKind`, which priced a T-spin double as the plain double it
+    /// was mistaken for and so *punished* a clear §9.14 pays four times as much
+    /// for. Deliberately **not** anchored on the quad's 10,000: that number is
+    /// not what §9.14 pays for four rows, it is what cashing a well several
+    /// plies in the building is worth, and a spin has no such investment behind
+    /// it.
     fn default() -> Self {
         Self {
             lines: 340,
-            clears: [0, -1_200, -600, 0, 10_000],
+            clears: [
+                -1_200, // Single
+                -600,   // Double
+                0,      // Triple
+                10_000, // Quad
+                800,    // T-spin, no rows
+                1_300,  // T-spin single
+                1_700,  // T-spin double
+                2_200,  // T-spin triple
+                200,    // mini, no rows
+                100,    // mini single
+                100,    // mini double
+            ],
             holes: -790,
             covered: -30,
             aggregate_height: -51,
@@ -193,10 +265,37 @@ impl Default for Weights {
             blockades: -20,
             wells: -340,
             well_rows: 2_000,
+            t_slots: 0,
             top_out: -1_000_000,
             combo: 20,
             back_to_back: 2_000,
             perfect_clear: 1_000,
+        }
+    }
+}
+
+impl Weights {
+    /// The opinion when §P4.2's walk is the generator (`Settings::exact`).
+    ///
+    /// [`Weights::default`] with one number changed, and it is the one weight in
+    /// §P5 whose right value depends on what the *generator* can do rather than
+    /// on what the board is worth. A [`Board::t_slots`] cavity is only an asset
+    /// to a planner that can turn a `T` into it, and §P4.1 cannot: it rotates at
+    /// spawn, shifts and hard-drops, so under it the reward buys overhangs that
+    /// are never cashed. Measured both ways on eight seeds — **+7 to +14%** with
+    /// the walk, **-19%** without it — which is why this is a second constructor
+    /// and not a larger default.
+    ///
+    /// 3,000 rather than the 4,000 that scored higher on one short batch: at
+    /// 5,000 a game tops out and the line count collapses, and unlike
+    /// [`Board::well_rows`]'s broad plateau the far side here is a cliff. 3,000
+    /// is the value confirmed on the development seeds, on held-out ones and
+    /// over a longer run; 4,000 has only the short batch behind it and one step
+    /// of margin.
+    pub fn exact() -> Self {
+        Self {
+            t_slots: 3_000,
+            ..Self::default()
         }
     }
 }
@@ -224,6 +323,7 @@ impl Board {
             column_transitions: column_transitions(field),
             wells: wells(&heights),
             well_rows: well_rows(field, &heights),
+            t_slots: t_slots(field),
         }
     }
 }
@@ -259,6 +359,7 @@ impl Board {
         add(weights.blockades, self.blockades);
         add(weights.wells, self.wells);
         add(weights.well_rows, self.well_rows);
+        add(weights.t_slots, self.t_slots);
         score
     }
 }
@@ -289,8 +390,8 @@ impl Outcome {
             score = score.saturating_add(weight.saturating_mul(count));
         };
         add(weights.lines, self.lines);
-        for (rows, &count) in self.clears.iter().enumerate() {
-            add(weights.clears[rows], count);
+        for (kind, &count) in self.clears.iter().enumerate() {
+            add(weights.clears[kind], count);
         }
         add(weights.top_out, i32::from(self.topped_out));
         add(weights.perfect_clear, i32::from(self.perfect_clear));
@@ -445,6 +546,53 @@ fn well_rows(field: &Field, heights: &[i32; COLUMNS]) -> i32 {
     (ready as i32).min(4)
 }
 
+/// T-spin cavities, capped at one (§9.13).
+///
+/// The shape looked for is the T's **South** footprint — the three-cell bar
+/// across `row` and the nub at `(row + 1, col)` — sitting empty, with three of
+/// the four cells diagonally around `(row, col)` filled, which is §9.13's own
+/// corner test. That is the canonical T-spin single and double setup, and the
+/// one worth building on purpose. The East and West footprints, which is what a
+/// T-spin triple is turned out of, are not counted: a triple's slot is a
+/// three-deep overhang, and rewarding one would be rewarding a much worse board
+/// for a prize the planner is much less likely to collect.
+///
+/// Two things it deliberately does not check. It does not ask whether a `T` can
+/// **reach** the cavity — a planner that predicted reachability would be
+/// answering the generator's question, and §P4.2 answers it by playing the
+/// moves. And it does not ask whether the two rows are close to full, which is
+/// [`Board::well_rows`]'s trick and would be the obvious next refinement.
+fn t_slots(field: &Field) -> i32 {
+    let filled = |row: usize, col: usize| field[row][col].is_some();
+    let mut found = 0;
+    for row in 1..ROWS - 1 {
+        for col in 1..COLUMNS - 1 {
+            // The footprint the piece would occupy, and the cell it enters by.
+            let clear = !filled(row, col - 1)
+                && !filled(row, col)
+                && !filled(row, col + 1)
+                && !filled(row + 1, col)
+                && !filled(row - 1, col);
+            if !clear {
+                continue;
+            }
+            // §9.13: three of the four corners of the centre cell. Two of them
+            // are the shoulders the nub sits between, and the third is the
+            // overhang that stops the piece being dropped in flat.
+            let corners = [
+                filled(row - 1, col - 1),
+                filled(row - 1, col + 1),
+                filled(row + 1, col - 1),
+                filled(row + 1, col + 1),
+            ];
+            if corners.iter().filter(|&&c| c).count() >= 3 {
+                found += 1;
+            }
+        }
+    }
+    found.min(1)
+}
+
 fn wells(heights: &[i32; COLUMNS]) -> i32 {
     let each = well_depths(heights);
     // The deepest single well is exempt: it is the column a quad is scored out
@@ -457,6 +605,13 @@ fn wells(heights: &[i32; COLUMNS]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [`Outcome::clears`] holding `n` of one kind and nothing else.
+    fn counted(clear: ClearKind, n: i32) -> [i32; CLEAR_KINDS] {
+        let mut clears = [0; CLEAR_KINDS];
+        clears[clear_slot(clear)] = n;
+        clears
+    }
 
     /// A field from a picture of its bottom rows, the last string being the
     /// floor. `.` is empty and anything else is filled.
@@ -496,8 +651,56 @@ mod tests {
                 blockades: 0,
                 wells: 0,
                 well_rows: 0,
+                t_slots: 0,
             },
         );
+    }
+
+    #[test]
+    fn the_two_opinions_differ_in_exactly_one_number() {
+        // §P5: the T-slot weight is the only one that depends on the generator
+        // rather than on the board, because §P4.1 cannot cash a slot and would
+        // just be paid for digging holes. If a second such weight is ever
+        // wanted, this assertion is the place to argue about it.
+        let plain = Weights::default();
+        let exact = Weights::exact();
+        assert_eq!(
+            plain.t_slots, 0,
+            "§P4.1 is not paid for a slot it cannot use"
+        );
+        assert!(exact.t_slots > 0);
+        assert_eq!(
+            Weights {
+                t_slots: plain.t_slots,
+                ..exact
+            },
+            plain,
+        );
+    }
+
+    #[test]
+    fn a_t_slot_is_the_cavity_and_three_of_its_corners() {
+        // The canonical setup: the bar's three cells across the middle row, the
+        // nub's cell under the centre, column 3 open above to come in by, and
+        // the four cells diagonally around the centre all filled. The overhangs
+        // at columns 2 and 4 are what stop the piece being dropped in flat, so
+        // it has to be turned in — which is what makes it §9.13's spin.
+        let board = Board::of(&field(&["###.######", "##...#####", "###.######"]));
+        assert_eq!(board.t_slots, 1);
+
+        // Take the overhangs away and it is a plain notch: two corners, a piece
+        // that can simply be dropped into it, and nothing worth building.
+        let board = Board::of(&field(&["..........", "##...#####", "###.######"]));
+        assert_eq!(board.t_slots, 0, "two corners is not a spin");
+
+        // A cavity with something in it is not a cavity.
+        let board = Board::of(&field(&["###.######", "##.#.#####", "###.######"]));
+        assert_eq!(board.t_slots, 0);
+
+        // Capped at one, for [`Board::well_rows`]'s reason: a planner can only
+        // turn one `T` at a time.
+        let board = Board::of(&field(&["###.###.##", "##...#...#", "###.###.##"]));
+        assert_eq!(board.t_slots, 1, "two slots, and the cap is one");
     }
 
     #[test]
@@ -633,12 +836,12 @@ mod tests {
         let weights = Weights::default();
         let quad = Outcome {
             lines: 4,
-            clears: [0, 0, 0, 0, 1],
+            clears: counted(ClearKind::Quad, 1),
             ..Outcome::default()
         };
         let four_singles = Outcome {
             lines: 4,
-            clears: [0, 4, 0, 0, 0],
+            clears: counted(ClearKind::Single, 4),
             ..Outcome::default()
         };
         assert!(quad.evaluate(&weights) > four_singles.evaluate(&weights));
@@ -647,7 +850,7 @@ mod tests {
         let nothing = Outcome::default();
         let single = Outcome {
             lines: 1,
-            clears: [0, 1, 0, 0, 0],
+            clears: counted(ClearKind::Single, 1),
             ..Outcome::default()
         };
         assert!(single.evaluate(&weights) < nothing.evaluate(&weights));
@@ -676,7 +879,7 @@ mod tests {
         };
         let zero = Weights {
             lines: 0,
-            clears: [0; 5],
+            clears: [0; CLEAR_KINDS],
             holes: 0,
             covered: 0,
             aggregate_height: 0,
@@ -687,6 +890,7 @@ mod tests {
             blockades: 0,
             wells: 0,
             well_rows: 0,
+            t_slots: 0,
             top_out: 0,
             combo: 0,
             back_to_back: 0,
@@ -717,7 +921,7 @@ mod tests {
         let weights = Weights::default();
         let outcome = Outcome {
             lines: 2,
-            clears: [0, 0, 1, 0, 0],
+            clears: counted(ClearKind::Double, 1),
             combo: 3,
             back_to_back: true,
             perfect_clear: false,
@@ -725,7 +929,7 @@ mod tests {
         };
         assert_eq!(
             outcome.interior(&weights),
-            2 * weights.lines + weights.clears[2],
+            2 * weights.lines + weights.clears[clear_slot(ClearKind::Double)],
         );
         assert_eq!(
             outcome.evaluate(&weights),
@@ -770,7 +974,7 @@ mod tests {
         let best = Features {
             outcome: Outcome {
                 lines: 4,
-                clears: [0, 0, 0, 0, 1],
+                clears: counted(ClearKind::Quad, 1),
                 combo: 20,
                 back_to_back: true,
                 perfect_clear: true,

@@ -755,6 +755,35 @@ planned game in the test suite.
   second time in this planner that a weight looked worthless because a
   *different* weight was missing.
 
+- **A spin is priced by its `ClearKind`, and the fold used to throw that away**
+  (`PILOT.md` §P5, §9.13, §9.14). `Outcome::clears` and `Weights::clears` are
+  indexed by §9.14's *kind*, not by rows. They were indexed by rows until a
+  player asked why there was no T-spin scoring, which meant a T-spin double —
+  1,200 points, and a live back-to-back — was counted as the plain double it has
+  the row count of and charged that double's **-600**. §P5 was not failing to
+  reward a spin; it was punishing one. The `LinesCleared` event has carried its
+  `ClearKind` all along, so this was a *fact* being discarded rather than an
+  opinion being wrong, and it is fixed rather than tuned: the spin rows are
+  priced from §9.14 at about twice their base value net of `lines`. Both
+  weight-sensitive snapshots were **unmoved** by the re-indexing itself, which is
+  what said it was faithful before a weight was touched.
+
+- **`t_slots` is the one weight that belongs to the generator rather than to the
+  board** (`PILOT.md` §P5, §P4.1, §P4.2). It is `well_rows`' trick for the
+  T-spin — a cavity shaped like a `T`'s South footprint with three of §9.13's
+  four corners filled, capped at one — and it is worth **+7 to +14%** under
+  `exact` and **-19%** without it, because §P4.1 can *build* a slot and can never
+  turn a piece into one. Hence two weight sets, `Weights::default` and
+  `Weights::exact`, differing in exactly this number, which a test asserts.
+  Two further things it settled. **The far side is a cliff, not `well_rows`'
+  plateau**: 5,000 tops a game out and takes the lines from 627 to 523, and 4,000
+  scored higher than the 3,000 taken but has one short batch behind it where
+  3,000 has three runs — next to a cliff, take the conservative side of the peak.
+  And **it is the first feature in §P5 that is not additive with the others**:
+  a quad wants a flat nine-wide stack with one clean column, which is a board
+  with no overhang and therefore no T-slot, and the sweep shows the trade
+  directly as quads fall while T-spin doubles rise.
+
 - **`well_rows` is capped at four, and the cap is the whole of its safety**
   (`PILOT.md` §P5, §9.14). An `I` is four cells, so a fifth well row is one
   nothing can clear. Uncapped — or, equivalently, exempting the well column from
@@ -1646,6 +1675,34 @@ planned game in the test suite.
 - **Both weight-sensitive snapshots moved, and that is §P8.3 working.**
   `pilot_bench.txt` and `pilot_plan.txt` are *meant* to move on a weight change;
   I1's snapshot and §19.4's canary did not, and must not.
+
+---
+
+## What the T-spin pass settled
+
+- **A second watched game, a second cause no report names.** The player's
+  observation was that there was very little T-spin scoring. Measured: **none at
+  all** on the default path over 2,000 pieces, and two accidental mini singles on
+  `exact`'s. Three causes, stacked — §P4.1 cannot perform a spin, §P5 could not
+  see one when it happened, and pricing it correctly still would not be enough
+  at two plies. That is why the answer is two changes: a *fact* fixed (the
+  `ClearKind` fold) and a *feature* added (`t_slots`). Both invariants are above.
+- **The generator and the evaluator had to move together, again.** P7 recorded
+  that "a generator and an evaluator can be fixing the same deficiency from
+  opposite ends". This is the same lesson with the sign flipped: here neither
+  half is worth anything without the other, and the T-slot weight is *negative*
+  value under the generator that cannot cash it. A feature that rewards a shape
+  wants asking not only "does it top out?" but "can the generator in force
+  actually collect it?".
+- **The default path did not move at all.** `pilot_bench.txt` and
+  `pilot_plan.txt` are both unchanged: §P4.1 essentially never produces a spin,
+  so re-pricing spins changed no plan it makes. The 8 × 2,000 benchmark moved
+  +0.06%, which is the whole of the default path's interest in T-spins.
+- **What is still not priced.** A T-spin *triple* has no progress feature — its
+  slot is a three-deep overhang, and rewarding one would be rewarding a much
+  worse board for a prize far less likely to be collected. And `t_slots` says
+  nothing about whether the two rows are near full, which is `well_rows`' other
+  trick and the obvious next refinement if anyone returns to this.
 
 ---
 

@@ -19,7 +19,7 @@
 //! stage P7, and this is the one `PILOT.md` recommends starting from.
 
 use crate::core::{Action, GameEvent, GameView, PlayState, Rotation, Shift, TickInput};
-use crate::pilot::eval::{Board, Features, Outcome};
+use crate::pilot::eval::{Board, CLEAR_KINDS, Features, Outcome, clear_slot};
 use crate::pilot::fork::Fork;
 use crate::shell::config::RulesConfig;
 
@@ -302,7 +302,7 @@ pub(crate) fn settle(
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Tally {
     lines: i32,
-    clears: [i32; 5],
+    clears: [i32; CLEAR_KINDS],
     perfect_clear: bool,
 }
 
@@ -310,9 +310,9 @@ impl Tally {
     pub(crate) fn fold(&mut self, events: &[GameEvent]) {
         for event in events {
             match event {
-                GameEvent::LinesCleared { rows, .. } => {
+                GameEvent::LinesCleared { rows, clear, .. } => {
                     self.lines += rows.len() as i32;
-                    self.clears[rows.len().min(4)] += 1;
+                    self.clears[clear_slot(*clear)] += 1;
                 }
                 GameEvent::PerfectClear => self.perfect_clear = true,
                 _ => {}
