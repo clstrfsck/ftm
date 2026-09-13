@@ -775,7 +775,7 @@ I3's "exactly one warning" for a config that is not TOML.
 > **Done.** `make portable` is the step, and CI installs the target for it. The
 > shared dependency set is now exactly §3's five. A3, A4, A6, A7, I3 and all
 > four of §16's failure paths were re-run on a pty and give the same answers;
-> `CLAUDE.md`'s "What G3 settled" has what that turned up.
+> `NOTES.md`'s "What G3 settled" has what that turned up.
 
 ---
 
