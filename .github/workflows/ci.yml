@@ -73,7 +73,7 @@ jobs:
       # on `main`: a pull request that breaks the packaging should say so where
       # it is broken, not on the merge. Uploading is not deploying -- nothing
       # reaches a URL until the job below takes it.
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
@@ -104,7 +104,7 @@ jobs:
       group: pages
       cancel-in-progress: false
     steps:
-      - uses: actions/deploy-pages@v4
+      - uses: actions/deploy-pages@v5
         id: deploy
 
   # Not a Makefile target: it is the one command here that means nothing
