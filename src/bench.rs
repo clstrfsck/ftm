@@ -94,6 +94,25 @@ pub struct Cli {
     json: bool,
 }
 
+/// The budget `--exact` takes when the command line does not name one (§P6.4).
+///
+/// §P4.2's walk spends some 6,400 nodes on a single generation, so
+/// `Settings::default().nodes` — one frame's worth divided by a full
+/// `MAX_CATCH_UP_TICKS` batch — is gone before the second ply is begun, and what
+/// §P6.4 hands back is the one-ply answer. Inside a frame that is the right
+/// answer and the whole reason the walk is not the default. Outside one it is
+/// the wrong *question*: this binary has no frame, and `Weights::exact`'s
+/// `t_slots` was tuned at two plies, so at one ply it digs slots it can never
+/// cash. P8 measured what that produced — six top-outs in eight games, against
+/// none at two plies — and this default is the answer, because a flag whose
+/// report is meaningless without a second flag is a trap rather than an option.
+///
+/// Large enough not to bind: the walk's measured worst case is a little over
+/// 100,000 nodes a search. Named rather than absent so the header still says
+/// what was asked and the report stays reproducible, and `--nodes` still wins,
+/// which is what keeps P8's finding measurable.
+const EXACT_NODES: u32 = 10_000_000;
+
 impl Cli {
     /// The batch this command line asks for, with the rules resolved through
     /// §6.3's clamping.
@@ -116,13 +135,16 @@ impl Cli {
             ..defaults
         };
         let settings = Settings::default();
+        let exact = paired(self.exact, self.simple).unwrap_or(settings.exact);
         Ok(Batch {
             rules: RulesConfig::from_settings(&gameplay, &TimingSettings::default()),
             settings: Settings {
                 depth: self.depth.unwrap_or(settings.depth),
                 beam: self.beam.unwrap_or(settings.beam),
-                nodes: self.nodes.unwrap_or(settings.nodes),
-                exact: paired(self.exact, self.simple).unwrap_or(settings.exact),
+                nodes: self
+                    .nodes
+                    .unwrap_or(if exact { EXACT_NODES } else { settings.nodes }),
+                exact,
             },
             seeds: seeds(&self.seeds)?,
             pieces: self.pieces,
@@ -368,6 +390,28 @@ mod tests {
         assert_eq!(batch.settings, Settings::default());
         assert_eq!(batch.seeds, (0..8).collect::<Vec<_>>());
         assert_eq!(batch.pieces, 1_000);
+    }
+
+    #[test]
+    fn the_walk_gets_a_budget_it_can_spend_and_the_flag_still_wins() {
+        // P8's answer to a flag that could not produce a meaningful report on
+        // its own. §P4.2's walk exhausts `Settings::default().nodes` on the
+        // first ply, so `--exact` alone was a two-ply search that only ever
+        // played one — and at one ply `Weights::exact` tops out six games in
+        // eight. Three halves to it: the walk is lifted, the default generator
+        // is untouched, and an explicit `--nodes` beats both, which is what
+        // keeps the finding itself reproducible.
+        let nodes = |argv: &[&str]| cli(argv).batch().unwrap().settings.nodes;
+        assert_eq!(nodes(&["--exact"]), EXACT_NODES);
+        assert_eq!(nodes(&[]), Settings::default().nodes);
+        assert_eq!(nodes(&["--simple"]), Settings::default().nodes);
+        // ...including back to the budget the game plays under, which is how
+        // the six top-outs above are measured again.
+        assert_eq!(nodes(&["--exact", "--nodes", "2000"]), 2_000);
+        // The pair still resolves to the later flag, and the budget follows the
+        // generator that won rather than the one that was written first.
+        assert_eq!(nodes(&["--exact", "--simple"]), Settings::default().nodes);
+        assert_eq!(nodes(&["--simple", "--exact"]), EXACT_NODES);
     }
 
     #[test]

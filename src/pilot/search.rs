@@ -155,20 +155,34 @@ impl Search<'_> {
         let mut best = pick(&candidates, &shallow, |_| true);
 
         if depth > 1 {
-            let beam = self.beam(&candidates, &shallow);
+            let beam = self.beam(&candidates, &shallow, roots.len());
             let mut deep = vec![0; candidates.len()];
             let mut done = vec![false; candidates.len()];
+            let mut whole = true;
             for index in beam {
                 let Some(value) = self.line(roots, &candidates[index], depth) else {
                     // §P6.4: the budget ran out inside this candidate, so it is
                     // not a candidate. Nothing after it is either — the budget
                     // does not come back — so stop rather than keep asking.
+                    whole = false;
                     break;
                 };
                 deep[index] = value;
                 done[index] = true;
             }
-            if let Some(deeper) = pick(&candidates, &deep, |index| done[index]) {
+            // ...and a ply is the granularity of "fully evaluated" (§P6.4), so
+            // a beam the budget cut short is no answer at all and the one-ply
+            // answer above stands. Comparing the prefix that finished would be
+            // exactly the dependence on *where the count ran out* that §P6.4
+            // forbids — and it is not the harmless version of that mistake it
+            // looks like: `subtree` charges nothing for a fork that has topped
+            // out or run out of the queue, because there is no generation to
+            // pay for, so the branches that survive an exhausted budget are
+            // precisely the ones that end the game. Ranking those against each
+            // other picks the worst move on the board for being the cheapest to
+            // price. Found at P8 on `--exact`, whose walk exhausts the default
+            // budget on every search.
+            if let Some(deeper) = pick(&candidates, &deep, |index| whole && done[index]) {
                 best = Some(deeper);
             }
         }
@@ -257,7 +271,12 @@ impl Search<'_> {
             values.iter().copied().max().unwrap_or(0)
         } else {
             let mut best: Option<i32> = None;
-            for index in self.beam(&candidates, &values) {
+            // One root, because this is already *inside* one: `line` replays the
+            // candidate on each root and calls down here per root, so the
+            // multiplication the beam above divides out has happened already.
+            // Dividing twice would narrow the plies below a chance node for a
+            // cost nobody is paying.
+            for index in self.beam(&candidates, &values, 1) {
                 let value = self.value_of(&candidates[index], depth)?;
                 best = Some(best.map_or(value, |best: i32| best.max(value)));
             }
@@ -273,7 +292,28 @@ impl Search<'_> {
     /// expansion partway (§P6.4), and a cut-off list has to be one whose front
     /// is the promising end. Equal values keep the generator's canonical order,
     /// so two builds cut at the same place.
-    fn beam(&self, candidates: &[Placement], values: &[i32]) -> Vec<usize> {
+    ///
+    /// **`roots` divides it**, and that is §P6.4's arithmetic reaching the case
+    /// it did not cover. A beam candidate costs one expansion, so sixteen of
+    /// them at ~104 placements each is the ~1,800 nodes the budget was sized
+    /// for — but past the preview §P6.3 hands the search one root *per
+    /// hypothesis*, and then a beam candidate costs one expansion **per root**.
+    /// At `preview_count` 1, which is the only configuration that reaches this
+    /// at §P6.1's two plies, that is seven expansions apiece and some 12,000
+    /// nodes against a budget of 2,000. The budget then stops the beam partway
+    /// and §P6.4 hands back the one-ply answer — so a planner that looked two
+    /// plies ahead on paper was a one-ply planner in fact, on essentially every
+    /// search, running weights tuned for two. It builds a well it cannot plan to
+    /// cash and stacks the other nine columns into the ceiling beside it, which
+    /// is what a player watching a preview-1 game reported at C12.
+    ///
+    /// Dividing keeps a ply's cost what §P6.4 sized, which is the rule rather
+    /// than the number: sixteen over seven roots is three, and three is what
+    /// measured best. Held-out seeds 100-131 at `preview_count` 1, inside the
+    /// shipped budget: **four top-outs in thirty-two and 47.7M becomes none and
+    /// 61.0M**, against the 63.6M an unbounded budget reaches. With one root
+    /// this is `beam / 1` and the default preview is untouched to the byte.
+    fn beam(&self, candidates: &[Placement], values: &[i32], roots: usize) -> Vec<usize> {
         let mut seen = HashMap::new();
         let mut order: Vec<usize> = (0..candidates.len())
             .filter(|&index| {
@@ -288,7 +328,11 @@ impl Search<'_> {
             })
             .collect();
         order.sort_by_key(|&index| (std::cmp::Reverse(values[index]), index));
-        order.truncate(usize::from(self.settings.beam).max(1));
+        order.truncate(
+            usize::from(self.settings.beam)
+                .div_ceil(roots.max(1))
+                .max(1),
+        );
         order
     }
 
@@ -552,6 +596,49 @@ mod tests {
     }
 
     #[test]
+    fn the_budget_buys_a_whole_ply_or_none_of_one() {
+        // §P6.4's *rationale*, which the test above states only at the two ends:
+        // the answer has to be independent of where the count ran out. So sweep
+        // the count. Every budget must give either the one-ply answer or the
+        // whole two-ply answer, and never a third thing — because a third thing
+        // could only be a ranking of the beam prefix that happened to finish,
+        // which is precisely a dependence on where the count ran out.
+        //
+        // A prefix is not the harmless partial answer it sounds like, either.
+        // `subtree` charges nothing for a fork that has topped out or run out of
+        // the queue, because there is no generation to pay for and only a board
+        // to score — so on a steep board the branches that survive an exhausted
+        // budget are exactly the ones that end the game, and ranking those
+        // against each other picks the worst move on the board for being the
+        // cheapest to price. That is how P8 found this, on `--exact`, whose walk
+        // exhausts the shipped budget on every search: seeds 0 and 4 of
+        // `make bench` played a different game from `--depth 1`'s, which §P6.4
+        // says is the one they must play.
+        let rules = rules(5);
+        let weights = Weights::default();
+        let at = |nodes| {
+            let (_, fork) = root(11, &rules);
+            let settings = Settings {
+                nodes,
+                ..Settings::default()
+            };
+            plan(&[fork], &rules, settings, &weights, 2).inputs
+        };
+        let shallow = at(0);
+        let whole = at(1_000_000);
+        assert_ne!(shallow, whole, "the position says nothing about the rule");
+        // Across the range a two-ply search actually costs: ply 1's ~104
+        // candidates and sixteen expansions of about the same.
+        for nodes in (0..2_400).step_by(37) {
+            let answer = at(nodes);
+            assert!(
+                answer == shallow || answer == whole,
+                "nodes {nodes}: a third answer, from the part of the beam that fitted",
+            );
+        }
+    }
+
+    #[test]
     fn the_same_position_gives_the_same_move_every_time() {
         // §P9's C3 at the level this module settles it: no clock, no float and
         // no iteration order that a rebuild could change.
@@ -619,8 +706,20 @@ mod tests {
             .iter()
             .map(|candidate| candidate.features.evaluate(&weights))
             .collect();
-        let beam = search.beam(&candidates, &values);
+        let beam = search.beam(&candidates, &values, 1);
         assert_eq!(beam.len(), usize::from(Settings::default().beam));
+        // ...and one root per hypothesis divides it, so a ply costs what §P6.4
+        // sized whether or not §P6.3 branched. Seven is the widest chance node
+        // §9.6's bag can produce.
+        for roots in 1..=7 {
+            let narrowed = search.beam(&candidates, &values, roots);
+            assert_eq!(
+                narrowed.len(),
+                usize::from(Settings::default().beam).div_ceil(roots),
+                "{roots} roots",
+            );
+            assert_eq!(narrowed[..], beam[..narrowed.len()], "{roots} roots");
+        }
         // Best first, and equal values in the generator's canonical order, which
         // is what makes a budget that cuts the list cut it the same way twice.
         for pair in beam.windows(2) {

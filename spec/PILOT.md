@@ -520,6 +520,15 @@ The board is compared as **occupancy** rather than colour: two stacks of
 different pieces in the same cells are the same stack to §P5's features, and
 treating them as one is most of what makes the cache worth having.
 
+**The width is divided by the number of roots.** A beam candidate costs one
+expansion, so the width and §P6.4's budget are the same decision — but past the
+preview §P6.3 hands the search one root *per hypothesis*, and a candidate then
+costs one expansion **per root**. Keeping the width fixed there multiplies a
+ply's cost by up to seven and the budget stops the beam partway, so §P6.4 hands
+back the one-ply answer and the search is two plies deep only on paper. Dividing
+keeps a ply's cost what the budget was sized for, which is the rule; with a
+single root it is the width unchanged.
+
 ### §P6.3 Beyond the horizon
 
 Past the preview, branch uniformly over §P2.4's inferred remainder and combine
@@ -542,8 +551,19 @@ it was allowed to consider.
   the count ran out. **A ply is the granularity of "fully"**: the budget is
   checked between one ply and the next, so a search may overrun it by the
   placements of the ply it was in the middle of generating — half a generation is
-  not an answer that can be compared with anything. The first ply is therefore
-  always paid for, whatever the budget, and there is always an answer to give.
+  not an answer that can be compared with anything. **And a ply is the
+  granularity of the *whole beam*, not of one branch of it**: a beam the budget
+  cut short is discarded entirely and the shallower answer stands. Ranking the
+  prefix that happened to finish would be exactly the dependence on where the
+  count ran out that this rule exists to forbid — and it is not the harmless
+  version of that mistake, because a branch that ends the game is **free** to
+  evaluate. There is no generation to pay for beneath a fork that has topped out
+  or run out of its queue, only a board to score, so the branches that survive an
+  exhausted budget are precisely the ones that lose, and a search that ranked
+  them against each other would choose the worst move on the board for being the
+  cheapest to price. P8 found this in the code, on `--exact`. The first ply is
+  therefore always paid for, whatever the budget, and there is always an answer
+  to give.
 - Ties are broken by lower top-out risk, then fewer inputs, then canonical
   action order. Every machine therefore chooses the same move.
 - **The three settings are one decision, and since P7 the fourth is too.** P5
@@ -554,6 +574,17 @@ it was allowed to consider.
   1,800 — which is what makes *those* three numbers the defaults. A wider beam or
   a third ply would be spent by the budget rather than played, and the answer
   would quietly become a shallower one than the settings asked for.
+- **That arithmetic assumes one root, and §P6.3 is entitled to hand over
+  seven.** A chance node costs one expansion per root per beam candidate, so at
+  `preview_count` 1 — the only configuration that reaches one at two plies — the
+  same beam costs some 12,000 nodes against a budget of 2,000. The consequence
+  is not a slower search but a *shallower* one: the budget stops the beam
+  partway and the rule above hands back the one-ply answer, on essentially every
+  search, while the weights go on being the ones tuned for two plies. C12 found
+  this from a watched game — a planner that digs a well it cannot plan to cash
+  and stacks the other nine columns into the ceiling beside it. §P6.2's width is
+  divided by the root count so that a ply costs what this budget was sized for,
+  which fixes it inside the frame rather than by leaving it.
 - **`exact` is the same arithmetic reaching the opposite conclusion.** §P4.2's
   walk advances some 6,400 forks in a single generation, so at the 2,000-node
   budget the rule above fires on the *first* ply and the search returns the
@@ -562,6 +593,16 @@ it was allowed to consider.
   Turning the walk on therefore means lifting the budget, and lifting the budget
   means leaving the frame — which is why it is not the default and why
   `Settings` carries it rather than a build deciding.
+- **And lifting it is not optional, which P8 measured.** `Weights::exact` was
+  tuned at two plies with the budget lifted, so its `t_slots` digs a slot the
+  one-ply answer above can never cash: `--exact` at the 2,000-node budget **tops
+  out six games in eight**, where the same walk at two plies tops out none. That
+  is the uncapped-`well_rows` failure a third time and for the same reason — a
+  planner rewarded for a shape it cannot collect reaches the ceiling. So the
+  budget belongs to the *configuration* and not to the generator alone: §P8.1's
+  `--exact` takes a budget it can spend unless the command line names one, and a
+  future front-end that offered the walk would have to answer the same question
+  before it offered it.
 
 ---
 
@@ -636,13 +677,11 @@ desktop's and its meaning is not.
 
 ### §P8.1 Grammar
 
-| Flag | Meaning |
-|---|---|
 | Flag | Meaning | Default |
 |---|---|---|
 | `--seeds A..B`, `--seeds A..=B`, `--seeds N` | a range either way inclusive, or N seeds from 0 | `8` |
 | `--pieces N` | the piece cap per game | `1000` |
-| `--depth N`, `--beam N`, `--nodes N` | §P6's settings | `Settings::default()` |
+| `--depth N`, `--beam N`, `--nodes N` | §P6's settings | `Settings::default()`, but see below |
 | `--exact`, `--simple` | §P4.2's walk or §P4.1's hard drop | `Settings::default()` |
 | `--preview N`, `--start-level N` | §6.3's rules | §6.3's |
 | `--hold`, `--no-hold`, `--rot180`, `--no-rot180`, `--lock-down R` | §6.3's rules | §6.3's |
@@ -653,6 +692,16 @@ prints and what a checked-in seed set is: a set worth keeping need not be
 contiguous, and a report should say what it played rather than what it was asked
 for. A range that runs backwards is an error; an empty one is a legal batch of
 nothing.
+
+**`--exact` brings its own budget**, and it is the one place this grammar's
+defaults are not `Settings::default()`'s. `Settings::default().nodes` is a
+*frame's* share (§P6.4) and this program has no frame; at that budget the walk
+is stopped inside its first ply and `Weights::exact` tops out six games in eight,
+so `--exact` without `--nodes` would print a report of a configuration nobody
+would run. It therefore takes a budget large enough not to bind. `--nodes` still
+wins, which is what keeps that measurement reproducible, and the header prints
+whichever was used — a baseline that did not say what budget it asked for would
+be one nobody could reproduce, exactly as P7 said of the generator.
 
 **It never reads §6.2's config file.** `preview_count` alone changes how well
 the planner plays, so a baseline that depended on whoever ran it would compare
