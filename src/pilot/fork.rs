@@ -12,7 +12,7 @@
 //! *for* is the queue: a `Fork` is only ever as fair as the pieces it was
 //! built from, and [`Fork::of`] is where that list arrives.
 
-use crate::core::{Game, GameEvent, GameView, PieceKind, PlayState, SearchGame, TickInput};
+use crate::core::{Game, GameEvent, GameView, PieceKind, PlayState, Pose, SearchGame, TickInput};
 
 /// A possible future, played by the same rules as the real game.
 ///
@@ -80,6 +80,17 @@ impl Fork {
     /// Whether the queue ran out and the fork stopped spawning.
     pub fn exhausted(&self) -> bool {
         self.inner.exhausted()
+    }
+
+    /// Where the piece in play stands, and how it got there (§P4.2).
+    ///
+    /// `pub(crate)`, and that is the whole of why the seam could grow at all:
+    /// [`Pose`] is a crate-private type, so a method returning it may not be
+    /// part of this type's public face. §P4.2's generator is a private module
+    /// of the planner and needs no more than that — nothing outside the crate
+    /// deduplicates positions, and nothing outside the crate should be able to.
+    pub(crate) fn pose(&self) -> Option<Pose> {
+        self.inner.pose()
     }
 }
 

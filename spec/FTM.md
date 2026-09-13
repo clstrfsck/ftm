@@ -332,7 +332,8 @@ ftm/
     │   ├── scoring.rs        # score table, B2B, combo, perfect clear (§9.14)
     │   ├── view.rs           # GameView: the serialisable render model (§12.7)
     │   ├── events.rs         # GameEvent: what happened this tick (§12.8)
-    │   ├── search.rs         # SearchGame: a fork with no randomiser (§P2.3).
+    │   ├── search.rs         # SearchGame: a fork with no randomiser, and the
+    │   │                     #   Pose §P4.2 deduplicates on (§P2.3, §P4.2).
     │   │                     #   pub(crate) use, so the façade does not grow.
     │   └── game.rs           # Game state, `Game::tick` (§15.1)
     ├── shell/                # front-end-agnostic AND platform-free (§3.1).
@@ -358,7 +359,8 @@ ftm/
     │   │                     #   search is given (§P2.1, §P6.3)
     │   ├── knowledge.rs      # observed deals, inferred bag (§P2.4)
     │   ├── fork.rs           # §P2.3's seam, seen from above
-    │   ├── placement.rs      # reachable placements over forks (§P4)
+    │   ├── placement.rs      # §P4.1's generator: rotate, shift, hard drop
+    │   ├── reachable.rs      # §P4.2's exact walk over forks, one tick an edge
     │   ├── eval.rs           # the integer board evaluation (§P5)
     │   ├── search.rs         # depth, beam, cache, chance nodes, the budget
     │   │                     #   and §P6.4's choice (§P6)

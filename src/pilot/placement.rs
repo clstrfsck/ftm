@@ -38,6 +38,21 @@ const SPAN: i8 = 6;
 /// here so a rule that changed under it could never spin.
 const SETTLE_LIMIT: u32 = 600;
 
+/// What one call on a generator produced, and what it cost (§P8.2).
+///
+/// The two numbers part company here, and P7 is where they part widely. For
+/// §P4.1 every state the generator looks at *is* a candidate, so `nodes` is
+/// simply `placements.len()`. §P4.2 advances thousands of forks — ~6,400 a
+/// generation over a game, 26,031 on an empty well — to find scores of distinct
+/// ways to put the piece down, and charging the budget for the scores would be
+/// charging it for a fraction of the work it paid for.
+#[derive(Default)]
+pub(crate) struct Generated {
+    pub(crate) placements: Vec<Placement>,
+    /// Positions the generator advanced a fork into, candidates included.
+    pub(crate) nodes: u64,
+}
+
 /// One candidate placement: the inputs that reach it, and what they lead to.
 pub(crate) struct Placement {
     /// One [`TickInput`] per tick under §P3.2's cap, ending with the tick that
@@ -70,7 +85,7 @@ pub(crate) struct Placement {
 /// the far left to the far right. Every machine therefore enumerates the same
 /// candidates in the same sequence, and two builds cannot choose differently
 /// from one position.
-pub(crate) fn placements(fork: &Fork, rules: &RulesConfig) -> Vec<Placement> {
+pub(crate) fn placements(fork: &Fork, rules: &RulesConfig) -> Generated {
     let view = fork.view();
     // §P4.3: a disabled mechanic is *absent* from the search rather than
     // unused, because §10.1 drops its key at the input boundary and a plan that
@@ -93,7 +108,10 @@ pub(crate) fn placements(fork: &Fork, rules: &RulesConfig) -> Vec<Placement> {
             }
         }
     }
-    placements
+    Generated {
+        nodes: placements.len() as u64,
+        placements,
+    }
 }
 
 /// One tick of a plan, as the search predicted it.
@@ -190,9 +208,7 @@ pub(crate) fn replay(
     events: &mut Vec<GameEvent>,
 ) -> Placement {
     let mut fork = from.clone();
-    let mut lines = 0;
-    let mut clears = [0; 5];
-    let mut perfect_clear = false;
+    let mut tally = Tally::default();
 
     // The plan ends at the tick that locks the piece, whichever tick that turns
     // out to be: the hard drop at the end of the sequence, or an earlier one at
@@ -203,26 +219,48 @@ pub(crate) fn replay(
     for (tick, input) in inputs.iter().enumerate() {
         events.clear();
         fork.tick(input, events);
-        tally(events, &mut lines, &mut clears, &mut perfect_clear);
-        if events
-            .iter()
-            .any(|event| matches!(event, GameEvent::PieceLocked { .. }))
-        {
-            locked = tick + 1;
-            break;
-        }
-        if fork.state() == PlayState::ToppedOut {
+        tally.fold(events);
+        if landed(events, &fork) {
             locked = tick + 1;
             break;
         }
     }
     inputs.truncate(locked);
+    settle(fork, inputs, tally, events)
+}
 
-    // §9.12: the completed rows are still on the board through the clear delay,
-    // so a board measured now would be measured before it lost them. Wait for
-    // the next piece — or for the end of the game, or for the end of what the
-    // caller told the fork about, which §P2.3 makes a third thing and not an
-    // error.
+/// Whether the tick just played put the piece down for good.
+///
+/// A lock and a top out are the two ways a sequence ends, and §9.16's Block Out
+/// is the second without the first: a piece that cannot spawn never locks, so
+/// asking only about `PieceLocked` would walk straight past the end of the game
+/// (§P4.2).
+pub(crate) fn landed(events: &[GameEvent], fork: &Fork) -> bool {
+    fork.state() == PlayState::ToppedOut
+        || events
+            .iter()
+            .any(|event| matches!(event, GameEvent::PieceLocked { .. }))
+}
+
+/// Wait out §9.12's delays and measure what the sequence left behind.
+///
+/// Split out of [`replay`] because §P4.2's generator arrives here by a
+/// different road: it walks a graph of positions and reaches a lock *in* the
+/// walk, so it has the settled fork already and would only be replaying its own
+/// forty ticks to get back to it.
+///
+/// The wait is the load-bearing part. §9.12 leaves a completed row on the
+/// screen through the clear delay, so a board measured before it would still
+/// hold the rows it is about to lose, and a planner reading that board would
+/// never clear a line. It ends at the next piece — or at the end of the game,
+/// or at the end of what the caller told the fork about, which §P2.3 makes a
+/// third thing rather than an error.
+pub(crate) fn settle(
+    mut fork: Fork,
+    inputs: Vec<TickInput>,
+    mut tally: Tally,
+    events: &mut Vec<GameEvent>,
+) -> Placement {
     let mut settling = 0;
     while fork.state() != PlayState::Falling
         && fork.state() != PlayState::ToppedOut
@@ -230,7 +268,7 @@ pub(crate) fn replay(
     {
         events.clear();
         fork.tick(&TickInput::default(), events);
-        tally(events, &mut lines, &mut clears, &mut perfect_clear);
+        tally.fold(events);
         settling += 1;
         debug_assert!(settling < SETTLE_LIMIT, "the fork never settled");
         if settling >= SETTLE_LIMIT {
@@ -244,32 +282,41 @@ pub(crate) fn replay(
         features: Features {
             board: Board::of(&view.rows),
             outcome: Outcome {
-                lines,
-                clears,
+                lines: tally.lines,
+                clears: tally.clears,
                 topped_out: fork.state() == PlayState::ToppedOut,
                 combo: view.combo,
                 back_to_back: view.back_to_back,
-                perfect_clear,
+                perfect_clear: tally.perfect_clear,
             },
         },
         after: fork,
     }
 }
 
-/// Fold one tick's events into the two outcome figures no view reports.
+/// The outcome figures no view reports, folded out of the event stream.
 ///
-/// Both are *events* rather than state (§12.8): a clear is gone from the board
-/// by the time anything can look at it, and §9.15's perfect clear is a bonus
-/// paid once.
-fn tally(events: &[GameEvent], lines: &mut i32, clears: &mut [i32; 5], perfect_clear: &mut bool) {
-    for event in events {
-        match event {
-            GameEvent::LinesCleared { rows, .. } => {
-                *lines += rows.len() as i32;
-                clears[rows.len().min(4)] += 1;
+/// All three are *events* rather than state (§12.8): a clear is gone from the
+/// board by the time anything can look at it, and §9.15's perfect clear is a
+/// bonus paid once.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Tally {
+    lines: i32,
+    clears: [i32; 5],
+    perfect_clear: bool,
+}
+
+impl Tally {
+    pub(crate) fn fold(&mut self, events: &[GameEvent]) {
+        for event in events {
+            match event {
+                GameEvent::LinesCleared { rows, .. } => {
+                    self.lines += rows.len() as i32;
+                    self.clears[rows.len().min(4)] += 1;
+                }
+                GameEvent::PerfectClear => self.perfect_clear = true,
+                _ => {}
             }
-            GameEvent::PerfectClear => *perfect_clear = true,
-            _ => {}
         }
     }
 }
@@ -301,7 +348,7 @@ mod tests {
         let game = Game::new(rules.clone(), seed);
         let queue = game.view().next;
         let root = Fork::of(&game, &queue);
-        let placements = placements(&root, rules);
+        let placements = placements(&root, rules).placements;
         (root, placements)
     }
 

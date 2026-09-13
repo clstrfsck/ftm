@@ -102,7 +102,9 @@ underneath it, and — since P3 — `placement.rs` (§P4.1's generator) and
 `controller.rs` (§P3.4's `Pilot`, the plan and §P6.4's choice), which are the
 two private modules in a directory that is otherwise public, and — since P5 —
 `bench.rs` (§P8.2's report, played and counted with no clock in it), whose
-other half is `src/bench.rs` beside `native.rs` and `argv.rs`.
+other half is `src/bench.rs` beside `native.rs` and `argv.rs`, and — since P7 —
+`reachable.rs` (§P4.2's exact walk, which is `placement.rs`'s alternative and
+not its replacement).
 T1-T17 all pass, plus I1-I4, `tests/pump.rs` and
 `tests/gui_render.rs` — the window's I4, which is `tests/render_sizes.rs`'s
 counterpart in pixels (§G9.1) — and the batch-invariance canary is in CI.
@@ -118,7 +120,7 @@ is.
 **There is a live plan again: `PILOT-PLAN.md`, stages P0-P8**, which builds the
 automated player of `PILOT.md` §P1-§P9 — a **PILOT** row on §13.3's menu that
 plays the game while the player watches. It is a deliberate amendment to the
-scope rule below: it promotes §18's first bullet and no other. Stages P1 to P6
+scope rule below: it promotes §18's first bullet and no other. Stages P1 to P7
 are complete. P1 was the specification and the amendments to `FTM.md`,
 `TUI.md` and `GUI.md`; P2 is the first code — §P2.3's fork in `core/search.rs`,
 and **`src/pilot/`, a fourth directory beside `core/`, `shell/` and the two
@@ -156,8 +158,7 @@ never topped out in 320,000 pieces, so there was nothing left on the axes §P8.2
 reports. Lines rose in all five configurations measured and the cost rose 8-18×;
 the table is in `PILOT-PLAN.md` P6. It was watched on both front-ends at the new
 cost and plays at exactly the rate P4 recorded — 28 lines in the window's first
-12 seconds. What is left is P7's exact placements and P8's acceptance. See
-**Scope discipline**, which says what is still out.
+12 seconds. See **Scope discipline**, which says what is still out.
 
 **The weights were then retuned, and that is where the score was.** §P5's
 starting set played for *rows*: a `lines` weight linear in rows prices four
@@ -168,6 +169,22 @@ of — and the weights moved with them. **+27% score on held-out seeds**, lines 
 top-outs unchanged (`PILOT-PLAN.md`'s closed "starting weights" decision has the
 tables). More than P6's whole lookahead bought, which is worth remembering about
 where the leverage in this planner actually is.
+
+**P7 is §P4.2's exact placements, and it is `src/pilot/reachable.rs`** — a
+breadth-first walk over forks, one legal `TickInput` an edge, which reaches
+every tuck, spin and under-an-overhang placement a hard drop cannot. It answers
+P6's open question on an axis neither P6 nor the question expected: lines moved
+−0.6% and top-outs stayed at zero, exactly as P6's ceiling predicted, but
+**score rose 12-19%** — a tuck is a hole not made, and §P5's retuned weights
+price that. The cost is **35×**: ~6,400 forks advanced a generation against
+§P4.1's flat 104, and 85 ms a piece against 2.4. So it is **off by default**,
+and §P6.4 rather than taste is what decides that: at the 2,000-node budget a
+walk is stopped inside its *first* generation and the search returns the best
+fully evaluated move, which is the one-ply answer **byte for byte** — measured,
+not assumed. `Settings::exact` and `ftm-pilot --exact` are how it is reached;
+the live PILOT mode still runs `Settings::default()` and its plans are
+unchanged, which `tests/snapshots/pilot_plan.txt` not moving is what says.
+What is left is P8's acceptance.
 
 ## The §17.3 sign-off
 
@@ -212,10 +229,11 @@ where it is kept, not what it is called.
    sections your work touches. Read those sections, not the whole thing. Start
    from `FRONTEND.md` if the work is a front-end's, and from `PILOT.md` if it
    is the automated player's.
-2. **`PILOT-PLAN.md`** — stages P0-P8, the only live plan. P1 to P6 are done,
+2. **`PILOT-PLAN.md`** — stages P0-P8, the only live plan. P1 to P7 are done,
    and each has a "What it settled" of its own; read "The decisions this plan
-   rests on" before writing any of the rest — and P6's before P7, because it is
-   what says the benchmark has no headroom left to prove P7 with.
+   rests on" before writing any of the rest — and P6's and P7's before P8,
+   because between them they are what the acceptance table's C11 is measured
+   against.
 3. **`EGUI-PLAN.md`** — stages G0-G13, all complete. History now, not
    instructions, but the two sections that are *not* history are "The decisions
    this plan rests on" and "The central idea", which is what the shell being
@@ -244,7 +262,7 @@ several hundred doc comments, and each one would still *read* fine.
 | **`FRONTEND.md`** | no numbers | The contract any front-end is written against: F1-F7, what it may assume, what it must never do. The document a fourth front-end reads first. |
 | **`TUI.md`** | §8, §12.1-§12.6, §13, §6.3's four glyph and colour keys, §17.3's A1-A10 | The terminal front-end. Raw mode, the 60 x 24 minimum, colour depth, the 44 x 23 layout, the attract screen, the acceptance table below. |
 | **`GUI.md`** | §G1-§G9 | The egui front-end, native and web. Complete: §G1 (the application, the version pin, the loop) and §G2 (input) by G5, §G8's web build by G6, §G3 and §G4 by G7, §G5 by G8, §G6.1-§G6.4 by G9, §G6.5-§G6.6 by G10, §G7 by G11, §G8.10-§G8.11 by G12 and §G9 — the render test and B1-B12 — by G13. |
-| **`PILOT.md`** | §P1-§P9 | The automated player: the mode, the information boundary, control and the input cap, placements, evaluation, search, the two screens, the headless benchmark, and C1-C13. Normative since P1; **no code yet**. |
+| **`PILOT.md`** | §P1-§P9 | The automated player: the mode, the information boundary, control and the input cap, placements, evaluation, search, the two screens, the headless benchmark, and C1-C13. Normative since P1, and built out by P2-P7. |
 
 An unqualified `§n` means `FTM.md` §n, except for the eleven numbers `TUI.md`
 owns. `§Gn` means `GUI.md` and `§Pn` `PILOT.md`; a future `MACROQUAD.md` would
@@ -734,12 +752,63 @@ planned game in the test suite.
   evaluated answer — a `nodes: 0` search returns precisely the one-ply answer,
   and a test says so.
 
-- **`Settings`'s three defaults are one decision, not three** (`PILOT.md`
-  §P6.4). Two plies over a beam of 16 costs 1,784 nodes against a budget of
-  2,000, which is one frame's ~11,900 divided by a full `MAX_CATCH_UP_TICKS`
-  batch. Widening the beam or adding a ply does not buy a deeper search; it buys
-  a search the budget truncates, and §P6.4's answer quietly becomes shallower
-  than `depth` asked for.
+- **`Settings`'s three defaults are one decision, not three — and `exact` is
+  the same arithmetic reaching the opposite answer** (`PILOT.md` §P6.4). Two
+  plies over a beam of 16 costs 1,784 nodes against a budget of 2,000, which is
+  one frame's ~11,900 divided by a full `MAX_CATCH_UP_TICKS` batch. Widening the
+  beam or adding a ply does not buy a deeper search; it buys a search the budget
+  truncates, and §P6.4's answer quietly becomes shallower than `depth` asked
+  for. §P4.2's walk spends ~6,400 nodes in **one** generation, so `exact` at the
+  default budget is the one-ply answer — byte for byte, which P7 measured. It is
+  off by default for that reason and not for a preference: turning it on means
+  lifting the budget, and lifting the budget means leaving the frame.
+
+- **Both generators produce input sequences and neither predicts** (`PILOT.md`
+  §P4.1, §P4.2). `placement.rs` rotates at spawn, shifts and hard-drops;
+  `reachable.rs` walks the graph of positions a tick at a time. They are
+  interchangeable at the point `search.rs` calls one and it does not know which
+  answered, and **both replay every candidate through the real rules**, so a
+  kick, a wall and a gravity lock that beats the hard drop are ordinary in both.
+  A third generator joins the same seam or it is not one.
+
+- **Exactness in the walk is argued three times, and each argument is why
+  something is *missing*** (`PILOT.md` §P4.2). A hard drop is played only from
+  the poses that **rest**, because a drop from mid-air lands on a resting pose
+  the descent edges reach anyway. Hold is played only at the **root**, because
+  §9.7 allows one a piece and the swapped piece spawns where any piece spawns.
+  And **lock state is not in the state key**, because breadth-first order
+  reaches a pose by its shortest path and the shortest path has spent the least
+  of §9.11's delay — the state a lock-state key would have kept beside it can do
+  nothing the kept one cannot. Keying on it is thirty thousand states instead of
+  one thousand. §9.9's sub-row accumulator is left out too, and that one is a
+  genuine gap rather than a dominated one.
+
+- **Legality is the fork's and never the key's** (`PILOT.md` §P4.2). Every edge
+  of the walk is a real `Game::tick`, so a walk that slid a piece along the
+  floor past §9.11's reset budget does not produce an illegal placement — the
+  fork locks the piece, and the walk files that as the placement it turned out
+  to be. Nothing in `reachable.rs` decides what the rules allow, which is what
+  makes "exact" mean exact rather than "exact as far as this module models it".
+
+- **A descent is soft drop, and that is the difference between a walk and a
+  hang** (`PILOT.md` §P4.2, §9.9, §9.10). A plain tick falls at §9.9's period —
+  sixty ticks to the row at level 1 — so a graph whose only downward edge was
+  "wait" would need sixty thousand ticks to cross the well. Soft drop divides
+  the period and is neither an action nor a shift, so §P3.2's cap is untouched
+  by it. Related, and easy to trip over: **this game has no high gravity**.
+  §9.9's curve bottoms out at `MAX_SPEED_LEVEL` 15 and `--start-level` is capped
+  at the same 15, so a level-15 walk is *identical* to a level-1 one; the only
+  way to reach a row a tick is `soft_drop_factor`, which §6.3 allows up to 100.
+
+- **The pose crossing §P2.3's seam is five numbers, not an `ActivePiece`**
+  (`PILOT.md` §P2.3, §P4.2, §17.3 A10). `ActivePiece` is not in the core's
+  façade and may not join it, so `SearchGame::pose()` returns a crate-private
+  `Pose` re-exported with `pub(crate) use` beside `SearchGame`, and `Fork::pose`
+  is `pub(crate)` — nothing outside the crate deduplicates positions. Two of the
+  five are not geometry and they are the reason `view()` will not do: §9.13's
+  "last action was a rotation" and the kick index. A pose reached by turning and
+  the same pose reached by shifting are **two different placements**, and a
+  generator that merged them would lose whichever it saw second.
 
 - **The PILOT indicator is the `I`-piece cyan, in both front-ends, for the whole
   game** (`TUI.md` §12.4, `GUI.md` §G4.5, `PILOT.md` §P7.3). Left-aligned on the
@@ -1467,6 +1536,53 @@ planned game in the test suite.
 
 ---
 
+---
+
+## What P7 settled
+
+- **P6's open question is answered on an axis nobody named.** Exact
+  reachability was to be justified "by the placements themselves… do not expect
+  a number to go up". Lines went *down* 0.6% and top-outs stayed at zero, both
+  exactly as P6's ceiling predicted — and **score went up 12-19%**, on the
+  development seeds and on held-out ones. What the walk buys is not spins, which
+  §P5 has no feature for; it is **tucks**, and a tuck is a hole not made, which
+  the board features charge heavily. The tables are in `PILOT-PLAN.md` P7.
+- **A T-spin is now reachable and still worthless**, and that is the most
+  useful thing to know before touching §P5 again. `Outcome` counts rows and
+  clear kind; a T-spin single is priced as the cheap single it clears. Adding a
+  spin feature is a §P5 amendment and a retune, it is **not** in this plan, and
+  it is now the obvious next thing to try — P7 is what made it reachable at all.
+- **`--exact --depth 2` and `--exact --depth 1` produce byte-identical
+  reports**, and only the node count differs, by the 4,457 nodes of ply-2
+  expansions begun and abandoned. That is §P6.4's "best fully evaluated move"
+  demonstrated at 16,000 pieces rather than in a unit test, and it is the whole
+  argument for the default. Read it that way if a future stage wonders whether
+  the budget is really binding.
+- **There is no cheap corner where the walk wins.** On 8 × 2,000: §P4.1 at one
+  ply is 39.2M at 142 µs, §P4.2 at one ply is 40.7M at 2,019 µs, and §P4.1 at
+  *two* plies is 43.6M at 2,484 µs. At the same wall cost the second ply is
+  worth 7% more than exact reachability is. The choice is the default or 35×.
+- **The seam grew by one accessor and not the one it was booked for.** §P2.3
+  expected P3 to want the pose and the hold state, then P7. The hold state was
+  on `GameView` all along; what was actually missing was §9.13's rotation
+  metadata. The general lesson is P2's again, sharper: *a seam predicted a stage
+  ahead predicts the wrong thing*, and the accessor that lands is the one a real
+  caller turned out to need.
+- **`WALK_LIMIT` is measured, not guessed.** An empty well is the worst board
+  there is — everywhere is reachable — and measures 3,685 states, 26,031 forks
+  advanced and 68 distinct placements. A real game's stack does the pruning:
+  `make bench` records ~6,400 forks a generation. The ceiling is 8,192, a little
+  over twice the worst case, and reaching it is a debug assertion and a
+  truncated answer rather than a wrong one.
+- **The strongest test of the walk is the one it inherited.** `cargo test` is a
+  debug build, so §P3.1's divergence assertion replays every plan tick by tick
+  against the live game —
+  `controller::tests::it_plays_a_game_with_the_exact_generator_too` is a round
+  played with §P4.2, and what it asserts is that the *sequence* reaches where
+  the walk said it reaches, which no board comparison can say.
+
+---
+
 ## Open decisions
 
 - **The legacy key path's feel (§8.2).** Measured over two seconds of holding
@@ -1497,6 +1613,8 @@ cargo fmt --check
 make bench           # PILOT.md §P8's baseline: 8 seeds x 2000 pieces, release.
                      # BENCH_ARGS="--seeds 5 --pieces 20000" for anything else;
                      # `--json` for the same figures with a `timing` key.
+                     # BENCH_ARGS="--exact --nodes 10000000 --pieces 400" is
+                     # §P4.2's walk at two plies -- 35x, so keep the batch short.
 cargo run --release  # play it (`default-run` picks `ftm` of the three bins)
 make run-gui         # the window (`cargo run --release --features gui --bin ftm-gui`)
 make run-web         # the same in a tab: `trunk serve`, http://127.0.0.1:8080/?seed=42

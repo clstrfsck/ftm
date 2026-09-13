@@ -62,6 +62,12 @@ pub struct Cli {
     /// Node budget per search (§P6.4)
     #[arg(long, value_name = "N")]
     nodes: Option<u32>,
+    /// Generate placements by §P4.2's exact walk rather than §P4.1's hard drop
+    #[arg(long, overrides_with = "simple")]
+    exact: bool,
+    /// Generate placements by §P4.1's rotate, shift and hard drop
+    #[arg(long, overrides_with = "exact")]
+    simple: bool,
     /// Pieces shown in the preview window [1-6]
     #[arg(long, value_name = "N")]
     preview: Option<u8>,
@@ -116,6 +122,7 @@ impl Cli {
                 depth: self.depth.unwrap_or(settings.depth),
                 beam: self.beam.unwrap_or(settings.beam),
                 nodes: self.nodes.unwrap_or(settings.nodes),
+                exact: paired(self.exact, self.simple).unwrap_or(settings.exact),
             },
             seeds: seeds(&self.seeds)?,
             pieces: self.pieces,

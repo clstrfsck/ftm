@@ -19,6 +19,7 @@
 
 use crate::core::events::GameEvent;
 use crate::core::game::{Game, PlayState, TickInput};
+use crate::core::geometry::Rotation;
 use crate::core::piece::PieceKind;
 use crate::core::view::GameView;
 
@@ -91,6 +92,48 @@ impl SearchGame {
     pub(crate) fn exhausted(&self) -> bool {
         self.game.bag_exhausted()
     }
+
+    /// Where the piece in play stands, and what the last thing done to it was
+    /// (`PILOT.md` §P4.2).
+    ///
+    /// This is the seam's one growth since P2, and P7 is the stage §P2.3 said
+    /// it belonged to: an exact generator walks a graph of positions and has to
+    /// know when two of them are the same one, which `view()` cannot quite say.
+    /// It is deliberately **not** `ActivePiece`: that type is not in the core's
+    /// façade and may not join it (§17.3 A10), so what crosses here is the five
+    /// numbers §P4.2 deduplicates on and nothing else.
+    pub(crate) fn pose(&self) -> Option<Pose> {
+        self.game.current().map(|piece| Pose {
+            kind: piece.kind,
+            col: piece.origin.x,
+            row: piece.origin.y,
+            rotation: piece.rotation,
+            spun: piece.last_action_was_rotation,
+            kick: piece.last_kick_index,
+        })
+    }
+}
+
+/// Where a piece stands, for a generator that deduplicates positions
+/// (`PILOT.md` §P4.2).
+///
+/// Two fields of it are not geometry, and they are the reason `view()` will not
+/// do. §9.13 scores a T by *what happened to it last*, so a pose a piece was
+/// rotated into and the same pose it was shifted into are two different
+/// placements — one of them is a spin and the other is a T resting in a hole.
+/// A generator that merged them would lose whichever it saw second, and losing
+/// spins is losing the half of §P4.2 that a hard drop cannot reach anyway.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct Pose {
+    pub(crate) kind: PieceKind,
+    /// The origin of the piece's bounding box, in matrix coordinates (§5).
+    pub(crate) col: i32,
+    pub(crate) row: i32,
+    pub(crate) rotation: Rotation,
+    /// §9.13's "the last successful action was a rotation".
+    pub(crate) spun: bool,
+    /// The kick test that rotation used; test 5 is always a proper T-spin.
+    pub(crate) kick: u8,
 }
 
 #[cfg(test)]

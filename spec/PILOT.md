@@ -105,6 +105,23 @@ impl SearchGame {
     pub(crate) fn scripted(&self) -> &[PieceKind];
     /// Whether the scripted queue ran out and the fork stopped.
     pub(crate) fn exhausted(&self) -> bool;
+    /// Where the piece in play stands, and what was last done to it (§P4.2).
+    pub(crate) fn pose(&self) -> Option<Pose>;
+}
+
+/// The five numbers §P4.2 deduplicates positions on. Deliberately not
+/// `ActivePiece`, which is not in the core's façade and may not join it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct Pose {
+    pub(crate) kind: PieceKind,
+    pub(crate) col: i32,
+    pub(crate) row: i32,
+    pub(crate) rotation: Rotation,
+    /// §9.13's "the last successful action was a rotation", and the kick it
+    /// used: a pose reached by turning and the same pose reached by shifting
+    /// are two different placements, and only one of them is a spin.
+    pub(crate) spun: bool,
+    pub(crate) kick: u8,
 }
 ```
 
@@ -130,10 +147,16 @@ impl SearchGame {
   produces input sequences and *replays* them, so what it wants to know about
   the position it reads from `view()` — the board, the piece in play, the hold
   slot and whether hold is spent are all on a `GameView` (§12.7). They are
-  §P4.2's, in the stage that deduplicates states by pose and rotation metadata,
-  and that stage has a second problem to solve first: `ActivePiece` is not in
-  the core's façade and may not become part of it (§17.3 A10), so a pose
-  crossing this boundary has to be one `src/pilot/` can name.
+  §P4.2's, and **P7 is where they landed** — as one accessor rather than three,
+  and not the ones expected. The hold state was on `GameView` all along; what
+  the seam actually lacked was §9.13's metadata, which no view reports and which
+  is the difference between a spin and a piece resting in a hole. The second
+  problem §P4.2 had to solve first was solved by not raising it: `ActivePiece`
+  is not in the core's façade and may not become part of it (§17.3 A10), so
+  `pose()` returns a `Pose` of five numbers, which is crate-private beside
+  `SearchGame` and re-exported the same way. `Fork::pose` is `pub(crate)` for
+  the same reason, which is what keeps the planner's *public* surface at §P3.4's
+  four items: nothing outside the crate deduplicates positions.
 - When the scripted queue runs out the fork **refuses to spawn** and reports
   `exhausted()`. A search cannot run past its own horizon, because the object it
   runs on cannot. It waits in §9.12's entry delay: a fork that has run out is
@@ -243,6 +266,7 @@ pub struct Settings {
     pub depth: u8,        // plies, clamped by preview_count (§P6.1)
     pub beam: u16,        // states kept per ply
     pub nodes: u32,       // the budget, an integer count (§P6.4)
+    pub exact: bool,      // §P4.2's walk rather than §P4.1's hard drop
 }
 
 pub struct Pilot { /* … */ }
@@ -306,8 +330,47 @@ under §P3.2's cap, and must model:
 
 Both generators produce **input sequences**, never board positions: a placement
 nothing can reach is not a placement. States are deduplicated by pose, rotation
-metadata, lock state, hold state and queue position; outcomes by board, hold and
-queue.
+metadata, hold state and queue position; outcomes by board, hold, queue and
+whether the branch ended in §9.16.
+
+**Both generators exist, and `Settings::exact` chooses.** They answer the same
+question and are interchangeable at the point a search calls one, so the search
+does not know which answered. §P4.1 is the default, and P7 measured why: a walk
+advances some 6,400 forks a generation where a hard drop enumerates 104, and
+§P6.4's budget is spent inside the walk's first generation. The report header names the generator the
+run used, because a baseline that did not say would be one nobody could repeat.
+
+Three things the walk's shape settles, each of which would otherwise be a
+special case:
+
+- **Descent is soft drop, not waiting.** A plain tick falls at §9.9's period,
+  which is sixty ticks to the row at level 1; §9.10's divided period is what
+  makes a graph of a thousand states cost a thousand-odd ticks rather than sixty
+  thousand. Soft drop is neither an action nor a shift, so it costs §P3.2's cap
+  nothing.
+- **A hard drop is played from the poses that rest**, not from every pose. A
+  hard drop from mid-air lands on a resting pose directly below it, which the
+  descent edges reach anyway, so one drop per resting pose is one terminal per
+  placement there is.
+- **Hold is played once, at the root.** §9.7 allows it once per piece and the
+  swapped piece spawns where any piece spawns, so a hold after a shift reaches
+  the same positions by a longer road.
+
+**Lock state is not in the state key, and the search order is why.** A
+breadth-first walk reaches a pose by its shortest path first, and the shortest
+path has spent the least of §9.11's delay and the fewest of its resets getting
+there — so the state a lock-state key would have kept beside it can do nothing
+the kept one cannot. Keying on it would multiply every resting pose by the
+thirty ticks of a delay counting down. §9.9's sub-row accumulator is not in the
+key either, and that one is a real gap rather than a dominated one: two arrivals
+at a pose can differ by a tick in when they next fall. It is bounded by one tick
+of gravity, and it is what lets a descent be one edge instead of three states to
+the row.
+
+**Legality is the fork's and not the key's.** Every edge is a real `Game::tick`,
+so a walk that slid a piece along the floor past §9.11's reset budget does not
+produce an illegal placement — the fork locks the piece, and the walk files that
+as the placement it is.
 
 ### §P4.3 Disabled mechanics
 
@@ -438,14 +501,22 @@ it was allowed to consider.
   always paid for, whatever the budget, and there is always an answer to give.
 - Ties are broken by lower top-out risk, then fewer inputs, then canonical
   action order. Every machine therefore chooses the same move.
-- **The three settings are one decision.** P5 measured a frame at ~11,900 nodes
-  and §15.2 step 4 may play `MAX_CATCH_UP_TICKS` ticks before it draws, so a
-  search may spend a sixth of that: ~2,000 nodes. Two plies over a beam of
-  sixteen costs the first ply's ~104 candidates plus sixteen expansions of about
-  the same, a little under 1,800 — which is what makes *those* three numbers the
-  defaults. A wider beam or a third ply would be spent by the budget rather than
-  played, and the answer would quietly become a shallower one than the settings
-  asked for.
+- **The three settings are one decision, and since P7 the fourth is too.** P5
+  measured a frame at ~11,900 nodes and §15.2 step 4 may play
+  `MAX_CATCH_UP_TICKS` ticks before it draws, so a search may spend a sixth of
+  that: ~2,000 nodes. Two plies over a beam of sixteen costs the first ply's
+  ~104 candidates plus sixteen expansions of about the same, a little under
+  1,800 — which is what makes *those* three numbers the defaults. A wider beam or
+  a third ply would be spent by the budget rather than played, and the answer
+  would quietly become a shallower one than the settings asked for.
+- **`exact` is the same arithmetic reaching the opposite conclusion.** §P4.2's
+  walk advances some 6,400 forks in a single generation, so at the 2,000-node
+  budget the rule above fires on the *first* ply and the search returns the
+  one-ply answer. That is not an approximation of one: P7 measured
+  `--exact --depth 2` and `--exact --depth 1` producing byte-identical reports.
+  Turning the walk on therefore means lifting the budget, and lifting the budget
+  means leaving the frame — which is why it is not the default and why
+  `Settings` carries it rather than a build deciding.
 
 ---
 
@@ -527,6 +598,7 @@ desktop's and its meaning is not.
 | `--seeds A..B`, `--seeds A..=B`, `--seeds N` | a range either way inclusive, or N seeds from 0 | `8` |
 | `--pieces N` | the piece cap per game | `1000` |
 | `--depth N`, `--beam N`, `--nodes N` | §P6's settings | `Settings::default()` |
+| `--exact`, `--simple` | §P4.2's walk or §P4.1's hard drop | `Settings::default()` |
 | `--preview N`, `--start-level N` | §6.3's rules | §6.3's |
 | `--hold`, `--no-hold`, `--rot180`, `--no-rot180`, `--lock-down R` | §6.3's rules | §6.3's |
 | `--json` | the report as JSON rather than text | off |
@@ -562,10 +634,17 @@ optimiser, and a report that mixed them into the rows would be one nobody could
 diff. In JSON the same split is a `timing` key beside the rest.
 
 The two cost counters are **nodes** (states evaluated) and **placements**
-(candidates generated). They are equal at one ply, where every node is a
-placement; P6 is where they part, since a beam evaluates interior states that
-are nobody's placement and a transposition hit is a placement that costs no
-node. Neither is a duration, and nothing in `src/pilot/` may read either back —
+(candidates generated). They are equal at one ply *over §P4.1*, where every node
+is a placement; P6 is where they first part, since a beam evaluates interior
+states that are nobody's placement and a transposition hit is a placement that
+costs no node. §P4.2 parts them by nearly two orders of magnitude: a walk
+advances thousands of forks to find scores of distinct ways to put the piece
+down, and it is the thousands that §P6.4's budget is spent in — a budget charged
+the scores would be charged a fraction of the work it paid for.
+
+The report's header names the generator beside §P6's three numbers, because
+the two answer the same question at very different prices and a row that did not
+say which was asked is a row nobody can reproduce. Neither is a duration, and nothing in `src/pilot/` may read either back —
 a counter a search consulted would be §P3.3's clock under another name.
 
 **The node budget §P6.4 needs is measured here**, and the measurement is of the

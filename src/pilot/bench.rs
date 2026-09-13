@@ -209,8 +209,14 @@ impl Report {
             rules.das_ticks, rules.arr_ticks, rules.line_clear_delay_ticks, rules.entry_delay_ticks,
         ));
         out.push_str(&format!(
-            "search   depth {}  beam {}  nodes {}\n",
-            settings.depth, settings.beam, settings.nodes,
+            "search   depth {}  beam {}  nodes {}  placements {}\n",
+            settings.depth,
+            settings.beam,
+            settings.nodes,
+            // §P4.1 or §P4.2, spelled out rather than as a boolean: the two
+            // generators answer the same question and a baseline that did not
+            // say which one it asked would be a baseline nobody could repeat.
+            if settings.exact { "exact" } else { "simple" },
         ));
         out.push_str(&format!(
             "batch    {} seed{}  {} pieces\n",
@@ -304,6 +310,7 @@ impl Report {
                 "depth": settings.depth,
                 "beam": settings.beam,
                 "nodes": settings.nodes,
+                "placements": if settings.exact { "exact" } else { "simple" },
             },
             "batch": { "seeds": self.batch.seeds, "pieces": self.batch.pieces },
             "runs": self.runs.iter().map(|run| serde_json::json!({

@@ -48,4 +48,4 @@ pub use view::{DebugView, GameView, PieceView, VIEW_HEIGHT, VIEW_WIDTH};
 // handed before. `Game::fork` is an inherent method and travels with `Game`;
 // `SearchGame` is what it returns, and it is not drawable, so it belongs
 // nowhere in the vocabulary above.
-pub(crate) use search::SearchGame;
+pub(crate) use search::{Pose, SearchGame};

@@ -28,7 +28,8 @@ use std::collections::HashMap;
 use crate::core::{GameEvent, GameView, PieceKind, PlayState, TickInput};
 use crate::pilot::eval::{Board, ROWS, Weights};
 use crate::pilot::fork::Fork;
-use crate::pilot::placement::{self, Placement};
+use crate::pilot::placement::{self, Generated, Placement};
+use crate::pilot::reachable;
 use crate::pilot::{Counted, Settings};
 use crate::shell::config::RulesConfig;
 
@@ -131,8 +132,11 @@ impl Search<'_> {
         // Ply 1, from the first root. Every root holds the same board and the
         // same piece in play, and a hypothesis sits past this ply's reach, so
         // these candidates are one list however many roots there are.
-        let candidates = placement::placements(root, self.rules);
-        self.spend_placements(candidates.len());
+        let Generated {
+            placements: candidates,
+            nodes,
+        } = self.generate(root);
+        self.spend(candidates.len(), nodes);
         if candidates.is_empty() {
             // Unreachable: the generator always offers the piece where it
             // stands. An empty plan lets gravity play the piece, which is the
@@ -192,7 +196,7 @@ impl Search<'_> {
             // candidate's lock spawns. The replay is a dozen ticks against the
             // hundred placements the ply below it costs.
             let node = placement::replay(root, candidate.inputs.clone(), &mut self.events);
-            self.spend_placements(1);
+            self.spend(1, 1);
             values.push(self.value_of(&node, depth)?);
         }
         Some(blend(&values))
@@ -238,8 +242,11 @@ impl Search<'_> {
         self.budget -= 1;
         self.counted.nodes += 1;
 
-        let candidates = placement::placements(fork, self.rules);
-        self.spend_placements(candidates.len());
+        let Generated {
+            placements: candidates,
+            nodes,
+        } = self.generate(fork);
+        self.spend(candidates.len(), nodes);
         let values: Vec<i32> = candidates
             .iter()
             .map(|candidate| candidate.features.evaluate(self.weights))
@@ -285,13 +292,30 @@ impl Search<'_> {
         order
     }
 
-    /// Count candidates generated, and charge each of them a node: a generated
-    /// placement is a position measured, which is what a node is (§P8.2).
-    fn spend_placements(&mut self, count: usize) {
-        let count = count as u64;
-        self.counted.placements += count;
-        self.counted.nodes += count;
-        self.budget = self.budget.saturating_sub(count);
+    /// Whichever generator the settings chose (§P4.1, §P4.2).
+    ///
+    /// The two are interchangeable and nothing else in this file knows which
+    /// answered: both hand back input sequences replayed through the real
+    /// rules, and both say what they cost.
+    fn generate(&mut self, fork: &Fork) -> Generated {
+        if self.settings.exact {
+            reachable::placements(fork, self.rules)
+        } else {
+            placement::placements(fork, self.rules)
+        }
+    }
+
+    /// Charge a generation to §P8.2's two counters and to §P6.4's budget.
+    ///
+    /// They are separate numbers because §P4.2 made them separate: `placements`
+    /// is what the search may choose between and `nodes` is what finding them
+    /// cost. The budget is spent in nodes, which is the honest unit — a
+    /// generator that walked a thousand positions has done a thousand
+    /// positions' work whatever it hands back.
+    fn spend(&mut self, placements: usize, nodes: u64) {
+        self.counted.placements += placements as u64;
+        self.counted.nodes += nodes;
+        self.budget = self.budget.saturating_sub(nodes);
     }
 }
 
@@ -590,7 +614,7 @@ mod tests {
             cache: HashMap::new(),
             events: Vec::new(),
         };
-        let candidates = placement::placements(&fork, &rules);
+        let candidates = placement::placements(&fork, &rules).placements;
         let values: Vec<i32> = candidates
             .iter()
             .map(|candidate| candidate.features.evaluate(&weights))

@@ -50,6 +50,7 @@ pub mod eval;
 pub mod fork;
 pub mod knowledge;
 mod placement;
+mod reachable;
 mod search;
 
 pub use controller::{Counted, Pilot, Settings};

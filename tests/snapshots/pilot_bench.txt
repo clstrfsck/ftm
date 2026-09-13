@@ -3,7 +3,7 @@ ftm-pilot -- PILOT.md §P8
 rules    preview 5  hold on  180 on  ghost on  lock-down extended
          start level 1  lines/level 10  lock delay 30t  soft drop x20
          das 10t  arr 2t  clear delay 15t  entry delay 0t
-search   depth 2  beam 16  nodes 2000
+search   depth 2  beam 16  nodes 2000  placements simple
 batch    3 seeds  60 pieces
 
          seed        score     lines    pieces   level  ended         nodes

@@ -656,7 +656,7 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
   §12.5's animations; that it makes the search's output readable by eye was not
   one of the reasons and is the best thing about it.
 
-### P7 — Exact reachable placements
+### P7 — Exact reachable placements ✅
 
 - Breadth-first search over forks using legal `TickInput`s: hold, both quarter
   turns, optional 180, shifts, gravity, lock delay, soft and hard drop, SRS wall
@@ -667,6 +667,113 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
 - Report the improvement against P6's baseline. If it buys nothing measurable,
   say so in the commit message and keep it anyway for the placements a
   hard-drop generator cannot reach.
+
+**What it settled.**
+
+- **It buys a good deal and costs thirty-five times as much, and both halves of
+  that are the finding.** P6's open question was whether exact reachability is
+  worth its cost, and the answer is that it is worth a great deal of *score* and
+  nothing at all in the two axes P6 measured. Eight seeds × 400 pieces, the
+  short batch a run at this price allows:
+
+  | 8 × 400 | lines | score | top out | µs/piece | nodes/search |
+  |---|---|---|---|---|---|
+  | §P4.1, two plies (P6's default) | 1,265 | 1,862,686 | 0 | 2,415 | 1,782 |
+  | §P4.2, two plies, budget lifted | 1,256 | **2,209,031** | 0 | 84,636 | 268,943 |
+  | §P4.1, two plies, seeds 100-107 | 1,263 | 1,875,324 | 0 | 2,415 | 1,782 |
+  | §P4.2, two plies, seeds 100-107 | 1,255 | **2,107,024** | 0 | 85,285 | 270,964 |
+
+  **+18.6% on the seeds it was developed against and +12.4% on held-out
+  ones** — the same direction, and the gap between the two is the noise the
+  weights retune already warned about at eight seeds. Lines went *down* by half
+  a percent in both, and top-outs stayed at zero, which is P6's ceiling saying
+  the same thing again: there is nothing left on those two axes and score is the
+  only one that can still move.
+- **Where the score comes from is not spins.** §P5 has no feature that pays for
+  a T-spin — `Outcome` counts rows cleared and the kind of clear, and a T-spin
+  single is priced as the cheap single it clears. What the walk actually buys is
+  *tucks*: a piece slid under an overhang is a hole not created, and the board
+  features charge holes heavily. Adding a spin feature would be a §P5 amendment
+  and a retune, and it is not in this plan — but it is now the obvious next
+  thing to try, and it is worth recording that P7 makes it *reachable* where it
+  was not before.
+- **The default is §P4.1, and §P6.4 is what decides it rather than taste.** A
+  walk visits about 6,400 positions a generation where a hard drop enumerates
+  104. `Settings::default().nodes` is 2,000 — one frame's worth divided by a
+  full `MAX_CATCH_UP_TICKS` batch — so `--exact` at the default budget is
+  stopped inside its *first* generation and §P6.4 returns the best fully
+  evaluated move, which is precisely the one-ply answer. It is not an
+  approximation of one: the two runs are **byte-identical in every row of the
+  report**, 6,377 lines and 40,699,504 score on 8 × 2,000, and only the node
+  count differs, by the 4,457 nodes of the ply-2 expansions that were begun and
+  abandoned. That is §P6.4's rule demonstrated at full scale rather than in a
+  unit test.
+- **One ply exact is dominated, which is the row that decides the default.** On
+  8 × 2,000: §P4.1 at one ply is 6,378 lines and 39,194,564 at 142 µs; §P4.2 at
+  one ply is 6,377 and 40,699,504 at 2,019 µs; §P4.1 at *two* plies is 6,384 and
+  43,582,740 at 2,484 µs. At about the same wall cost the second ply is worth
+  7% more than exact reachability is, so there is no cheap corner where the walk
+  wins. The choice is the default or 35×, with nothing in between.
+- **The seam grew by one accessor, and not the one §P2.3 expected.** The pose
+  and the hold state were booked for P3, not needed there, and rebooked for this
+  stage. The hold state turned out to be on `GameView` all along. What was
+  genuinely missing was §9.13's *rotation metadata*, which no view reports and
+  which is the whole difference between a T rotated into a slot and a T that
+  slid into a hole — a generator that merged the two would keep whichever it saw
+  second, and losing spins is losing half of what §P4.2 is for. So
+  `SearchGame::pose()` returns a `Pose` of five numbers rather than an
+  `ActivePiece`, §17.3's A10 does not move, and `Fork::pose` is `pub(crate)`
+  because nothing outside the crate deduplicates positions.
+- **Descent is soft drop, and that is the difference between a walk and a
+  hang.** A plain tick falls at §9.9's period — sixty ticks to the row at level
+  1 — so a graph whose only downward edge was "wait" would need sixty thousand
+  ticks to cross the well. §9.10's divided period makes it three, and soft drop
+  is neither an action nor a shift so §P3.2's cap is untouched. The descent is a
+  *macro*-edge that holds it until the row changes, which is also what keeps
+  §9.9's accumulator out of the state key.
+- **Two things the walk does not do, both for the same reason.** A hard drop is
+  played only from the poses that *rest*, because a drop from mid-air lands on a
+  resting pose the descent edges reach anyway; and hold is played only at the
+  root, because §9.7 allows one a piece and the swapped piece spawns where any
+  piece spawns. Both are exactness arguments rather than economies, and both are
+  in §P4.2 now.
+- **Lock state is out of the state key and the search order is the licence.**
+  §P4.2 listed it, and keying on it would multiply every resting pose by the
+  thirty ticks of a delay counting down — a walk of thirty thousand states
+  instead of one thousand. Breadth-first order makes it unnecessary: the first
+  path to a pose is the shortest, and the shortest has spent the least delay and
+  the fewest resets getting there, so the state a lock-state key would have kept
+  beside it can do nothing the kept one cannot. §P4.2 is amended to say so.
+  Legality is not at stake either way — every edge is a real `Game::tick`, so a
+  walk that slid a piece past its reset budget does not produce an illegal
+  placement, it produces the lock that actually happened.
+- **This game has no high gravity, and the fixture had to go round it.** §P4.2
+  asks for same-tick ordering "once gravity is fast enough to move a piece in
+  the tick an action is delivered", and §9.9's curve never gets there: it bottoms
+  out at `MAX_SPEED_LEVEL` 15, about eleven ticks to the row, and `--start-level`
+  is capped at the same 15. A level-15 walk is therefore *identical* to a level-1
+  one — 78 placements either way on the test fixture. The way to reach fast
+  gravity at all is §9.10's `soft_drop_factor`, which §6.3 allows up to 100 and
+  which the walk's own descent edge holds down; the test is written at level 15
+  with a factor of 100, which is a row a tick or faster.
+- **The debug assertion earned its keep again**, as it did in P3. A round played
+  with `exact` runs §P3.1's divergence check over every plan the walk produced,
+  tick by tick against the live game — which is a far stronger statement than
+  any board comparison, because it says the *sequence* reaches where the walk
+  said it reaches. `controller::tests::it_plays_a_game_with_the_exact_generator_too`
+  is that test, and it is short because a debug walk is a thousand positions a
+  piece replayed twice.
+- **The two counters were made two by this stage.** P6 parted them by a beam;
+  P7 parts them by an order of magnitude, and a generator now reports what it
+  cost rather than having its cost inferred from what it returned. §P8.2 is
+  amended, and the report header names the generator — a baseline that did not
+  say which one it asked would be one nobody could reproduce.
+- **The default path is byte-identical, and that is the assertion.**
+  `tests/snapshots/pilot_plan.txt` did not move at all, and
+  `tests/snapshots/pilot_bench.txt` moved by exactly one line: the header now
+  says `placements simple`. Every figure in it is what it was. I1's snapshot and
+  §19.4's canary are untouched, which they had to be — the core gained an
+  accessor and nothing else.
 
 ### P8 — Acceptance
 
@@ -707,15 +814,17 @@ to answer with evidence rather than now:
   the beam as well: two plies over sixteen states costs 1,784, so a wider beam
   would be cut off by the budget rather than searched. All three defaults are one
   decision, and §P6.4 says so now.
-- **Whether exact reachability (P7) is worth its cost** over the simple
-  generator. ~~P6's baseline is what answers it~~ — and P6's answer is that **the
-  benchmark cannot answer it**, because one ply already plays at 99.98% of the
-  theoretical line ceiling and never tops out in 320,000 pieces. A second ply
-  moved that by four lines in 160,000. P7 therefore has to be justified by the
-  placements themselves — a tuck or a spin is a move the generator cannot make at
-  all, which is a capability argument rather than a percentage — or else
-  consciously taken on the plan's word. Either way, say which in the commit
-  message, and do not expect a number to go up.
+- ~~**Whether exact reachability (P7) is worth its cost** over the simple
+  generator.~~ **Settled by P7, and the answer is on an axis neither P6 nor this
+  bullet expected.** P6 was right that lines and top-outs have no headroom left —
+  the walk moved them by −0.6% and 0 respectively — and wrong that this left
+  nothing for a number to say. **Score rose 12-19%**, because §P5's retuned
+  weights price *what* is cleared and a tuck is a hole not made. The cost is 35×:
+  6,400 positions a generation against 104, and 85 ms a piece against 2.4. So it
+  is kept and it is **off by default**, which §P6.4 decides rather than taste — at
+  the 2,000-node budget a walk is stopped inside its first generation and the
+  search returns the one-ply answer, byte for byte. `Settings::exact` and
+  `--exact` are how it is reached. See P7 above for the tables.
 - ~~**The starting weights** (§P5).~~ **Answered after P6, by the benchmark, and
   worth +27% score.** The starting set played for *rows* and not for score: §9.14
   pays 800 for a quad against 400 for four singles, and a `lines` weight linear

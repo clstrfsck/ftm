@@ -43,6 +43,19 @@ pub struct Settings {
     pub beam: u16,
     /// The budget, an integer count and never a duration (§P6.4).
     pub nodes: u32,
+    /// Which generator produces the candidates: §P4.2's walk, or §P4.1's
+    /// rotate-shift-and-drop.
+    ///
+    /// **Off by default, and that is a measurement rather than a preference.**
+    /// §P4.2 reaches everything a hard drop cannot — tucks, spins, everywhere
+    /// under an overhang — and it is worth 12-19% more score for **35× the
+    /// cost**: ~6,400 forks advanced a generation against §P4.1's flat 104.
+    /// `nodes` is 2,000, so a walk at two plies is stopped inside its *first*
+    /// generation and §P6.4 hands back the best fully evaluated move, which is
+    /// precisely the one-ply answer — byte for byte, which P7 measured rather
+    /// than assumed. The two defaults are therefore not combinable.
+    /// `PILOT-PLAN.md` P7 has the tables.
+    pub exact: bool,
 }
 
 impl Default for Settings {
@@ -61,6 +74,7 @@ impl Default for Settings {
             depth: 2,
             beam: 16,
             nodes: 2_000,
+            exact: false,
         }
     }
 }
@@ -374,6 +388,15 @@ mod tests {
         played(rules, Settings::default(), seed, pieces).0
     }
 
+    /// §P4.2's generator at one ply, which is what a walk fits in.
+    fn exact() -> Settings {
+        Settings {
+            depth: 1,
+            exact: true,
+            ..Settings::default()
+        }
+    }
+
     /// The default settings at another depth.
     fn settings(depth: u8) -> Settings {
         Settings {
@@ -498,6 +521,31 @@ mod tests {
     }
 
     #[test]
+    fn it_plays_a_game_with_the_exact_generator_too() {
+        // §P4.2 driven the way a round drives it, which is the strongest
+        // correctness check in the tree for it: `cargo test` is a debug build,
+        // so §P3.1's divergence assertion replays every plan the walk produced
+        // and compares it to the live game tick by tick. A walk that reported a
+        // sequence reaching somewhere it does not would be caught here rather
+        // than by a board comparison.
+        //
+        // Short, because a walk is a thousand positions a piece against §P4.1's
+        // hundred — and one ply, because that is what fits: at two plies the
+        // default budget is spent inside the first generation and §P6.4 hands
+        // back the one-ply answer anyway (`PILOT-PLAN.md` P7).
+        let rules = rules(5, true, true);
+        let (game, counted, _) = played(&rules, exact(), 7, 40);
+        let view = game.view();
+        assert_eq!(view.pieces, 40, "it played the pieces");
+        assert_ne!(game.state(), PlayState::ToppedOut);
+        assert!(view.lines >= 4, "only {} lines in 40 pieces", view.lines);
+        assert!(
+            counted.nodes > 10 * counted.placements,
+            "a walk costs many nodes per candidate: {counted:?}",
+        );
+    }
+
+    #[test]
     fn the_same_seed_and_settings_play_the_same_game() {
         // §P9's C3, at the level P3 can assert it: the planner is a pure
         // function of the fair state and its settings, so nothing in it can
@@ -557,6 +605,7 @@ mod tests {
             depth: 3,
             beam: 8,
             nodes: 1_234,
+            exact: true,
         };
         let pilot = Pilot::new(&RulesConfig::default(), settings);
         assert_eq!(pilot.settings(), settings);
