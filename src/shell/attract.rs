@@ -148,10 +148,12 @@ pub struct Attract {
     ///
     /// §13.3 pauses the cycle on any item but the two that start a game, and
     /// which index those are is the front-end's list's answer: PILOT is the
-    /// second item of `MenuChoice::ALL` and is not in a tab's list at all
-    /// (`PILOT.md` §P7.1). [`advance`](Self::advance) is not handed that list,
-    /// so the item is remembered as the cursor moves over it. Every list starts
-    /// on PLAY.
+    /// second item of `MenuChoice::ALL` and of `MenuChoice::CANVAS`, which are
+    /// the same list up to QUIT (`PILOT.md` §P7.1). Remembering the *item*
+    /// rather than the index is still what this field is for —
+    /// [`advance`](Self::advance) is not handed the list, so a cursor position
+    /// alone cannot say what it is over, whatever the two lists happen to agree
+    /// on today. Every list starts on PLAY.
     choice: MenuChoice,
     /// Counts faces shown, not the face on show: the third face's reminder is
     /// `face / FACES` so the tips rotate without a second counter.
@@ -457,20 +459,20 @@ mod tests {
     }
 
     #[test]
-    fn a_browser_tab_offers_neither_quit_nor_pilot() {
-        // §13.3, `GUI.md` §G8.1, `PILOT.md` §P7.1: a tab cannot close itself
-        // and would search on its frame thread, so its menu is `CANVAS` — and
-        // the cursor must not be able to reach an item that is not being drawn.
+    fn a_browser_tab_offers_no_quit_and_does_offer_pilot() {
+        // §13.3, `GUI.md` §G8.1, `PILOT.md` §P7.1: a tab cannot close itself, so
+        // its menu is `CANVAS` — and the cursor must not be able to reach an
+        // item that is not being drawn. It is short of that one item alone:
+        // **PILOT** is offered here, because §P6.4's budget was measured to fit
+        // a tab's frame rather than assumed not to.
         let now = Stamp::ZERO;
         let mut config = ConfigFile::default();
         let offered = Offered {
             menu: &MenuChoice::CANVAS,
             settings: &Setting::SHARED,
         };
-        assert!(
-            !MenuChoice::CANVAS.contains(&MenuChoice::Pilot)
-                && !MenuChoice::CANVAS.contains(&MenuChoice::Quit),
-        );
+        assert!(!MenuChoice::CANVAS.contains(&MenuChoice::Quit));
+        assert!(MenuChoice::CANVAS.contains(&MenuChoice::Pilot));
         let mut state = Attract::new(now);
         state.dispatch(&press(Key::Up), &mut config, offered, now);
         assert_eq!(
@@ -478,11 +480,17 @@ mod tests {
             MenuChoice::Options,
             "up from PLAY wraps to the last item there is",
         );
-        // And down from PLAY is HIGH SCORES, not the row this front-end is not
-        // offering: the list the shell walks is the list the screen draws.
+        // And down from PLAY is PILOT here exactly as it is natively: the list
+        // the shell walks is the list the screen draws, and a tab's now has the
+        // row in it.
         let mut walked = Attract::new(now);
         walked.dispatch(&press(Key::Down), &mut config, offered, now);
-        assert_eq!(MenuChoice::CANVAS[walked.selected], MenuChoice::HighScores);
+        assert_eq!(MenuChoice::CANVAS[walked.selected], MenuChoice::Pilot);
+        assert_eq!(
+            walked.dispatch(&press(Key::Enter), &mut config, offered, now),
+            Outcome::Play(Player::Pilot),
+            "and it starts the game a spectator watches",
+        );
         assert_eq!(
             state.dispatch(&press(Key::Enter), &mut config, offered, now),
             Outcome::Stay,

@@ -131,12 +131,12 @@ pub fn start(runner: eframe::WebRunner, session: &'static mut Session<'static>) 
     // the browser's own full-screen mode wants a gesture §1.2 has no path for,
     // so §G8.10's `fullscreen` is not offered here (§G8.11). The scale is.
     session.settings = &Setting::CANVAS;
-    // §13.3, §G8.1, `PILOT.md` §P7.1: and the menu offers four items rather
+    // §13.3, §G8.1, `PILOT.md` §P7.1: and the menu offers five items rather
     // than six. A tab cannot close itself — `window.close()` is refused to a
     // page the player opened — so **QUIT** here would be an item that did
-    // nothing; and a tab would run §P6's search on its frame thread, so it does
-    // not offer **PILOT** either. The shell navigates this same list, so the
-    // cursor cannot reach what is not drawn.
+    // nothing. **PILOT is offered**: it was left out while a tab's frame thread
+    // was a guess, and the guess was wrong (§P1, §P6.4). The shell navigates
+    // this same list, so the cursor cannot reach what is not drawn.
     session.menu = &MenuChoice::CANVAS;
 
     let document = web_sys::window()

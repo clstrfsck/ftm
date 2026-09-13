@@ -439,22 +439,30 @@ impl MenuChoice {
         MenuChoice::Quit,
     ];
 
-    /// A browser tab's four (`PILOT.md` §P7.1).
+    /// A browser tab's five (`PILOT.md` §P7.1).
     ///
     /// It is the browser's list rather than "the same list without quit",
     /// exactly as [`Setting::CANVAS`] is the browser's panel, and it is short of
-    /// two items for two different reasons. A tab is closed, not quit:
-    /// `window.close()` is refused to a page the player opened (`GUI.md`
-    /// §G8.1), so **QUIT** there would be an item that does nothing, which is
-    /// worse than an item that is not offered. And a tab would run §P6's search
-    /// on its frame thread, so it does not offer **PILOT** either (`PILOT.md`
-    /// §P1). Which list a front-end shows is its own answer, carried on
+    /// exactly one item. A tab is closed, not quit: `window.close()` is refused
+    /// to a page the player opened (`GUI.md` §G8.1), so **QUIT** there would be
+    /// an item that does nothing, which is worse than an item that is not
+    /// offered.
+    ///
+    /// **PILOT was the second missing item and is not any more** (`PILOT.md`
+    /// §P1). The reason given was that a tab would run §P6's search on its frame
+    /// thread; the reason it no longer holds is that the search was measured
+    /// rather than assumed, in a tab and on a desktop, and §P6.4's budget fits a
+    /// frame in both. It is the same budget in both — a web-specific `nodes`
+    /// would be a shallower planner wearing the deep planner's weights (§P6.4).
+    ///
+    /// Which list a front-end shows is its own answer, carried on
     /// [`Session::menu`](crate::shell::session::Session::menu) — and the screen
     /// and the shell walk that same list, exactly as they do
     /// [`Setting::WINDOW`] and [`Setting::CANVAS`], so the cursor can never land
     /// on an item nobody can see.
-    pub const CANVAS: [MenuChoice; 4] = [
+    pub const CANVAS: [MenuChoice; 5] = [
         MenuChoice::Play,
+        MenuChoice::Pilot,
         MenuChoice::HighScores,
         MenuChoice::Controls,
         MenuChoice::Options,

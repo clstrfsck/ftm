@@ -25,10 +25,29 @@ decision that made a four-line clear a `QUAD`.
   like any other (§6.1), takes its seed from the front-end like any other
   (`FRONTEND.md` F3), raises the same events, and draws through the same
   playing screen. §9's rules, §11's mode and §15's timing are untouched.
-- **The two native front-ends offer it. A browser tab does not** — a tab would
-  run the search on the frame thread, and nothing requires it. Which items a
+- **All three front-ends offer it**, a browser tab included. Which items a
   screen offers is already `Session::menu`'s answer (§13.3, `GUI.md` §G8.11), so
-  this is a shorter list rather than a `cfg`.
+  a front-end that did not offer it would be a shorter list rather than a `cfg`
+  — and no front-end is.
+
+  A tab did not offer it at first, on the grounds that it would run the search
+  on its frame thread. **That was an assumption, and measuring it retired it**:
+  §P6.4's budget buys a search of ~1,780 nodes, which is ~2.7 ms of a 16.7 ms
+  frame natively and comfortably inside one under wasm, where the same integer
+  search runs at a fraction of native speed rather than a different order of it.
+  The numbers are in `NOTES.md`. Three things make the margin safe rather than
+  merely adequate: the budget was *already* sized for a full
+  `MAX_CATCH_UP_TICKS` batch of six searches in one frame; §9.12's clear and
+  entry delays mean six spawns in six consecutive ticks cannot happen at all;
+  and a search that overruns costs a **dropped frame and not a different game**,
+  because §15.2's accumulator is over real elapsed time and `tests/pump.rs`
+  asserts a planned round is invariant at any cadence. A tab that cannot keep up
+  stutters and plays the identical game.
+
+  **The budget is the same in every front-end.** A web-specific `nodes` is the
+  one tempting answer here and it is the wrong one: §P6.4's three defaults are
+  one decision, and a truncated budget silently returns the one-ply answer while
+  the weights go on being the two-ply ones — which is C12's failure exactly.
 - §7 gains no phase and no screen. What it gains is a **player** on the edge
   into `Playing`:
 
@@ -616,11 +635,15 @@ lists (§13.3, `GUI.md` §G8.11):
 | List | Items | Whose |
 |---|---|---|
 | `MenuChoice::ALL` | PLAY, PILOT, HIGH SCORES, CONTROLS, OPTIONS, QUIT | the terminal and the native window |
-| `MenuChoice::CANVAS` | PLAY, HIGH SCORES, CONTROLS, OPTIONS | a browser tab: no quit (`GUI.md` §G8.1), no PILOT (§P1) |
+| `MenuChoice::CANVAS` | PLAY, PILOT, HIGH SCORES, CONTROLS, OPTIONS | a browser tab: no quit (`GUI.md` §G8.1) |
 
 `NO_QUIT` is **renamed to `CANVAS`**, because it is no longer "the same list
 without quit" — it is the browser's list, exactly as `Setting::CANVAS` is the
-browser's panel.
+browser's panel. The rename outlived the second reason for it: the list was
+short of QUIT and PILOT when it was renamed, and is short of QUIT alone now
+(§P1), but it is still the browser's list rather than a subtraction from
+somebody else's, and `Setting::CANVAS` beside it is short of exactly one row for
+its own unrelated reason.
 
 ### §P7.2 The room it takes
 
@@ -631,10 +654,11 @@ Both were measured before they were specified, on the running binaries:
   out of a 21-row block — which it does silently, by clipping. The panel's
   position already follows the menu's length. §12.1's 60 × 24 minimum **does not
   move**: 22 rows still leaves one above and one below.
-- **The window**: nothing changes. §G7's menu band is five rows *reserved*
-  regardless of the menu's length, and six items centre into the blank rows
-  either side of it; the panel and the footer do not move, and §G3's 26 × 24
-  grid and §G3.3's minimum are untouched.
+- **The window**: nothing changes, in either of its builds. §G7's menu band is
+  five rows *reserved* regardless of the menu's length; six items centre into
+  the blank rows either side of it and a tab's five fill it exactly. The panel
+  and the footer do not move, and §G3's 26 × 24 grid and §G3.3's minimum are
+  untouched.
 
 ### §P7.3 While it plays
 

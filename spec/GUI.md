@@ -948,13 +948,14 @@ inside a tick (§15.2), the attract screen at a flat 10 fps with no accumulator
   they share `Session::settings` (§G5.4), so the cursor can never land on an
   item nobody can see. §10.1's quit *key* is always live and simply comes back
   to this screen there.
-- **PILOT is offered natively and not in a tab** (`PILOT.md` §P1): a tab would
-  run the search on the frame thread, and nothing asks for it. So the two lists
-  now differ in two ways rather than one, and `MenuChoice::NO_QUIT` is renamed
-  **`MenuChoice::CANVAS`** — it is the browser's list, exactly as
-  `Setting::CANVAS` is the browser's panel, rather than "the same list without
-  quit". Nothing is `cfg`-ed out: the variant exists in every build and one list
-  omits it.
+- **PILOT is offered in both builds** (`PILOT.md` §P1). It was offered natively
+  and not in a tab at first, on the grounds that a tab would run the search on
+  its frame thread; the search was then measured in a tab and the grounds went
+  away, so the two lists differ by QUIT alone again. `MenuChoice::NO_QUIT` keeps
+  the name it was given when they differed by two — **`MenuChoice::CANVAS`**,
+  the browser's list, exactly as `Setting::CANVAS` is the browser's panel,
+  rather than "the same list without quit". Nothing is `cfg`-ed out: the variant
+  exists in every build and one list omits it.
 
 ---
 
@@ -1006,11 +1007,11 @@ page, and are leaked once, at start-up, to say so. And a tab cannot close
 itself — `window.close()` is refused to a page the player opened — so where the
 native build closes its window on `Next::Quit`, the web build goes to the
 attract screen, and **QUIT** is not offered at all: the menu a tab draws is
-`MenuChoice::CANVAS`, four items rather than §13.3's six, and §10.1's quit key
-simply comes back to that screen (§G7.5). The two items it is short are QUIT and
-PILOT, and they are missing for unrelated reasons — a tab cannot close itself,
-and a tab should not search on its frame thread (`PILOT.md` §P1). The list was
-called `NO_QUIT` while there was only the first.
+`MenuChoice::CANVAS`, five items rather than §13.3's six, and §10.1's quit key
+simply comes back to that screen (§G7.5). **QUIT is the one item it is short.**
+It was short of PILOT too for a while, for an unrelated and — unlike this one —
+unmeasured reason, and `PILOT.md` §P1 has what measuring it said. The list was
+called `NO_QUIT` before that, and keeps the name it was given in between.
 
 ### G8.2 The keyboard, and the canvas's focus
 

@@ -328,16 +328,23 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
     // The menu, then each of §13.5's three sub-screens over it, reached the way
     // a player reaches them: through the shell's own entry point, which is what
     // both front-ends navigate (`FRONTEND.md` F7).
-    let opened: [&[Key]; 4] = [
-        &[],
-        &[Key::Down, Key::Enter],
-        &[Key::Down, Key::Down, Key::Enter],
-        &[Key::Down, Key::Down, Key::Down, Key::Enter],
+    //
+    // **Each is sought by name and not by a count of `Down`s.** The two lists
+    // are not the same length, so a fixed number of presses lands on a
+    // different item in each — and, worse, silently lands on one that renders:
+    // three presses reached OPTIONS in a tab and CONTROLS natively, and once
+    // `MenuChoice::CANVAS` gained PILOT it would have stopped reaching OPTIONS
+    // at all while still passing.
+    let opened = [
+        None,
+        Some(MenuChoice::HighScores),
+        Some(MenuChoice::Controls),
+        Some(MenuChoice::Options),
     ];
-    for keys in opened {
+    for target in opened {
         // §G7.5, §G8.1 and `PILOT.md` §P7.1: a desktop's menu and a tab's,
-        // which differ by **QUIT** and **PILOT** — the list the shell walks, so
-        // the cursor cannot reach a row that is not drawn.
+        // which differ by **QUIT** alone — the list the shell walks, so the
+        // cursor cannot reach a row that is not drawn.
         let screens: [(&'static [MenuChoice], &'static [Setting]); 2] = [
             (&MenuChoice::ALL, &Setting::WINDOW),
             (&MenuChoice::CANVAS, &Setting::CANVAS),
@@ -347,8 +354,15 @@ fn the_attract_screen_and_its_sub_screens_render_at_every_size() {
             session.menu = menu;
             session.settings = settings;
             let mut state = Attract::new(now);
-            for key in keys {
-                state.key(&mut session, &KeyEvent::press(*key), now);
+            if let Some(target) = target {
+                let row = menu
+                    .iter()
+                    .position(|choice| *choice == target)
+                    .unwrap_or_else(|| panic!("{menu:?} offers {target:?}"));
+                for _ in 0..row {
+                    state.key(&mut session, &KeyEvent::press(Key::Down), now);
+                }
+                state.key(&mut session, &KeyEvent::press(Key::Enter), now);
             }
             state.advance(later);
             for size in SIZES {

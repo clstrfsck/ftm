@@ -278,8 +278,10 @@ These are the ones a fresh session gets wrong. Each is normative in the spec;
   full screen), `Setting::CANVAS` (plus scale alone; a canvas cannot go full
   screen), built from `Setting::SHARED`, which nothing sets directly. And
   `Session::menu` is §13.3's — `MenuChoice::ALL` is six items with PILOT,
-  `MenuChoice::CANVAS` is a tab's four, short of QUIT because a tab cannot close
-  itself and short of PILOT because a tab would search on its frame thread.
+  `MenuChoice::CANVAS` is a tab's five, short of QUIT alone because a tab cannot
+  close itself. It was short of PILOT too until that was measured rather than
+  assumed (`NOTES.md`, "What the web pilot settled"): the search fits a tab's
+  frame, and the budget is the same number in every front-end.
   Nothing is `cfg`-ed out. **Drawing a different list from the one the shell
   walks puts the cursor on a row nobody can see.** Since P4 there is a third
   list inside the second: §13.3's panel cycle pauses on any item but the two
@@ -658,6 +660,11 @@ make bench           # PILOT.md §P8's baseline: 8 seeds x 2000 pieces, release.
 cargo run --release  # play it (`default-run` picks `ftm` of the three bins)
 make run-gui         # the window
 make run-web         # the same in a tab: http://127.0.0.1:8080/?seed=42
+                     # DEBUG. Fine for everything but PILOT, whose §P3.1
+                     # divergence assertion replays every plan and costs ~200 ms
+                     # a piece: watch a planned game under
+                     # `trunk serve --release` or it stutters and the stutter is
+                     # the assertion, not the search (`NOTES.md`).
 make web             # the web artefact, `trunk build --release` into dist/
 make web-check       # clippy for the web front-end on wasm32
 cargo run -- --print-config    # effective config

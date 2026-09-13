@@ -938,6 +938,43 @@ readable backtrace and exited 101.
 
 ---
 
+## What the web pilot settled
+
+`PILOT.md` §P1 said a tab would run the search on its frame thread, and left
+PILOT out of `MenuChoice::CANVAS` on those grounds. **Nobody had measured it.**
+Measuring it retired the reason, and the tab now offers PILOT.
+
+- **wasm is not the slower target it was assumed to be.** §P8's batch — 8 seeds
+  × 2,000 pieces — compiled to `wasm32-unknown-unknown` and run under node's V8,
+  which is Chrome's: **642,716 nodes/s against the host's 664,479**, 0.97×. That
+  is ~2.77 ms a search against the host's ~2.68, on a 16.7 ms frame. The
+  estimate being corrected is "1.3–2.5× slower"; integer code that allocates
+  nothing in its inner loop is not where wasm loses.
+- **The batch produced 28,488,455 nodes on both targets — the same number.**
+  That is §P3.3 and §P5's "integers only" showing up as a measurement rather
+  than as a rule: a tab plans the identical game, seed for seed. C3 asserts this
+  for `make portable`'s target; this is the same claim with a clock beside it.
+- **In a release tab, a PILOT game is 120 fps with nothing to see.** 10-second
+  `requestAnimationFrame` samples while the pilot played: 1,200 frames, median
+  8.3 ms, **max 9.4 ms, zero frames over 16.7 ms** — at `preview_count` 5 and
+  again at 1, which is §P6.4's seven-root case and the one most likely to bite.
+  The controls are what make that worth anything: a *paused* game and an *idle
+  human* game in the same page measure 8.3 and 9.4 with zero over, identically.
+  The search does not show up in the frame at all.
+- **The trap, and it is the whole reason this took a second pass: `make run-web`
+  is a debug build.** `trunk serve` without `--release` keeps §P3.1's divergence
+  assertion, and `pilot/controller.rs` computes a second predicted plan under
+  `cfg!(debug_assertions)` to check the first against. A debug tab measures
+  **p95 117 ms, max 217 ms, ~7 spikes a second** — one per piece, which is one
+  per search — and looks *exactly* like the frame-thread problem §P1 predicted.
+  It is not: the same source, released, is the flat 120 fps above. **A PILOT
+  game is only worth watching under `trunk serve --release`**, and the same goes
+  for `cargo run` without `--release`. This is the third instrument in this file
+  whose first reading was of itself rather than of the game.
+- **The budget stays one number in every front-end.** The tempting conclusion
+  from "a tab might be slower" is a web-specific `nodes`, and §P6.4 has written
+  down twice why that is wrong: a truncated budget returns the one-ply answer
+  while the weights go on being the two-ply ones. Nothing here needed it.
 
 ---
 
