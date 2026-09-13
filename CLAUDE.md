@@ -168,7 +168,8 @@ single column so a planner may keep the one open column a quad is scored out
 of — and the weights moved with them. **+27% score on held-out seeds**, lines and
 top-outs unchanged (`PILOT-PLAN.md`'s closed "starting weights" decision has the
 tables). More than P6's whole lookahead bought, which is worth remembering about
-where the leverage in this planner actually is.
+where the leverage in this planner actually is — and `well_rows` after P7 was
+larger again.
 
 **P7 is §P4.2's exact placements, and it is `src/pilot/reachable.rs`** — a
 breadth-first walk over forks, one legal `TickInput` an edge, which reaches
@@ -185,6 +186,21 @@ not assumed. `Settings::exact` and `ftm-pilot --exact` are how it is reached;
 the live PILOT mode still runs `Settings::default()` and its plans are
 unchanged, which `tests/snapshots/pilot_plan.txt` not moving is what says.
 What is left is P8's acceptance.
+
+**Then the weights were retuned a second time, and it was watching a game that
+found it.** A player's three observations — too many `I` pieces landed flat, the
+hold slot full of `S` and `Z`, and a planner that seemed to prefer no holes at
+all to holes it could slide out of — instrumented to one cause: **one quad in
+1,000 pieces**, because the planner never built the shape a quad is scored out
+of. §P5's `wells` exemption removes the *penalty* on a well but at two plies the
+quad that repays it is still invisible, so a tenth board feature was added —
+**`well_rows`**, rows already filled but for the exempt well column, capped at
+four. **+45% score on the development seeds and +51% on held-out ones**, 35
+quads in 16,000 pieces to 1,262, back-to-back 7 to 845, `I` pieces 1,166 upright
+to 1,981, lines flat and no top out anywhere on the curve. The third
+observation was P7's rather than a weight's: the default generator is §P4.1 and
+cannot slide at all. `PILOT-PLAN.md`'s reopened "starting weights" decision has
+the tables.
 
 ## The §17.3 sign-off
 
@@ -721,18 +737,32 @@ planned game in the test suite.
   is therefore a list of positions somebody else decided the search was allowed
   to consider, which is the same trade §P2.3 made one level down.
 
-- **A quad cannot be bought with a bonus, only with a price on the
-  alternative** (`PILOT.md` §P5). This is the least guessable thing in the
-  planner and it was measured: rewarding a quad +4,000, +10,000 and +20,000 gave
-  **byte-identical** reports, because at two plies a quad is invisible until the
-  stack that earns one already exists, so the bonus is never collected. What
-  works is a *negative* weight on the cheap clear — a single is priced below the
-  row it earns — because that is visible at every ply. The band is narrow:
-  -1,200 is worth +27% score, and -5,000 tops out seven games in eight. Its
-  partner is `wells` exempting the **deepest single column**, so the planner may
-  keep the one open column a quad is scored out of; a planner charged for that
-  column can never build what §9.14 is trying to buy, because the well costs its
-  depth every ply and pays once.
+- **A quad is bought with a price on the alternative and a reward for the
+  progress — never with a bonus on the quad** (`PILOT.md` §P5). The least
+  guessable thing in the planner, and every clause of it was measured. Rewarding
+  a quad +4,000, +10,000 and +20,000 gave **byte-identical** reports, because at
+  two plies a quad is invisible until the stack that earns one already exists.
+  The two levers that work are the ones visible at *every* ply:
+  a **negative** weight on the cheap clear (a single priced below the row it
+  earns — +27%, and the band is narrow: -5,000 tops out seven games in eight),
+  and **`well_rows`**, the count of rows already filled but for the exempt well
+  column — **+45%**, and the larger of the two by far.
+  `wells` exempting the **deepest single column** is the necessary precondition
+  for both and sufficient for neither: an exemption removes a penalty, and a
+  planner still needs a reason to build the thing.
+  **`clears[4]` is inert without `well_rows` and worth 19% with it** — a reward
+  and the thing that makes the reward reachable are one decision, which is the
+  second time in this planner that a weight looked worthless because a
+  *different* weight was missing.
+
+- **`well_rows` is capped at four, and the cap is the whole of its safety**
+  (`PILOT.md` §P5, §9.14). An `I` is four cells, so a fifth well row is one
+  nothing can clear. Uncapped — or, equivalently, exempting the well column from
+  `row_transitions`, which is what was tried first — a planner digs a well it can
+  never cash and **tops out seven games in eight**. That is the same failure a
+  -5,000 single produces and it has the same cause: a stack nothing is allowed to
+  clear reaches the ceiling. Anything added here that rewards a shape rather than
+  an outcome wants the same question asked of it.
 
 - **The board is charged at the leaf and the events at every ply** (`PILOT.md`
   §P5). `Features::evaluate` is a leaf's; `Outcome::interior` is an interior
@@ -1580,6 +1610,42 @@ planned game in the test suite.
   `controller::tests::it_plays_a_game_with_the_exact_generator_too` is a round
   played with §P4.2, and what it asserts is that the *sequence* reaches where
   the walk said it reaches, which no board comparison can say.
+- **P7's own table was measured under weights that no longer exist**, and it is
+  annotated rather than deleted. `well_rows` landed straight after this stage
+  and took the walk's margin from +18.6% to +7.7%, because a good deal of what
+  exact reachability was buying was compensation for an evaluation that could
+  not see a quad coming. The general shape of that is worth carrying: **a
+  generator and an evaluator can be fixing the same deficiency from opposite
+  ends**, and measuring one against a stale version of the other overstates it.
+
+---
+
+## What the second weight retune settled
+
+- **A game was watched, and it found what no figure in §P8.2 reports.** Three
+  observations from a player — `I` pieces landing flat, `S` and `Z` in the hold
+  slot, holes that looked resolvable by a slide — came back to one cause when
+  instrumented: **one quad in 1,000 pieces**, and a well four deep on 8 locks in
+  1,000. There is no line in the report that says "it never builds a well", and
+  there was not going to be one. Instrument what is *watched*, not only what is
+  already counted.
+- **Two of the three observations were downstream of the third.** Nothing in the
+  fix addresses `I` orientation or the hold slot; they move because the planner
+  finally has somewhere to put an `I`. The player's own guess that the flat `I`s
+  were "a symptom of other weightings" was right, and it is the right instinct to
+  have about this planner generally — the features are few and they interact.
+- **The first attempt was the wrong shape and failed loudly**, which was
+  useful. Exempting the well column from `row_transitions` is the same idea as
+  `well_rows` without a cap, and it tops out seven games in eight. An exemption
+  removes a penalty and cannot create an incentive; the cap is what stops the
+  incentive running away. Both halves are now in §P5.
+- **The plateau is broad and the numbers are not delicate.** 1,400 to 2,800 sit
+  within 4% of one another and 2,000 was taken on the development set and tied on
+  the held-out one. Do not read 2,000 as a tuned constant — read it as the middle
+  of a wide flat region, which is what a hand-tuned weight ought to be.
+- **Both weight-sensitive snapshots moved, and that is §P8.3 working.**
+  `pilot_bench.txt` and `pilot_plan.txt` are *meant* to move on a weight change;
+  I1's snapshot and §19.4's canary did not, and must not.
 
 ---
 

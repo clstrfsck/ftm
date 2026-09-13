@@ -5,81 +5,81 @@ search   depth 2  beam 16  nodes 2000
 
 seed 0
     1  L  HD
-    2  O  H2<D
-    3  Z  H>>>>D
-    4  J  2>>D
-    5  T  >>D
-    6  S  H>>>>D
-    7  J  HD
-    8  S  HR<<<D
-    9  T  L>>>>>D
-   10  O  <<D
-   11  Z  R<<<<<<D
-   12  I  R<<<<<<D
-   13  L  >>D
-   14  T  2>>>>D
-   15  I  HR<<<<<<D
-   16  L  HD
-   17  S  >>D
-   18  J  H2<D
+    2  O  H>>>>D
+    3  Z  H<<<<<<D
+    4  J  D
+    5  T  H>>D
+    6  S  R>>>D
+    7  J  HL>>>>>D
+    8  S  >>D
+    9  T  LD
+   10  O  <<<<<<D
+   11  Z  R>>>>D
+   12  I  R<<<D
+   13  L  2>>D
+   14  T  H<<D
+   15  I  >>D
+   16  L  <D
+   17  S  H<<D
+   18  J  >>>>D
    19  O  >>>>D
-   20  Z  H<<D
-   21  S  HRD
-   22  L  2>>>>D
-   23  O  HR>D
-   24  I  >>>D
-  ==   24 pieces  8 lines  2088 score  level 1
+   20  Z  <D
+   21  S  RD
+   22  L  L>>D
+   23  O  <<D
+   24  I  R<<<<D
+  ==   24 pieces  4 lines  1600 score  level 1
 
 seed 42
     1  J  L>>>>>D
-    2  T  H>>>D
-    3  I  <D
-    4  L  R<<<<<<D
+    2  T  <<D
+    3  S  H>D
+    4  L  R>>>D
     5  Z  R>>>>D
     6  O  >D
-    7  J  2>>D
-    8  L  L<<<<<<D
-    9  O  <D
-   10  S  HRD
-   11  Z  R<<D
-   12  T  H>>>>D
-   13  I  H2>>D
-   14  I  R<<<<<<D
-   15  S  R<<<D
-   16  Z  H>>>D
-   17  L  H<<D
-   18  J  2<<D
-   19  O  H2>>D
-   20  T  H>>>>D
-   21  J  RD
-   22  T  <<D
-   23  O  >>>>D
-   24  Z  HR<<<<<<D
-  ==   24 pieces  8 lines  1960 score  level 1
+    7  J  LD
+    8  L  2<<D
+    9  O  >D
+   10  S  <D
+   11  Z  H>>>>D
+   12  T  R<<<D
+   13  I  R<<<<<<D
+   14  I  <D
+   15  S  H>>D
+   16  Z  HD
+   17  L  >>>>D
+   18  J  HR<<D
+   19  O  HR<<<D
+   20  T  >>>D
+   21  J  >D
+   22  T  H>>>>D
+   23  O  H>>D
+   24  Z  H>>>>D
+  ==   24 pieces  4 lines  1590 score  level 1
 
 seed 2024
     1  I  D
-    2  J  2>>D
-    3  L  2<D
-    4  O  >>>>D
-    5  Z  >>>D
-    6  S  HL>>>>>D
-    7  L  H>>>>D
-    8  T  H2>>>>D
-    9  I  R<<<<<<D
-   10  J  R<<<D
-   11  S  D
-   12  Z  <<<<<<D
-   13  O  H2<D
-   14  L  H>D
-   15  J  H>D
-   16  T  H<<<<<<D
+    2  J  H>>>>D
+    3  O  <<<<<<D
+    4  Z  R>>>>D
+    5  S  HL>>>D
+    6  T  2>>>>D
+    7  L  D
+    8  T  L>>D
+    9  I  >>>D
+   10  J  L>>>>>D
+   11  S  >>>D
+   12  Z  H>>>>D
+   13  O  <D
+   14  L  R<<<<<<D
+   15  J  D
+   16  T  R<<<D
    17  O  D
-   18  I  >>>D
-   19  S  R<<<<<<D
-   20  Z  HL<D
-   21  I  >D
-   22  T  H>>>>D
-   23  L  H2<<D
+   18  I  R<<<D
+   19  S  HR<<D
+   20  Z  R<<<D
+   21  I  R>>>>D
+   22  T  >D
+   23  L  HD
    24  Z  R>>D
-  ==   24 pieces  9 lines  2196 score  level 1
+  ==   24 pieces  5 lines  1660 score  level 1

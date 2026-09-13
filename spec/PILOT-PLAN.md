@@ -683,6 +683,15 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
   | §P4.1, two plies, seeds 100-107 | 1,263 | 1,875,324 | 0 | 2,415 | 1,782 |
   | §P4.2, two plies, seeds 100-107 | 1,255 | **2,107,024** | 0 | 85,285 | 270,964 |
 
+  **(Those four rows were measured before `well_rows`**, which landed
+  immediately after this stage and moved the ground under them. Re-measured
+  against the current weights the walk is still ahead and by less: 2,618,684 →
+  2,821,209 on seeds 0-7 and 2,572,984 → 2,764,860 on 100-107, **+7.7% and
+  +7.5%** at 32×. That the margin halved is the interesting part — see the
+  `well_rows` decision below, which fixed from the *evaluation* side a good deal
+  of what exact reachability had been compensating for from the *generation*
+  side.)
+
   **+18.6% on the seeds it was developed against and +12.4% on held-out
   ones** — the same direction, and the gap between the two is the noise the
   weights retune already warned about at eight seeds. Lines went *down* by half
@@ -857,3 +866,63 @@ to answer with evidence rather than now:
   worth having rather than the reason it is not needed: two features and four
   numbers found by hand in an afternoon moved the score by more than the whole
   of P6's lookahead did.
+
+- ~~**The starting weights, second pass.**~~ **Answered after P7, from
+  watching a game rather than from reading a report, and worth +45%.** The
+  observations were a player's: too many `I` pieces landed flat, the hold slot
+  full of `S` and `Z` rather than `I`, and a planner that seemed to prefer no
+  holes at all to holes it could slide out of. Instrumenting a 1,000-piece game
+  said all three were real and gave the common cause — **one quad in 1,000
+  pieces, and a well four deep on 8 locks in 1,000**. The planner was not
+  building the shape a quad is scored out of, so there was never an `I` to stand
+  up and never a reason to keep one.
+
+  §P5's `wells` already exempts the deepest column, which was necessary and not
+  sufficient: the exemption removes a *penalty*, and at two plies the quad that
+  would repay the well is still invisible. The fix is a tenth board feature,
+  **`well_rows`** — rows already filled but for the exempt well column, capped
+  at four — which is progress towards the quad rather than the quad, and so is
+  visible at every ply. Eight seeds × 2,000 pieces:
+
+  | `well_rows` | score | lines | quads | b2b | `I` upright/flat | top out |
+  |---|---|---|---|---|---|---|
+  | 0 (before) | 43,582,740 | 6,384 | 35 | 7 | 1,166 / 1,119 | 0 of 8 |
+  | 600 | 47,697,212 | 6,379 | 344 | 181 | 1,340 / 948 | 0 of 8 |
+  | 1,400 | 62,570,964 | 6,373 | 1,217 | 790 | 1,978 / 310 | 0 of 8 |
+  | **2,000** | **63,243,238** | 6,365 | **1,262** | **845** | **1,981 / 307** | 0 of 8 |
+  | 2,800 | 60,973,504 | 6,362 | 1,214 | 806 | 1,980 / 307 | 0 of 8 |
+  | 4,000 | 54,053,078 | 6,362 | 900 | 499 | 1,841 / 447 | 0 of 8 |
+  | 6,000 | 44,989,026 | 6,340 | 486 | 179 | 1,659 / 627 | 0 of 8 |
+
+  Held-out seeds 100-107 confirm it: 41,748,112 → 63,069,880, **+51%**, and
+  1,400 and 2,000 are a tie there. Lines are flat throughout — P6's ceiling
+  again — and there is no top out anywhere on the curve, including at 5 seeds ×
+  20,000 pieces afterwards. Four things worth keeping:
+
+  - **The cap at four is what makes it safe**, and it is §9.14's arithmetic: an
+    `I` is four cells, so a fifth well row is one nothing can clear. The first
+    attempt was not this feature at all but exempting the well column from *row
+    transitions*, which is the same idea uncapped — and it tops out **7 games in
+    8**, because a planner that likes a well without limit digs one it can never
+    cash. The identical failure to a -5,000 single, and for the identical reason.
+  - **`clears[4]` stopped being inert.** P6 measured a quad bonus as
+    byte-identically worthless; with `well_rows` in place, removing the 10,000
+    now costs 19%. The bonus was never the wrong idea — there was simply never a
+    quad for it to be paid on. A reward and the thing that makes the reward
+    reachable are one decision, and this is the second time in this plan that a
+    weight looked useless because a *different* weight was missing.
+  - **The optimum is a broad plateau and the far side is shallow**: 1,400 to
+    2,800 are within 4% of each other, and it falls away slowly rather than
+    cliffing. 2,000 is taken as the best on the development set and a tie on the
+    held-out one.
+  - **Two of the three observations were downstream of the third.** Nothing
+    addresses the `I` orientation or the hold slot directly; they move because
+    the planner now has somewhere to put an `I`. The player's instinct that the
+    flat `I` pieces were "a symptom of other weightings" was exactly right, and
+    is a good argument for watching a game as well as reading a report — no
+    figure in §P8.2 was going to say "it never builds a well".
+
+  The third observation — holes that a slide could resolve, and hard drops
+  preferred to soft drops — is **P7's**, not a weight's: the default generator is
+  §P4.1 and cannot slide at all. It is `Settings::exact`, and it stays off for
+  the reason P7 gives.

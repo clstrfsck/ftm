@@ -412,6 +412,7 @@ the game will not perform.
   | Column transitions | filled↔empty changes down each column, floor counted |
   | Blockades | filled cells sitting above a hole |
   | Wells | depth of each column relative to both neighbours, **less the deepest** |
+  | Well rows | rows filled but for the exempt well column, **capped at four** |
   | Top out | whether the branch ended in §9.16 |
   | Combo, back-to-back | §9.15's state as the branch leaves it |
   | Perfect clear | §9.15's bonus, as an event |
@@ -426,13 +427,28 @@ the game will not perform.
   deepest single one: a planner charged for that column can never build the
   thing the scoring table is trying to buy, because the well costs its depth
   every ply it exists and pays only once. Every other well is still a defect.
-- **A quad cannot be bought with a bonus, only with a price on the
-  alternative.** At §P6.1's two plies a quad is invisible until the stack that
-  earns one already exists, so a reward attached to the quad itself is never
-  collected — measured, and the figures do not move by a single point. The
-  weight that works is a *negative* one on the cheap clear, because that is
-  visible at every ply. The band is narrow, and §P8's benchmark is what found
-  both ends of it.
+- **A quad cannot be bought with a bonus. It has to be bought with a price on
+  the alternative and a reward for the progress.** At §P6.1's two plies a quad
+  is invisible until the stack that earns one already exists, so a reward
+  attached to the quad itself is never collected — measured, and the figures did
+  not move by a single point. Both weights that do work are ones the planner can
+  see at *every* ply:
+
+  - a **negative** weight on the cheap clear, so a row is not spent singly. The
+    band is narrow and §P8's benchmark found both ends of it.
+  - a **positive** weight on *well rows* — rows already filled but for the well
+    column, which is a quad one `I` away. This is the larger of the two by some
+    distance, and without it a planner with every other weight right builds no
+    wells, lands half its `I` pieces flat, and clears 35 quads in 16,000 pieces
+    against 1,262 with it.
+
+  **The cap at four is what makes the second one safe**, and is §9.14's
+  arithmetic rather than a taste: an `I` is four cells, so the fifth row of a
+  well is one nothing can clear. Rewarding by the row uncapped — or, equivalently,
+  exempting the well column from *row transitions*, which was tried first — gives
+  a planner that digs a well it can never cash and tops out seven games in eight.
+  The failure is the same one an over-large negative on the single produces, and
+  for the same reason: a stack nothing is allowed to clear reaches the ceiling.
 - **Feature extraction and weights are separate structures.** Weights are
   hand-tuned integers in this release; automated tuning is not in
   `PILOT-PLAN.md`'s scope and would consume §P8's report.

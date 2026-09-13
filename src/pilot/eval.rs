@@ -5,7 +5,7 @@
 //! a float would make "the same seed and settings give the same game" a
 //! property of the optimiser.
 //!
-//! Two halves, kept apart on purpose. [`Board`] is what the stack *is* — nine
+//! Two halves, kept apart on purpose. [`Board`] is what the stack *is* — ten
 //! integers over the visible field, each measurable on its own and each tested
 //! on its own. [`Outcome`] is what the branch *did* — the rows it cleared, the
 //! chain it left running, whether it ended in §9.16. The full evaluation is
@@ -17,6 +17,8 @@
 //! [`Weights`] is a separate structure from both, and that is also §P5's: the
 //! features are facts about a position and the weights are an opinion about
 //! them. Tuning replaces the opinion and leaves the facts alone.
+
+use std::cmp::Reverse;
 
 use crate::core::{PieceKind, VIEW_HEIGHT, VIEW_WIDTH};
 
@@ -31,7 +33,7 @@ pub const COLUMNS: usize = VIEW_WIDTH;
 /// Rows in the visible field.
 pub const ROWS: usize = VIEW_HEIGHT;
 
-/// What the stack is: §P5's nine board features, each an integer.
+/// What the stack is: §P5's board features, each an integer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Board {
     /// Empty cells with a filled cell above them in the same column.
@@ -67,6 +69,17 @@ pub struct Board {
     /// exempt rather than free-to-a-limit so that two wells are as bad as they
     /// have always been.
     pub wells: i32,
+    /// Rows that are filled in every column but the one [`Board::wells`]
+    /// exempts, which is empty there — **capped at four**, because that is what
+    /// one `I` can clear (§9.14).
+    ///
+    /// This is the quad made visible at every ply. §P6.1 looks two plies ahead,
+    /// so the quad itself is invisible until the stack that earns one already
+    /// exists — which is why rewarding `clears[4]` does nothing at all, and why
+    /// the lever has to be *progress* rather than the prize. Four is a cap and
+    /// not a scale: a well five deep is no better than one four deep, because
+    /// the fifth row is one no `I` reaches.
+    pub well_rows: i32,
 }
 
 /// What a branch did: the outcome features of §P5's table.
@@ -125,6 +138,7 @@ pub struct Weights {
     pub column_transitions: i32,
     pub blockades: i32,
     pub wells: i32,
+    pub well_rows: i32,
     pub top_out: i32,
     pub combo: i32,
     pub back_to_back: i32,
@@ -151,11 +165,20 @@ impl Default for Weights {
     /// because a stack nothing is allowed to clear is a stack that reaches the
     /// ceiling.
     ///
-    /// Rewarding the quad instead does **nothing at all**, which is worth
-    /// knowing before trying it: at §P6.1's two plies a quad is invisible until
-    /// the stack that earns one already exists, so the bonus is never collected
-    /// and the figures do not move by a single point. The lever has to be one
-    /// the planner can see at every ply, and "do not spend rows cheaply" is.
+    /// Rewarding the quad instead did **nothing at all** when it was first
+    /// tried, and that measurement is the whole reason `well_rows` exists: at
+    /// §P6.1's two plies a quad is invisible until the stack that earns one
+    /// already exists, so `clears[4]` was never collected and the figures did
+    /// not move by a single point. The lever has to be one the planner can see
+    /// at *every* ply. "Do not spend rows cheaply" is one, and
+    /// [`Board::well_rows`] — progress towards the quad rather than the quad —
+    /// is the other, and the larger: it is worth **+45%** score and turns 35
+    /// quads in 16,000 pieces into 1,262.
+    ///
+    /// With it, `clears[4]` stops being inert and starts paying: removing the
+    /// 10,000 now costs 19%, where before it cost nothing. The two are one
+    /// decision — the bonus is the prize and `well_rows` is what makes the
+    /// planner able to see it coming.
     fn default() -> Self {
         Self {
             lines: 340,
@@ -169,6 +192,7 @@ impl Default for Weights {
             column_transitions: -930,
             blockades: -20,
             wells: -340,
+            well_rows: 2_000,
             top_out: -1_000_000,
             combo: 20,
             back_to_back: 2_000,
@@ -199,6 +223,7 @@ impl Board {
             row_transitions: row_transitions(field),
             column_transitions: column_transitions(field),
             wells: wells(&heights),
+            well_rows: well_rows(field, &heights),
         }
     }
 }
@@ -233,6 +258,7 @@ impl Board {
         add(weights.column_transitions, self.column_transitions);
         add(weights.blockades, self.blockades);
         add(weights.wells, self.wells);
+        add(weights.well_rows, self.well_rows);
         score
     }
 }
@@ -362,13 +388,12 @@ fn column_transitions(field: &Field) -> i32 {
     transitions
 }
 
-/// The depth of each column below both its neighbours, summed, less the deepest.
+/// How far each column sits below the lower of its two neighbours.
 ///
 /// The walls are neighbours of full height, so a well down the side of the
 /// board is a well; otherwise the one place an `I` is always welcome would
-/// measure as flat — and then the deepest of them is taken back off, because
-/// exactly one such place is where an `I` is meant to go.
-fn wells(heights: &[i32; COLUMNS]) -> i32 {
+/// measure as flat.
+fn well_depths(heights: &[i32; COLUMNS]) -> [i32; COLUMNS] {
     let mut each = [0i32; COLUMNS];
     for col in 0..COLUMNS {
         let left = if col == 0 {
@@ -383,6 +408,45 @@ fn wells(heights: &[i32; COLUMNS]) -> i32 {
         };
         each[col] = (left.min(right) - heights[col]).max(0);
     }
+    each
+}
+
+/// The column [`Board::wells`] exempts, when there is one.
+///
+/// The deepest, and the leftmost of the deepest when several tie. The tie-break
+/// is not a preference but it is a **fixed** one, because two builds that chose
+/// differently here would measure the same board differently (§P5).
+fn well_column(heights: &[i32; COLUMNS]) -> Option<usize> {
+    let depths = well_depths(heights);
+    let col = (0..COLUMNS).max_by_key(|&col| (depths[col], Reverse(col)))?;
+    (depths[col] > 0).then_some(col)
+}
+
+/// Rows complete but for the exempt well column, capped at four (§9.14).
+///
+/// The cap is arithmetic rather than taste: an `I` is four cells, so the fifth
+/// row of a well is one nothing can clear. Uncapped, a planner paid by the row
+/// goes on digging — which was measured, and is how a stack that may never be
+/// cleared reaches the ceiling.
+fn well_rows(field: &Field, heights: &[i32; COLUMNS]) -> i32 {
+    let Some(well) = well_column(heights) else {
+        return 0;
+    };
+    let ready = field
+        .iter()
+        .filter(|row| {
+            row[well].is_none()
+                && row
+                    .iter()
+                    .enumerate()
+                    .all(|(col, cell)| col == well || cell.is_some())
+        })
+        .count();
+    (ready as i32).min(4)
+}
+
+fn wells(heights: &[i32; COLUMNS]) -> i32 {
+    let each = well_depths(heights);
     // The deepest single well is exempt: it is the column a quad is scored out
     // of, and a planner charged for it can never build one. See the field's own
     // documentation for why that is a feature and not a blind spot.
@@ -431,6 +495,7 @@ mod tests {
                 column_transitions: COLUMNS as i32,
                 blockades: 0,
                 wells: 0,
+                well_rows: 0,
             },
         );
     }
@@ -621,6 +686,7 @@ mod tests {
             column_transitions: 0,
             blockades: 0,
             wells: 0,
+            well_rows: 0,
             top_out: 0,
             combo: 0,
             back_to_back: 0,
@@ -732,16 +798,59 @@ mod tests {
     fn a_clean_stack_beats_the_same_stack_with_a_hole_in_it() {
         // The one judgement the starting weights have to get right, or nothing
         // built on them can play at all.
+        //
+        // The covering row is load-bearing in the fixture and was not always
+        // here: `#####.####` under `#####.....` leaves column 5 open to the
+        // sky, which is a *well* and not a hole, and since `well_rows` it is
+        // one the planner is right to prefer. A hole is a cell with something
+        // on top of it, so the fixture puts something on top of it.
         let weights = Weights::default();
         let clean = Features {
             board: Board::of(&field(&["#####.....", "##########"])),
             ..Features::default()
         };
         let holed = Features {
-            board: Board::of(&field(&["#####.....", "#####.####"])),
+            board: Board::of(&field(&["######....", "#####.####"])),
             ..Features::default()
         };
+        assert_eq!(holed.board.holes, 1, "the fixture holds a real hole");
+        assert_eq!(clean.board.holes, 0);
         assert!(clean.evaluate(&weights) > holed.evaluate(&weights));
+    }
+
+    #[test]
+    fn a_well_ready_row_is_one_short_of_a_quad_row() {
+        // §9.14's quad, made visible at every ply. A row filled but for the
+        // exempt well column is progress towards the one clear the scoring
+        // table pays 800 for; a row with its gap anywhere else is not.
+        let ready = Board::of(&field(&["#########.", "#########.", "#########."]));
+        assert_eq!(ready.well_rows, 3);
+        assert_eq!(ready.holes, 0, "an open column is not a hole");
+
+        // Elsewhere is not the well, so it is not progress.
+        let scattered = Board::of(&field(&["#########.", "########.#", "#########."]));
+        assert_eq!(scattered.well_rows, 2, "only the rows gapped at the well");
+    }
+
+    #[test]
+    fn a_well_deeper_than_four_earns_nothing_more() {
+        // The cap is §9.14's arithmetic and not a taste: an `I` is four cells,
+        // so the fifth row of a well is one nothing can clear. Without the cap
+        // a planner would go on digging, which is how a stack that may never be
+        // cleared reaches the ceiling.
+        let four = Board::of(&field(&["#########."; 4]));
+        let seven = Board::of(&field(&["#########."; 7]));
+        assert_eq!(four.well_rows, 4);
+        assert_eq!(seven.well_rows, 4, "capped, not scaled");
+    }
+
+    #[test]
+    fn a_flat_field_has_no_well_and_no_well_rows() {
+        // There is no exempt column until a column is actually lower than its
+        // neighbours, so nothing on an empty or a flat field is credited to a
+        // well that does not exist.
+        assert_eq!(Board::of(&field(&[])).well_rows, 0);
+        assert_eq!(Board::of(&field(&["####..####"])).well_rows, 0);
     }
 
     #[test]
