@@ -159,6 +159,16 @@ cost and plays at exactly the rate P4 recorded — 28 lines in the window's firs
 12 seconds. What is left is P7's exact placements and P8's acceptance. See
 **Scope discipline**, which says what is still out.
 
+**The weights were then retuned, and that is where the score was.** §P5's
+starting set played for *rows*: a `lines` weight linear in rows prices four
+singles and one quad identically, where §9.14 pays 400 and 800. Two features
+joined §P5's table — **clear kind**, and a `wells` that exempts the deepest
+single column so a planner may keep the one open column a quad is scored out
+of — and the weights moved with them. **+27% score on held-out seeds**, lines and
+top-outs unchanged (`PILOT-PLAN.md`'s closed "starting weights" decision has the
+tables). More than P6's whole lookahead bought, which is worth remembering about
+where the leverage in this planner actually is.
+
 ## The §17.3 sign-off
 
 Each of these was checked on its own, most of them on a pty through
@@ -692,6 +702,19 @@ planned game in the test suite.
   hypothesis**, whose values §P6.3 blends 80/20 expected-to-worst. A chance node
   is therefore a list of positions somebody else decided the search was allowed
   to consider, which is the same trade §P2.3 made one level down.
+
+- **A quad cannot be bought with a bonus, only with a price on the
+  alternative** (`PILOT.md` §P5). This is the least guessable thing in the
+  planner and it was measured: rewarding a quad +4,000, +10,000 and +20,000 gave
+  **byte-identical** reports, because at two plies a quad is invisible until the
+  stack that earns one already exists, so the bonus is never collected. What
+  works is a *negative* weight on the cheap clear — a single is priced below the
+  row it earns — because that is visible at every ply. The band is narrow:
+  -1,200 is worth +27% score, and -5,000 tops out seven games in eight. Its
+  partner is `wells` exempting the **deepest single column**, so the planner may
+  keep the one open column a quad is scored out of; a planner charged for that
+  column can never build what §9.14 is trying to buy, because the well costs its
+  depth every ply and pays once.
 
 - **The board is charged at the leaf and the events at every ply** (`PILOT.md`
   §P5). `Features::evaluate` is a leaf's; `Outcome::interior` is an interior

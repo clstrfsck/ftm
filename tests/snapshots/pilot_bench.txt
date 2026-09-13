@@ -7,10 +7,10 @@ search   depth 2  beam 16  nodes 2000
 batch    3 seeds  60 pieces
 
          seed        score     lines    pieces   level  ended         nodes
-            0         6896        23        60       3    cap        107040
-            1         6536        22        60       3    cap        107040
-           42         6292        22        60       3    cap        106305
+            0         6928        21        60       3    cap        107040
+            1         7572        22        60       3    cap        107040
+           42         7834        21        60       3    cap        107040
 
-total    3 games  180 pieces  67 lines  19724 score  320385 nodes
-mean     6574 score  22 lines  60 pieces per game
+total    3 games  180 pieces  64 lines  22334 score  321120 nodes
+mean     7444 score  21 lines  60 pieces per game
 top out  0 of 3 (0/1000)

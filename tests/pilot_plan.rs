@@ -236,7 +236,16 @@ fn deals(seed: u64, count: usize) -> Vec<PieceKind> {
 /// Found by search rather than constructed, because a board cannot be posed from
 /// out here: two seeds agreeing on six pieces is one chance in 5,040, so a few
 /// thousand candidates is plenty and each costs a `Game::new`.
-fn a_matching_pair(preview: u8) -> (u64, u64) {
+///
+/// It always searches at §6.3's **widest** preview, whatever preview the caller
+/// then plays at, and that is what makes the pair worth having: six pieces seen
+/// out of a bag of seven fixes the seventh too, so a pair agreeing on six agrees
+/// on the whole first bag — seven deals of head start for the comparison,
+/// instead of the two a preview of 1 would have found on its own. §9.6's
+/// sequence belongs to the seed and not to the rules, so a pair found at one
+/// preview is a pair at every other.
+fn a_matching_pair() -> (u64, u64) {
+    let preview = 6u8;
     let visible = usize::from(preview) + 1;
     let mut seen: HashMap<Vec<PieceKind>, u64> = HashMap::new();
     for seed in 0..20_000u64 {
@@ -271,18 +280,39 @@ fn a_plan_cannot_see_a_hidden_future() {
     // hypotheses are in play too — and they are arithmetic over pieces *seen*
     // dealt, which is why they are the same on both sides.
     for preview in [5u8, 1] {
-        let (left, right) = a_matching_pair(preview);
+        let (left, right) = a_matching_pair();
         assert_ne!(left, right);
         let rules = rules(preview, true);
 
         let (one, first) = record(&rules, Settings::default(), left, PIECES);
         let (two, second) = record(&rules, Settings::default(), right, PIECES);
 
-        // The plans are the same while the visible information is. It stops being
-        // the same the moment the preview reaches into the second bag, so the
-        // comparison stops there too: what is asserted is every plan made while
-        // the two games looked alike, which is the whole of the property.
-        let alike = usize::from(preview) + 1;
+        // The plans are the same while the visible information is, and the
+        // comparison has to stop exactly where that stops being true — the two
+        // games are *different games*, and once the preview reaches into the
+        // second bag they are entitled to be played differently.
+        //
+        // So the bound is derived rather than assumed. The seeds agree for
+        // `agreed` deals; a plan for piece `k` can see as far as piece
+        // `k + preview` in the queue, and one more than that because a hold
+        // shifts what the queue has reached (§9.7). Comparable while
+        // `k + preview + 1 < agreed`.
+        //
+        // An earlier version of this test compared `preview + 1` pieces, which
+        // is not that number and was too many. It passed anyway, because the
+        // weights of the day happened to choose the same moves for a while
+        // afterwards; the first weight change exposed it. A bound that is a
+        // guess is a test that fails on a day nothing broke.
+        let agreed = deals(left, 16)
+            .iter()
+            .zip(&deals(right, 16))
+            .take_while(|(left, right)| left == right)
+            .count();
+        let alike = agreed.saturating_sub(usize::from(preview) + 1);
+        assert!(
+            alike >= 1,
+            "preview {preview}: {agreed} agreed deals leaves nothing to compare",
+        );
         for (at, (one, two)) in one.iter().zip(&two).take(alike).enumerate() {
             assert_eq!(one.kind, two.kind, "preview {preview}, piece {at}");
             assert_eq!(
@@ -310,7 +340,7 @@ fn a_planner_is_not_told_what_it_is_not_shown() {
     // views agree and whose bags do not must plan alike, which is the assertion
     // above; what this one adds is that such games exist and the difference is
     // real rather than assumed.
-    let (left, right) = a_matching_pair(5);
+    let (left, right) = a_matching_pair();
     let futures = |seed| deals(seed, 16);
     assert_ne!(futures(left), futures(right), "the hidden futures differ");
     let visible = |seed| {

@@ -191,6 +191,7 @@ pub(crate) fn replay(
 ) -> Placement {
     let mut fork = from.clone();
     let mut lines = 0;
+    let mut clears = [0; 5];
     let mut perfect_clear = false;
 
     // The plan ends at the tick that locks the piece, whichever tick that turns
@@ -202,7 +203,7 @@ pub(crate) fn replay(
     for (tick, input) in inputs.iter().enumerate() {
         events.clear();
         fork.tick(input, events);
-        tally(events, &mut lines, &mut perfect_clear);
+        tally(events, &mut lines, &mut clears, &mut perfect_clear);
         if events
             .iter()
             .any(|event| matches!(event, GameEvent::PieceLocked { .. }))
@@ -229,7 +230,7 @@ pub(crate) fn replay(
     {
         events.clear();
         fork.tick(&TickInput::default(), events);
-        tally(events, &mut lines, &mut perfect_clear);
+        tally(events, &mut lines, &mut clears, &mut perfect_clear);
         settling += 1;
         debug_assert!(settling < SETTLE_LIMIT, "the fork never settled");
         if settling >= SETTLE_LIMIT {
@@ -244,6 +245,7 @@ pub(crate) fn replay(
             board: Board::of(&view.rows),
             outcome: Outcome {
                 lines,
+                clears,
                 topped_out: fork.state() == PlayState::ToppedOut,
                 combo: view.combo,
                 back_to_back: view.back_to_back,
@@ -259,10 +261,13 @@ pub(crate) fn replay(
 /// Both are *events* rather than state (§12.8): a clear is gone from the board
 /// by the time anything can look at it, and §9.15's perfect clear is a bonus
 /// paid once.
-fn tally(events: &[GameEvent], lines: &mut i32, perfect_clear: &mut bool) {
+fn tally(events: &[GameEvent], lines: &mut i32, clears: &mut [i32; 5], perfect_clear: &mut bool) {
     for event in events {
         match event {
-            GameEvent::LinesCleared { rows, .. } => *lines += rows.len() as i32,
+            GameEvent::LinesCleared { rows, .. } => {
+                *lines += rows.len() as i32;
+                clears[rows.len().min(4)] += 1;
+            }
             GameEvent::PerfectClear => *perfect_clear = true,
             _ => {}
         }

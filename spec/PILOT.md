@@ -339,6 +339,7 @@ the game will not perform.
   | Feature | Measured as |
   |---|---|
   | Completed lines | rows cleared by the lock |
+  | Clear kind | those clears counted by how many rows each took |
   | Holes | empty cells with a filled cell above them in the same column |
   | Covered-hole depth | filled cells above each hole, summed |
   | Aggregate height | sum of column heights |
@@ -347,11 +348,28 @@ the game will not perform.
   | Row transitions | filled↔empty changes across each row, walls counted |
   | Column transitions | filled↔empty changes down each column, floor counted |
   | Blockades | filled cells sitting above a hole |
-  | Wells | depth of each column relative to both neighbours |
+  | Wells | depth of each column relative to both neighbours, **less the deepest** |
   | Top out | whether the branch ended in §9.16 |
   | Combo, back-to-back | §9.15's state as the branch leaves it |
   | Perfect clear | §9.15's bonus, as an event |
 
+- **Two of those features exist to make the planner play for score rather than
+  for rows**, and both read oddly until §9.14 is put beside them. That table pays
+  **800** for a quad and **400** for four singles — 1,200 for a chained quad —
+  so a figure linear in rows prices identically the two things the game prices
+  most differently, and a planner built on one leaves two thirds of the score
+  unclaimed. *Clear kind* is what tells them apart. And the shape a quad is
+  scored out of is a stack with exactly one open column, so *wells* exempts the
+  deepest single one: a planner charged for that column can never build the
+  thing the scoring table is trying to buy, because the well costs its depth
+  every ply it exists and pays only once. Every other well is still a defect.
+- **A quad cannot be bought with a bonus, only with a price on the
+  alternative.** At §P6.1's two plies a quad is invisible until the stack that
+  earns one already exists, so a reward attached to the quad itself is never
+  collected — measured, and the figures do not move by a single point. The
+  weight that works is a *negative* one on the cheap clear, because that is
+  visible at every ply. The band is narrow, and §P8's benchmark is what found
+  both ends of it.
 - **Feature extraction and weights are separate structures.** Weights are
   hand-tuned integers in this release; automated tuning is not in
   `PILOT-PLAN.md`'s scope and would consume §P8's report.

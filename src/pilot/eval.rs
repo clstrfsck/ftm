@@ -55,8 +55,17 @@ pub struct Board {
     /// blockade is counted once however many holes are under it, which is what
     /// distinguishes it from [`Board::covered`].
     pub blockades: i32,
-    /// The depth of each column below both its neighbours, summed. A wall is a
-    /// neighbour of full height, so a well against the edge counts.
+    /// The depth of each column below both its neighbours, summed — **less the
+    /// deepest single column**, which is exempt. A wall is a neighbour of full
+    /// height, so a well against the edge counts.
+    ///
+    /// The exemption is what lets a planner keep **one** open column, which is
+    /// the shape a quad is scored out of (§9.14, and [`Weights::default`]). A
+    /// planner charged for that column can never build the thing the scoring
+    /// table is trying to buy: the well costs its depth every ply it exists and
+    /// pays only once. Every *other* well is still a defect, and the deepest is
+    /// exempt rather than free-to-a-limit so that two wells are as bad as they
+    /// have always been.
     pub wells: i32,
 }
 
@@ -65,6 +74,14 @@ pub struct Board {
 pub struct Outcome {
     /// Rows cleared by the lock (§9.12).
     pub lines: i32,
+    /// The clears the branch made, counted by how many rows each took: a quad is
+    /// `clears[4]` and index 0 is never used.
+    ///
+    /// [`Outcome::lines`] is the same event summed, and the pair is two features
+    /// rather than one for the reason §9.14 gives: a quad pays **800** and four
+    /// singles **400**, so a figure linear in rows cannot tell apart the two
+    /// things the scoring table prices most differently.
+    pub clears: [i32; 5],
     /// Whether the branch ended in §9.16.
     pub topped_out: bool,
     /// §9.15's combo counter as the branch leaves it. It starts at -1 and a
@@ -96,6 +113,9 @@ pub struct Features {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Weights {
     pub lines: i32,
+    /// What a clear is worth for its *kind*, on top of [`Weights::lines`] for
+    /// its rows, indexed by rows cleared (§9.14).
+    pub clears: [i32; 5],
     pub holes: i32,
     pub covered: i32,
     pub aggregate_height: i32,
@@ -112,16 +132,34 @@ pub struct Weights {
 }
 
 impl Default for Weights {
-    /// The starting opinion (§P5).
+    /// The opinion (§P5).
     ///
     /// Negative for everything that makes a stack harder to play out of, and
     /// the two that dominate are holes and column transitions: a hole cannot be
     /// filled without first removing what is on top of it, and a jagged surface
     /// is what produces holes. `top_out` is large enough that no arrangement of
     /// the others can buy one.
+    ///
+    /// **`clears` is what makes it play for score rather than for rows**, and it
+    /// reads backwards until you see what it is for: a single is *punished*, at
+    /// -1,200 against the +340 its row earns, so the net price of clearing one
+    /// row is negative and the planner would rather stack. §9.14 is why — four
+    /// singles pay 400 and a quad 800, a chained quad 1,200 — so a planner
+    /// indifferent between them leaves two thirds of the score on the table.
+    /// The band is narrow: -1,200 is worth ~27% more score than a flat opinion
+    /// at no cost in lines or top-outs, and -5,000 tops out seven games in eight
+    /// because a stack nothing is allowed to clear is a stack that reaches the
+    /// ceiling.
+    ///
+    /// Rewarding the quad instead does **nothing at all**, which is worth
+    /// knowing before trying it: at §P6.1's two plies a quad is invisible until
+    /// the stack that earns one already exists, so the bonus is never collected
+    /// and the figures do not move by a single point. The lever has to be one
+    /// the planner can see at every ply, and "do not spend rows cheaply" is.
     fn default() -> Self {
         Self {
             lines: 340,
+            clears: [0, -1_200, -600, 0, 10_000],
             holes: -790,
             covered: -30,
             aggregate_height: -51,
@@ -133,7 +171,7 @@ impl Default for Weights {
             wells: -340,
             top_out: -1_000_000,
             combo: 20,
-            back_to_back: 50,
+            back_to_back: 2_000,
             perfect_clear: 1_000,
         }
     }
@@ -225,6 +263,9 @@ impl Outcome {
             score = score.saturating_add(weight.saturating_mul(count));
         };
         add(weights.lines, self.lines);
+        for (rows, &count) in self.clears.iter().enumerate() {
+            add(weights.clears[rows], count);
+        }
         add(weights.top_out, i32::from(self.topped_out));
         add(weights.perfect_clear, i32::from(self.perfect_clear));
         score
@@ -321,13 +362,14 @@ fn column_transitions(field: &Field) -> i32 {
     transitions
 }
 
-/// The depth of each column below both its neighbours, summed.
+/// The depth of each column below both its neighbours, summed, less the deepest.
 ///
 /// The walls are neighbours of full height, so a well down the side of the
 /// board is a well; otherwise the one place an `I` is always welcome would
-/// measure as flat.
+/// measure as flat — and then the deepest of them is taken back off, because
+/// exactly one such place is where an `I` is meant to go.
 fn wells(heights: &[i32; COLUMNS]) -> i32 {
-    let mut wells = 0;
+    let mut each = [0i32; COLUMNS];
     for col in 0..COLUMNS {
         let left = if col == 0 {
             ROWS as i32
@@ -339,9 +381,13 @@ fn wells(heights: &[i32; COLUMNS]) -> i32 {
         } else {
             heights[col + 1]
         };
-        wells += (left.min(right) - heights[col]).max(0);
+        each[col] = (left.min(right) - heights[col]).max(0);
     }
-    wells
+    // The deepest single well is exempt: it is the column a quad is scored out
+    // of, and a planner charged for it can never build one. See the field's own
+    // documentation for why that is a feature and not a blind spot.
+    let deepest = each.iter().copied().max().unwrap_or(0);
+    each.iter().sum::<i32>() - deepest
 }
 
 #[cfg(test)]
@@ -479,19 +525,67 @@ mod tests {
     #[test]
     fn a_well_is_a_column_below_both_its_neighbours() {
         // The classic shape: nine columns four high and a shaft at the edge
-        // waiting for an `I`.
+        // waiting for an `I`. It measures as **nothing**, because one such shaft
+        // is exactly what the exemption is for.
         let board = Board::of(&field(&[
             ".#########",
             ".#########",
             ".#########",
             ".#########",
         ]));
-        assert_eq!(board.wells, 4, "the wall is a neighbour of full height");
+        assert_eq!(board.wells, 0, "the one well a quad is scored out of");
         assert_eq!(board.holes, 0, "an open shaft is not a hole");
 
-        // ...and in the middle, measured against the shallower neighbour.
-        let board = Board::of(&field(&["#####.####", "#####.####", "##########"]));
-        assert_eq!(board.wells, 2);
+        // A second shaft is not exempt, and is measured against the shallower
+        // neighbour. Four cells of it here, with the deeper one taken off.
+        let board = Board::of(&field(&[
+            ".####.####",
+            ".####.####",
+            ".####.####",
+            ".####.####",
+        ]));
+        assert_eq!(board.wells, 4, "the second well is an ordinary defect");
+    }
+
+    #[test]
+    fn one_well_is_exempt_and_the_deepest_is_the_one() {
+        // The exemption takes off the *deepest* rather than the first, so that
+        // adding a shallower well somewhere else can never reduce the total.
+        let shallow = Board::of(&field(&["#####.####", "##########"]));
+        assert_eq!(shallow.wells, 0, "one well, exempt");
+
+        // Two wells, three deep and one deep: the three-deep one is taken off.
+        let board = Board::of(&field(&["#.###.####", "#.########", "#.########"]));
+        assert_eq!(board.wells, 1, "the deeper of the two is the exempt one");
+    }
+
+    #[test]
+    fn the_weights_would_rather_have_a_quad_than_four_singles() {
+        // §9.14 pays 800 for a quad and 400 for four singles, and this is the
+        // feature that lets the planner tell them apart at all — `lines` alone
+        // is linear in rows and scores the two identically. See
+        // `Weights::default` for why the single is priced below its own row.
+        let weights = Weights::default();
+        let quad = Outcome {
+            lines: 4,
+            clears: [0, 0, 0, 0, 1],
+            ..Outcome::default()
+        };
+        let four_singles = Outcome {
+            lines: 4,
+            clears: [0, 4, 0, 0, 0],
+            ..Outcome::default()
+        };
+        assert!(quad.evaluate(&weights) > four_singles.evaluate(&weights));
+        // ...and a single is worth less than not clearing at all, which is what
+        // makes the planner stack instead of spending a row for 100 points.
+        let nothing = Outcome::default();
+        let single = Outcome {
+            lines: 1,
+            clears: [0, 1, 0, 0, 0],
+            ..Outcome::default()
+        };
+        assert!(single.evaluate(&weights) < nothing.evaluate(&weights));
     }
 
     #[test]
@@ -517,6 +611,7 @@ mod tests {
         };
         let zero = Weights {
             lines: 0,
+            clears: [0; 5],
             holes: 0,
             covered: 0,
             aggregate_height: 0,
@@ -556,12 +651,16 @@ mod tests {
         let weights = Weights::default();
         let outcome = Outcome {
             lines: 2,
+            clears: [0, 0, 1, 0, 0],
             combo: 3,
             back_to_back: true,
             perfect_clear: false,
             topped_out: false,
         };
-        assert_eq!(outcome.interior(&weights), 2 * weights.lines);
+        assert_eq!(
+            outcome.interior(&weights),
+            2 * weights.lines + weights.clears[2],
+        );
         assert_eq!(
             outcome.evaluate(&weights),
             outcome.interior(&weights) + 3 * weights.combo + weights.back_to_back,
@@ -605,6 +704,7 @@ mod tests {
         let best = Features {
             outcome: Outcome {
                 lines: 4,
+                clears: [0, 0, 0, 0, 1],
                 combo: 20,
                 back_to_back: true,
                 perfect_clear: true,

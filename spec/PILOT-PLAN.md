@@ -716,5 +716,35 @@ to answer with evidence rather than now:
   all, which is a capability argument rather than a percentage — or else
   consciously taken on the plan's word. Either way, say which in the commit
   message, and do not expect a number to go up.
-- **The starting weights** (§P5). Hand-tuned, and the benchmark is what says
-  whether a change helped. Automated tuning stays out of this plan.
+- ~~**The starting weights** (§P5).~~ **Answered after P6, by the benchmark, and
+  worth +27% score.** The starting set played for *rows* and not for score: §9.14
+  pays 800 for a quad against 400 for four singles, and a `lines` weight linear
+  in rows prices them identically. Two features were added to §P5 and the weights
+  retuned; held-out seeds 100-131, 64,000 pieces:
+
+  | | lines | score | top out |
+  |---|---|---|---|
+  | before | 25,556 | 133,802,182 | 0 of 32 |
+  | after | 25,532 | **170,144,992** | 0 of 32 |
+
+  The same holds at 160,000 pieces (+27.7%, no top out) and on the standard
+  `make bench` batch (+30.2%). Three things that are worth knowing before
+  touching these numbers again:
+
+  - **A quad cannot be bought with a bonus.** A reward of +4,000, +10,000 and
+    +20,000 on the quad produced *byte-identical* reports: at two plies a quad is
+    invisible until the stack that earns one already exists, so the bonus is
+    never collected. The weight that works is a **negative** one on the cheap
+    clear, which is visible at every ply.
+  - **The band is narrow.** -1,200 on a single is +27%; -5,000 tops out seven
+    games in eight, because a stack nothing may clear reaches the ceiling. The
+    surface either side of the optimum is shallow and noisy at 8 seeds — tune on
+    one seed set and confirm on another, which is how the -24 lines was shown to
+    be noise rather than a cost.
+  - **The well exemption is a fifth of it** (41.4M against 43.6M): necessary, but
+    the clear-kind price does most of the work.
+
+  Automated tuning stays out of this plan, and this is the reason it would be
+  worth having rather than the reason it is not needed: two features and four
+  numbers found by hand in an afternoon moved the score by more than the whole
+  of P6's lookahead did.
