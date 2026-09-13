@@ -27,6 +27,11 @@
 //! deliberately not a `trait Frontend`. `FRONTEND.md` is the contract they
 //! share, written down instead of typed.
 //!
+//! `bench` is `PILOT.md` §P8's runner and is a desktop's too — §P8.1's grammar
+//! and the wall clock that §P3.3 forbids `pilot/` to hold. The half of the
+//! benchmark that decides anything is [`pilot::bench`], where `make portable`
+//! compiles it for a target with no clock at all.
+//!
 //! [`native`] and [`argv`] are the odd ones out and are not a layer: they are
 //! the *desktop* both native front-ends stand on. [`native`] is `FRONTEND.md`
 //! F1-F4 — a clock, a filesystem, an entropy source and a calendar — kept in
@@ -44,6 +49,8 @@ pub mod shell;
 
 #[cfg(all(any(feature = "tui", feature = "gui"), not(target_arch = "wasm32")))]
 pub mod argv;
+#[cfg(all(feature = "bench", not(target_arch = "wasm32")))]
+pub mod bench;
 #[cfg(all(any(feature = "tui", feature = "gui"), not(target_arch = "wasm32")))]
 pub mod native;
 

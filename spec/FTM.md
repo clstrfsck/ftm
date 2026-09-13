@@ -294,7 +294,7 @@ that boundary; `GUI.md` §G9's B12 is the same check at the outer one.
 
 ```
 ftm/
-├── Cargo.toml            # features: tui (default), gui; one [[bin]] each
+├── Cargo.toml            # features: tui (default), gui, bench; one [[bin]] each
 ├── Trunk.toml            # the web build
 ├── index.html            # the web build's shell page
 ├── spec/                 # every document, and nothing else
@@ -312,10 +312,13 @@ ftm/
     ├── lib.rs
     ├── native.rs             # the desktop: §3.1's four capabilities, for both
     │                         #   native binaries. Not a layer — see below.
+    ├── argv.rs               # the fifth capability: §6.4's value spellings
+    ├── bench.rs              # §P8.1's grammar and §P8's wall clock. Native,
+    │                         #   because src/pilot/ may hold neither (§P3.3).
     ├── bin/
     │   ├── ftm.rs            # terminal entry point; required-features = ["tui"]
     │   ├── ftm-gui.rs        # window entry point;   required-features = ["gui"]
-    │   └── ftm-pilot.rs      # §P8's headless benchmark; native, no render
+    │   └── ftm-pilot.rs      # §P8's headless benchmark; ["bench"], no render
     ├── core/                 # pure rules. Every module pub(crate) (§17.3 A10).
     │   ├── mod.rs            # re-exports; `Game` façade
     │   ├── geometry.rs       # Point, Rotation, direction helpers
@@ -350,11 +353,13 @@ ftm/
     │   │                     #   Platform-free like shell/, and front-end-free:
     │   │                     #   it names the core's façade, §P2.3's fork and
     │   │                     #   RulesConfig, and nothing else.
-    │   ├── mod.rs            # Pilot, Settings (§P3.4)
+    │   ├── mod.rs            # the façade: Pilot, Settings, Counted
+    │   ├── controller.rs     # §P3.4's controller and §P6.4's choice
     │   ├── knowledge.rs      # observed deals, inferred bag (§P2.4)
-    │   ├── placements.rs     # reachable placements over forks (§P4)
-    │   ├── evaluate.rs       # the integer board evaluation (§P5)
-    │   ├── search.rs         # beam, chance nodes, budget (§P6)
+    │   ├── fork.rs           # §P2.3's seam, seen from above
+    │   ├── placement.rs      # reachable placements over forks (§P4)
+    │   ├── eval.rs           # the integer board evaluation (§P5)
+    │   ├── search.rs         # beam, chance nodes, budget (§P6) — not yet
     │   └── bench.rs          # the benchmark's report types (§P8)
     ├── tui/                  # #[cfg(feature = "tui")]. TUI.md is normative.
     │   ├── mod.rs            # screen dispatch, terminal-too-small screen

@@ -11,7 +11,8 @@ builds a second and third front-end (a native egui window, and the same code as
 wasm in a browser) and anticipates a fourth (Macroquad). As of G8 the tree is
 `core/` + `shell/` + `native.rs` + `tui/` + `gui/` — and since P2 `pilot/`
 beside them, which is not a front-end and not a layer — with `src/bin/ftm.rs` and
-`src/bin/ftm-gui.rs` behind `--features gui`; **the window opens and plays** —
+`src/bin/ftm-gui.rs` behind `--features gui`, and since P5 `src/bin/ftm-pilot.rs`
+behind `--features bench`, which renders nothing; **the window opens and plays** —
 `make run-gui` — and **so does a browser tab** — `make run-web`. G0 changed no
 code; G1 moved the key vocabulary out of crossterm's hands; G2 was a move, a
 rename and a feature gate, with no logic changed; G3 took the platform out from
@@ -99,7 +100,10 @@ the above — not a front-end, not a layer, and a sibling of `core/` and
 above) and `eval.rs` (§P5's features and weights), with `core/search.rs`
 underneath it, and — since P3 — `placement.rs` (§P4.1's generator) and
 `controller.rs` (§P3.4's `Pilot`, the plan and §P6.4's choice), which are the
-two private modules in a directory that is otherwise public. T1-T17 all pass, plus I1-I4, `tests/pump.rs` and
+two private modules in a directory that is otherwise public, and — since P5 —
+`bench.rs` (§P8.2's report, played and counted with no clock in it), whose
+other half is `src/bench.rs` beside `native.rs` and `argv.rs`.
+T1-T17 all pass, plus I1-I4, `tests/pump.rs` and
 `tests/gui_render.rs` — the window's I4, which is `tests/render_sizes.rs`'s
 counterpart in pixels (§G9.1) — and the batch-invariance canary is in CI.
 
@@ -114,7 +118,7 @@ is.
 **There is a live plan again: `PILOT-PLAN.md`, stages P0-P8**, which builds the
 automated player of `PILOT.md` §P1-§P9 — a **PILOT** row on §13.3's menu that
 plays the game while the player watches. It is a deliberate amendment to the
-scope rule below: it promotes §18's first bullet and no other. Stages P1 to P4
+scope rule below: it promotes §18's first bullet and no other. Stages P1 to P5
 are complete. P1 was the specification and the amendments to `FTM.md`,
 `TUI.md` and `GUI.md`; P2 is the first code — §P2.3's fork in `core/search.rs`,
 and **`src/pilot/`, a fourth directory beside `core/`, `shell/` and the two
@@ -131,8 +135,17 @@ it, the controller beside the input state in `shell/round.rs`, §P3.1's per-tick
 input path inside `App::advance`, §P7.3's spectator controls and cyan
 indicator, and §P7.4's suppression of every path to §14's table. `cargo run
 --release` and `make run-gui`, then **PILOT**: it clears fourteen lines in the
-first six seconds on either screen. What is left is P5's headless benchmark and
-the search of P6-P7. See **Scope discipline**, which says what is still out.
+first six seconds on either screen.
+
+**P5 is the instrument**: `ftm-pilot`, a third binary behind a `bench` feature
+that plays batches headlessly and prints §P8.2's report — `make bench`. It is
+two files, split at §P3.3's line: `pilot/bench.rs` plays and counts with no
+clock, `src/bench.rs` holds §P8.1's grammar and the wall clock. The baseline it
+recorded is in `PILOT-PLAN.md` P5 — 8 seeds × 2,000 pieces, no top out, 145 µs a
+piece — and so is the node budget it was written to measure: **~2,000 nodes per
+search**, which P6 is where `Settings::default().nodes` stops being 100,000.
+What is left is the search of P6-P7 and P8's acceptance. See **Scope
+discipline**, which says what is still out.
 
 ## The §17.3 sign-off
 
@@ -588,6 +601,16 @@ written-down-only: P4 has to keep them.
   above, and exists because a crate-private type cannot appear in a public
   signature — which is also where the *queue* arrives, the half of fairness no
   type can hold.
+- **The benchmark is split at the no-clock line, and that is what makes it two
+  files** (`PILOT.md` §P8). `pilot/bench.rs` plays the batch and folds it into
+  integers — no clock, `make portable` compiles it — and `src/bench.rs` holds
+  §P8.1's grammar and the wall clock, beside `src/argv.rs` and behind a `bench`
+  feature that is neither front-end's. The report has the same seam in it: the
+  header, the per-seed rows and the aggregate are integers and reproduce byte
+  for byte, and the throughput is a **trailing block headed as this machine's**
+  and excluded from that promise. Folding a duration into a row would make the
+  baseline undiffable, and timing the games from inside `pilot/` would put a
+  clock in the one directory that may not have one.
 - **The planner takes no clock, and that is a third instance of the house
   rule** (`PILOT.md` §P3.3). The core takes no clock, the shell takes no clock,
   and now the player does not either: no `Instant`, no frame count, no wall-time
@@ -1273,10 +1296,12 @@ written-down-only: P4 has to keep them.
   top out — ~8,000 lines and level 800 apiece. P6's lookahead therefore has a
   harder baseline to beat than the plan assumed, and P5's benchmark is what will
   say whether it beats it.
-- **The cost is ~155 µs a piece in release**, about 6,500 placements a second,
-  for the 104 candidates one ply generates. A frame is 16 ms, so even a full
-  `MAX_CATCH_UP_TICKS` batch of searches is nowhere near it; the number worth
-  measuring in P5 is the one after P6's second ply.
+- **The cost is ~155 µs a piece in release**, about 6,500 *pieces* a second, for
+  the 104 candidates one ply generates. (Recorded here as "placements a second",
+  which P5 corrected with an instrument: 6,500 is 155 µs's reciprocal and so
+  counts pieces, and the placement rate is 104 times it.) A frame is 16 ms, so
+  even a full `MAX_CATCH_UP_TICKS` batch of searches is nowhere near it; the
+  number worth measuring after P5 is the one after P6's second ply.
 - **`cargo test` runs the assertion, and that is the point of it.** Every
   planned game in the suite checks the plan against the fork tick by tick,
   because `cargo test` is a debug build. A release round pays nothing: the
@@ -1324,6 +1349,45 @@ written-down-only: P4 has to keep them.
 
 ---
 
+## What P5 settled
+
+- **There is a baseline now, and a command that reprints it.** `make bench` is
+  8 seeds × 2,000 pieces in release: 16,000 pieces, 6,381 lines, **no top out**,
+  a mean of 4,083,485 and level 80 at the cap, in 2.33 s — **145 µs a piece**,
+  ~715,000 nodes a second. The longer run P3 asserted headlessly is an
+  instrument reading now too: `--seeds 5 --pieces 20000` is 100,000 pieces and
+  39,989 lines with no top out, in 14.2 s. One ply over §P5's starting weights
+  is a real baseline for P6 to beat, not a placeholder to replace.
+- **The node budget is ~2,000 per search**, and that was the open decision the
+  stage existed to close. A frame affords ~11,900 nodes at the measured rate,
+  and §15.2 step 4 may play `MAX_CATCH_UP_TICKS` ticks before it draws, so the
+  worst case is six searches in one frame. `Settings::default().nodes` is
+  100,000 — fifty times over, harmless while nothing reads it, and P6's first
+  correction. It is conservative twice over on purpose: it comes off the *mean*
+  per-piece cost, and six spawns in six consecutive ticks cannot happen at all,
+  because §9.12's two delays sit between them.
+- **The report's two halves are the no-clock rule showing through.** See the
+  invariant above. The thing to remember when reading a report: everything above
+  the `timing` heading is diffable and everything below it is not, and a run
+  that "changed" is a run whose *rows* changed.
+- **A figure derived in a commit message is not a figure an instrument
+  printed.** P3's "~6,500 placements a second" is 155 µs's reciprocal and
+  therefore counts pieces; the placement rate is 104 times larger. Nothing was
+  broken by it and no test could have caught it, and it is exactly why §P8.2
+  asks for `nodes` and `placements` by name rather than for "throughput".
+- **The smoke batch is small because `cargo test` is a debug build**, where
+  §P3.1's divergence assertion replays every plan a second time. Three seeds ×
+  60 pieces, in `tests/snapshots/pilot_bench.txt`. **It is the opposite of I1**:
+  a weight, generator or tie-break change is *supposed* to move it, and moving
+  it is a diff to read rather than a bug to chase — which is why it lives in its
+  own file and is regenerated the same way (`UPDATE_SNAPSHOT=1`).
+- **§4's tree had drifted since P2, and the spec is corrected in this commit.**
+  It named `placements.rs`, `evaluate.rs` and a `mod.rs` holding `Pilot`; none
+  of the three was ever written. The rule the repo runs on says the spec is
+  wrong until amended, and a tree nobody re-reads is where that goes unnoticed.
+
+---
+
 ## Open decisions
 
 - **The legacy key path's feel (§8.2).** Measured over two seconds of holding
@@ -1351,7 +1415,10 @@ make portable        # ...and with no platform under them: the G3 boundary
                      # (needs `rustup target add wasm32-unknown-unknown`)
 cargo clippy --all-features --all-targets -- -D warnings
 cargo fmt --check
-cargo run --release  # play it (`default-run` picks `ftm` of the two bins)
+make bench           # PILOT.md §P8's baseline: 8 seeds x 2000 pieces, release.
+                     # BENCH_ARGS="--seeds 5 --pieces 20000" for anything else;
+                     # `--json` for the same figures with a `timing` key.
+cargo run --release  # play it (`default-run` picks `ftm` of the three bins)
 make run-gui         # the window (`cargo run --release --features gui --bin ftm-gui`)
 make run-web         # the same in a tab: `trunk serve`, http://127.0.0.1:8080/?seed=42
 make web             # the web artefact, `trunk build --release` into dist/ (G6)

@@ -8,7 +8,7 @@
 # half. The failure mode is silent -- the other front-end simply stops being
 # compiled -- so the flag is on every command that compiles anything.
 
-.PHONY: check fmt clippy test shell portable web-check build web run run-gui run-web
+.PHONY: check fmt clippy test shell portable web-check build web run run-gui run-web bench
 
 check: fmt clippy test shell portable web-check build
 
@@ -64,6 +64,15 @@ web:
 
 run:
 	cargo run --release
+
+# PILOT.md §P8's baseline, and the command its recorded result came from
+# (PILOT-PLAN.md P5). Release only: a debug build replays every plan a second
+# time for §P3.1's divergence assertion, so it measures the assertion rather
+# than the planner.
+# `make bench BENCH_ARGS="--seeds 32 --pieces 500"` for anything else.
+BENCH_ARGS ?= --seeds 8 --pieces 2000
+bench:
+	cargo run --release --features bench --bin ftm-pilot -- $(BENCH_ARGS)
 
 # The window front-end (GUI.md, EGUI-PLAN.md G5). `default-run` picks `ftm` of the
 # two binaries, so this one has to be named.

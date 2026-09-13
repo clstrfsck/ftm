@@ -431,23 +431,42 @@ players in it.
 
 `ftm-pilot` is a native, no-render runner over the same controller the
 interactive mode uses. It is not a front-end: it draws nothing and has no
-screen, no keys and no menus.
+screen, no keys and no menus. It is behind neither front-end feature but a
+`bench` one of its own, which names an argv and nothing that renders.
+
+**It is split at §P3.3's line, and that is why it is two files.**
+`pilot::bench` plays the games and folds them into integers, and has no clock in
+it, because `make portable` compiles `src/pilot/` for a target that has none;
+`src/bench.rs` is the grammar below and the wall clock, and sits beside
+`src/argv.rs` for the same reason that file exists — a flag's spelling is a
+desktop's and its meaning is not.
 
 ### §P8.1 Grammar
 
 | Flag | Meaning |
 |---|---|
-| `--seeds A..B`, `--seeds N` | a range, or N seeds from 0 |
-| `--pieces N` | the piece cap per game |
-| `--depth N`, `--beam N`, `--nodes N` | §P6's settings |
-| `--preview N`, `--start-level N` | §6.3's rules |
-| `--hold`, `--no-hold`, `--rot180`, `--no-rot180`, `--lock-down R` | §6.3's rules |
-| `--json` | the report as JSON rather than text |
+| Flag | Meaning | Default |
+|---|---|---|
+| `--seeds A..B`, `--seeds A..=B`, `--seeds N` | a range either way inclusive, or N seeds from 0 | `8` |
+| `--pieces N` | the piece cap per game | `1000` |
+| `--depth N`, `--beam N`, `--nodes N` | §P6's settings | `Settings::default()` |
+| `--preview N`, `--start-level N` | §6.3's rules | §6.3's |
+| `--hold`, `--no-hold`, `--rot180`, `--no-rot180`, `--lock-down R` | §6.3's rules | §6.3's |
+| `--json` | the report as JSON rather than text | off |
+
+Every spelling of `--seeds` resolves to a **list**, which is what the report
+prints and what a checked-in seed set is: a set worth keeping need not be
+contiguous, and a report should say what it played rather than what it was asked
+for. A range that runs backwards is an error; an empty one is a legal batch of
+nothing.
 
 **It never reads §6.2's config file.** `preview_count` alone changes how well
 the planner plays, so a baseline that depended on whoever ran it would compare
 nothing. The defaults are the specification's, and the resolved `RulesConfig` is
-printed in the report's header.
+printed in the report's header. This is also why the rules flags are *not*
+§6.4's `Overrides`: an override means "leave the file alone", and there is no
+file here. They are clamped to §6.3's ranges all the same, and silently, for the
+reason `RulesConfig::from_settings` is silent — there is nobody to warn.
 
 ### §P8.2 Report
 
@@ -455,6 +474,28 @@ Score, lines, pieces, top-out rate, nodes searched and placements per second,
 per seed and in aggregate. Wall-clock throughput is *reported*; **acceptance
 limits use node counts**, which are deterministic and comparable between
 machines.
+
+**The report is two parts, and only the first is comparable.** Everything above
+is integers — the resolved rules, the per-seed rows, the aggregate — and is
+byte-for-byte reproducible on any machine, in any profile and on any target,
+which is what §P9's C11 asks of it and what a baseline is diffed against. The
+throughput figures are a **separate trailing block**, headed as this machine's
+and excluded from that promise: they move with the load, the hardware and the
+optimiser, and a report that mixed them into the rows would be one nobody could
+diff. In JSON the same split is a `timing` key beside the rest.
+
+The two cost counters are **nodes** (states evaluated) and **placements**
+(candidates generated). They are equal at one ply, where every node is a
+placement; P6 is where they part, since a beam evaluates interior states that
+are nobody's placement and a transposition hit is a placement that costs no
+node. Neither is a duration, and nothing in `src/pilot/` may read either back —
+a counter a search consulted would be §P3.3's clock under another name.
+
+**The node budget §P6.4 needs is measured here**, and the measurement is of the
+worst case rather than the average frame: §15.2 step 4 plays up to
+`MAX_CATCH_UP_TICKS` ticks before it draws, so a frame may in principle contain
+that many searches, and the budget a search may spend is one frame's nodes
+divided by that count.
 
 ### §P8.3 Baselines
 
@@ -464,6 +505,14 @@ when weights change** — which is the opposite of `tests/snapshots/scripted_gam
 and the reason they are not kept beside it. §17.2's I1 snapshot and §19.4's
 batch-invariance canary must not move at any stage of this work; one that does
 has found a bug.
+
+The checked-in batch is `tests/snapshots/pilot_bench.txt`, and it is small on
+purpose: `cargo test` is a debug build, where §P3.1's divergence assertion
+replays every plan a second time, so a batch sized for a baseline would be
+measuring the assertion. The recorded release baseline is the other thing kept,
+and it is kept in `PILOT-PLAN.md` beside the stage that measured it rather than
+here — a number this document promised would be a number every machine had to
+reproduce.
 
 ---
 

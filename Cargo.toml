@@ -55,6 +55,12 @@ gui = [
     "dep:web-sys",
     "dep:js-sys",
 ]
+# PILOT.md §P8's headless benchmark, which is not a front-end: it draws nothing
+# and takes no keys, so it is behind neither of the two above. What it needs is
+# an argv and a monotonic clock, which is `clap` and `std` — `anyhow` comes with
+# it for the same reason the front-ends take it. There is no wasm half: a
+# browser tab has no argv, and a benchmark nobody can start is not a benchmark.
+bench = ["dep:clap", "dep:anyhow"]
 
 [[bin]]
 name = "ftm"
@@ -63,6 +69,10 @@ required-features = ["tui"]
 [[bin]]
 name = "ftm-gui"
 required-features = ["gui"]
+
+[[bin]]
+name = "ftm-pilot"
+required-features = ["bench"]
 
 # Versions are pinned to the minor versions in FTM.md §3. No other runtime
 # dependencies may be added without amending that table.

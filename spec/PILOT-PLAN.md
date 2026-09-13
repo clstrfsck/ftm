@@ -280,7 +280,9 @@ determinism rests on.
 ## Headless benchmark
 
 - `src/bin/ftm-pilot.rs`: no render, native, over the same controller the
-  interactive mode uses.
+  interactive mode uses. Behind a `bench` feature rather than a front-end's,
+  and split in two at §P3.3's line — `pilot::bench` plays and counts, with no
+  clock, and `src/bench.rs` holds the grammar and the wall clock.
 - Arguments: a seed range or count, a piece cap, depth, beam width, node budget,
   and text or JSON output.
 - **It pins the rules itself and never reads §6.2's config file.**
@@ -412,10 +414,12 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
   what will say whether it beats it at all.
 - **The cost, measured, and it is P5's starting figure.** ~104 candidates per
   piece — two hold choices × four orientations × thirteen columns — at about
-  155 µs a piece in release, or **~6,500 placements a second** on this machine.
-  A frame is 16 ms, so a full `MAX_CATCH_UP_TICKS` batch is nowhere near it
-  even at one search per tick; the number to check in P5 is the one after P6's
-  second ply, not this one.
+  155 µs a piece in release, or **~6,500 pieces a second** on this machine.
+  (Written here as "placements a second" and corrected in P5, which measured the
+  same thing with an instrument: 6,500 is the reciprocal of 155 µs and so counts
+  *pieces*, and the placement rate is 104 times it.) A frame is 16 ms, so a full
+  `MAX_CATCH_UP_TICKS` batch is nowhere near it even at one search per tick; the
+  number to check in P5 is the one after P6's second ply, not this one.
 - **`Settings` is landed unread.** `Pilot::new`'s signature is §P3.4's, and a
   settings-shaped argument that arrives two stages later is a signature that
   changes under its callers. `settings()` is what reads the field — §P8's
@@ -474,13 +478,71 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
   What works is one shell invocation that launches the binary, waits, sends the
   keys and screenshots, with nothing in between to steal the foreground.
 
-### P5 — Headless benchmark
+### P5 — Headless benchmark ✅
 
 - The runner, the stable text and JSON reports, argument and schema tests, a
   small deterministic smoke batch for `cargo test`, and a documented
   release-mode baseline command with its recorded result.
 - Measure the per-piece search cost, including a full `MAX_CATCH_UP_TICKS`
   batch, and record the node budget that fits a frame.
+
+**What it settled.**
+
+- **The recorded baseline, and the command that produces it.** `make bench` —
+  `cargo run --release --features bench --bin ftm-pilot -- --seeds 8
+  --pieces 2000` — on the machine P3 was measured on:
+
+  | | |
+  |---|---|
+  | 8 seeds × 2,000 pieces | 16,000 pieces, 6,381 lines, **no top out** |
+  | mean per game | 4,083,485 score, 797 lines, level 80 at the cap |
+  | cost | 1,664,000 nodes, 2.33 s, **145 µs a piece**, ~715,000 nodes/s |
+
+  And the longer run P3 claimed headlessly, now an instrument reading:
+  `--seeds 5 --pieces 20000` is 100,000 pieces, 39,989 lines and **no top out**
+  in 14.2 s, at 141 µs a piece. One ply over §P5's starting weights is a real
+  baseline, not a placeholder, and P6 has to beat it rather than replace it.
+- **The node budget, which is the open decision this stage was to answer:
+  ~1,900-2,000 nodes per search.** A frame at §15.1's tick affords ~11,900
+  nodes at the measured rate, and §15.2 step 4 may play `MAX_CATCH_UP_TICKS`
+  ticks before it draws, so the worst case is six searches inside one frame and
+  the budget is that figure divided by six. `Settings::default().nodes` is
+  100,000 and is therefore **fifty times over**, which is harmless while P5's
+  search has no budget to run out of and is P6's first correction. Two things
+  make the number conservative on purpose: it is derived from the *mean*
+  per-piece cost, and six spawns in six consecutive ticks cannot actually happen
+  — §9.12's two delays see to that — so the real worst case is kinder than the
+  one budgeted for.
+- **The benchmark is split at §P3.3's line, and that is the design decision of
+  the stage.** `pilot::bench` plays the games and folds them into integers with
+  no clock in it — `make portable` compiles it for a target that has none — and
+  `src/bench.rs` holds §P8.1's grammar and the wall clock, beside `src/argv.rs`
+  and behind a `bench` feature of its own. The consequence is the report's
+  shape: the rows are integers and reproduce byte for byte, the throughput is a
+  trailing block headed as this machine's, and §P8.2 is amended to say so. A
+  runner that had timed the games from inside `pilot/` would have put a clock in
+  the one directory the whole plan says may not have one.
+- **`--seeds` resolves to a list, whichever way it is spelled**, because a
+  checked-in set need not be contiguous and a report should say what it played.
+  The `A..=B` spelling was added for the reason a URL took five spellings of
+  "on" in G12: the thing is typed by a human who knows what `..` means in Rust
+  and will be surprised either way, so accept both.
+- **P3's cost figure was mislabelled, and measuring it is what found that.**
+  "~6,500 placements a second" is the reciprocal of 155 µs and therefore counts
+  *pieces*; the placement rate is 104 times larger. P3 is corrected above. The
+  general lesson is the stage's: a figure derived by arithmetic in a commit
+  message is not the same artefact as one an instrument printed, which is why
+  §P8.2 asks for both counters by name.
+- **The two counters exist now, and they are equal.** `Counted { nodes,
+  placements }` is on `Pilot` and is the only thing it accumulates that is not a
+  decision. They move together at one ply; P6 is where they part. Nothing in the
+  planner reads either back, because a counter a search consulted would be
+  §P3.3's clock wearing a different hat.
+- **§4's tree had drifted since P2 and is corrected in the same commit.** It
+  named `placements.rs`, `evaluate.rs` and a `mod.rs` holding `Pilot`, none of
+  which were ever written; the code is `placement.rs`, `eval.rs`,
+  `controller.rs` and `fork.rs`. The spec is ground truth and was wrong, which
+  is the case the rule is written for.
 
 ### P6 — Lookahead
 
@@ -536,9 +598,10 @@ off one by one.
 All three of P1's are settled — see P1 above. What is left is for later stages
 to answer with evidence rather than now:
 
-- **The node budget** (§P6.4). P5 measures it, including a full
-  `MAX_CATCH_UP_TICKS` batch of searches in one pump, and the number goes in
-  §P6 when it is known rather than guessed.
+- ~~**The node budget** (§P6.4).~~ **Settled by P5: ~1,900-2,000 nodes per
+  search**, which is one frame's ~11,900 nodes at the measured rate divided
+  between a full `MAX_CATCH_UP_TICKS` batch. See P5 above for what makes it
+  conservative. P6 is where `Settings::default().nodes` stops being 100,000.
 - **Whether exact reachability (P7) is worth its cost** over the simple
   generator. P6's baseline is what answers it; if it buys nothing measurable,
   say so and keep it for the placements a hard drop cannot reach.

@@ -27,20 +27,24 @@
 //!   the event stream and inferred from §9.6's bag arithmetic.
 //! * [`fork`] — the object a search runs on: the fair fork of §P2.3.
 //! * [`eval`] — §P5's board features and the integer evaluator over them.
+//! * [`bench`] — §P8.2's report: a batch of headless games, folded into
+//!   integers. The half of the benchmark that has no clock in it, which is why
+//!   it is in here and `src/bench.rs` is not.
 //!
-//! Those three are public because §P8's runner and §P9's acceptance checks are
+//! Those four are public because §P8's runner and §P9's acceptance checks are
 //! written against them from outside the crate. The two modules under the
 //! controller are not: `placement` is §P4.1's generator and `controller` is the
 //! plan it feeds, and both are reached through [`Pilot`] alone.
 //!
-//! **Nothing plays by itself yet.** P3 chooses one ply ahead and P4 is where a
-//! front-end offers the mode; the search of §P6 and the exact placements of
-//! §P4.2 are the two stages after that.
+//! P3 chooses one ply ahead, P4 is where a front-end offers the mode and P5 is
+//! where a batch of it can be measured; the search of §P6 and the exact
+//! placements of §P4.2 are the two stages after that.
 
+pub mod bench;
 mod controller;
 pub mod eval;
 pub mod fork;
 pub mod knowledge;
 mod placement;
 
-pub use controller::{Pilot, Settings};
+pub use controller::{Counted, Pilot, Settings};

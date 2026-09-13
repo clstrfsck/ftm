@@ -78,6 +78,26 @@ pub struct Pilot {
     /// event stream mentions and the only place it can be read is the view.
     knowledge: Option<Knowledge>,
     plan: Plan,
+    /// §P8.2's two counters, and the only thing a `Pilot` accumulates that is
+    /// not a decision. Both are integers rather than durations for §P3.3's
+    /// reason: a benchmark that compared machines by wall clock would compare
+    /// the machines, and the acceptance limits are node counts precisely
+    /// because they are the same everywhere.
+    ///
+    /// They are equal at one ply, where every node evaluated is a placement
+    /// generated. P6 is where they part: a beam search evaluates interior
+    /// states that are nobody's placement, and a transposition hit is a
+    /// placement that costs no node at all.
+    counted: Counted,
+}
+
+/// What a search cost, in the two units §P8.2 reports.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counted {
+    /// States evaluated.
+    pub nodes: u64,
+    /// Candidate placements generated.
+    pub placements: u64,
 }
 
 impl Pilot {
@@ -93,7 +113,17 @@ impl Pilot {
             weights: Weights::default(),
             knowledge: None,
             plan: Plan::spent(),
+            counted: Counted::default(),
         }
+    }
+
+    /// What the searches so far have cost (§P8.2).
+    ///
+    /// Cumulative over the game, so a benchmark divides by the pieces it
+    /// played. Nothing in the planner reads it and no decision depends on it:
+    /// a counter a search consulted would be a clock by another name.
+    pub fn counted(&self) -> Counted {
+        self.counted
     }
 
     /// The settings it was made with (§P3.4).
@@ -140,8 +170,13 @@ impl Pilot {
     /// `preview_count` pieces, which is what the player can see (§P2.1). One
     /// ply needs no hypothesis beyond it; §P6.3's chance nodes are where
     /// [`Knowledge::hypotheses`] is read.
-    fn think(&self, game: &Game, view: &GameView) -> Plan {
+    fn think(&mut self, game: &Game, view: &GameView) -> Plan {
         let placements = placement::placements(game, &view.next, &self.rules);
+        // One ply: every placement generated is a placement evaluated, so the
+        // two counters move together here and will not in P6.
+        let counted = placements.len() as u64;
+        self.counted.placements += counted;
+        self.counted.nodes += counted;
         let Some(chosen) = choose(&placements, &self.weights) else {
             // Unreachable: the generator always offers the piece where it
             // stands. Falling back to an empty plan rather than panicking means
