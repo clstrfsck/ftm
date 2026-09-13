@@ -787,28 +787,149 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
 ### P8 — Acceptance
 
 §P9's table, checked one criterion at a time in the house style — each with how
-it was checked, not merely that it was.
+it *was* checked, not merely that it was.
 
-| | Criterion | How it is checked |
+| | Criterion | How it was checked |
 |---|---|---|
-| C1 | Build clean | `make check`, silent. |
-| C2 | Fair | Changing the live game's hidden future, with visible information held constant, does not change a plan — and `SearchGame` has no accessor that could. |
-| C3 | Deterministic | The same seed and settings give the same game twice, on the host and under `make portable`'s target; integer arithmetic throughout. |
-| C4 | Cadence-invariant | A PILOT round at 60 Hz, 144 Hz and a jittery cadence with empty frames gives a byte-identical `GameView`, in `tests/pump.rs`. |
-| C5 | Legal | Every chosen path replays through unmodified rules, and no `TickInput` exceeds one action and one shift cell. |
-| C6 | Rules honoured | Hold and 180 rotation both on and off; `preview_count` 1 and 6. |
-| C7 | Not recorded | A PILOT top out reaches neither §14's table nor §13's panel. |
-| C8 | Spectator controls | Pause, the pause menu, restart, Options, Controls and quit, on both front ends. |
-| C9 | Terminal | `tools/drive.py`: the menu row, a game started and watched, the indicator on screen. |
-| C10 | Window | `osascript` keys to the menu row and `screencapture` of the result; the handoff to a paused game when focus is stolen. |
-| C11 | Benchmark | Fixed-seed reports reproduce byte for byte; recorded node counts and throughput. |
-| C12 | Watched | A person watches a full game on each front end and judges that it plays sensibly. No test in the tree can see this. |
-| C13 | Baseline intact | I1's snapshot and §19.4's canary unmoved; the terminal's output byte-for-byte what it was outside the menu row. |
+| C1 | Build clean | `make check`, exit 0, no compiler or clippy warning in the log. 536 unit tests and 35 integration, across the seven steps. |
+| C2 | Fair | `tests/pilot_plan.rs`, from outside the crate because the check has to read a bag the planner may not: two seeds sharing their whole first bag and parting after it plan **identically** for as many pieces as the visible information agrees, and the bound is derived from the preview rather than guessed. `a_planner_is_not_told_what_it_is_not_shown` is the other half — such seeds exist and their futures really do differ. Above them the type settles it: `SearchGame` holds a scripted queue and no generator, and `pilot/search.rs` cannot name a `Game`. |
+| C3 | Deterministic | Two ways. In the tree, the same seed and settings twice — `controller::tests::the_same_seed_and_settings_play_the_same_game` over the view *and* the debug bag, and `the_same_seed_and_settings_plan_the_same_game_twice` over the rendered plans. Across targets, a throwaway crate over the `ftm` lib folding twelve configurations (previews 1 and 5 × three seeds × default and `exact`) into one FNV digest: **`e88ff742` on aarch64-apple-darwin and `e88ff742` on `wasm32-unknown-unknown` under Node**. A 32-bit target is the only thing that catches a 32-bit difference (G6), and no test in the tree runs on one. No `f32` or `f64` anywhere in `src/pilot/`. |
+| C4 | Cadence-invariant | `tests/pump.rs::a_pilot_round_plays_the_same_game_at_any_cadence`: 60 Hz, 144 Hz and a jittery cadence with empty frames, byte-identical `GameView`, nothing dropped. |
+| C5 | Legal | `tests/pilot_plan.rs::every_input_a_plan_emits_honours_the_cap`, extended at this stage to **both** generators — the cap is a property of what each one emits, and they build their sequences differently. Above it, legality is the fork's: every candidate of both generators is replayed through `Game::tick`, and §P3.1's divergence assertion re-checks the live game against the plan tick by tick on every planned game in a debug build. |
+| C6 | Rules honoured | `controller::tests::it_plays_under_every_rule_it_is_given`, extended at this stage to both generators: preview 1 and 6 × hold on and off × 180 on and off, twelve combinations twice, each played to the piece cap with the queue length and the empty hold slot asserted. §P4.3 is separately a unit test in each generator. |
+| C7 | Not recorded | `round::tests::an_automated_run_is_never_recorded`: a real unseeded PILOT score that **`rank_for` says qualifies**, forced to `Phase::GameOver`, leaves §14's table empty, `session.recent` `None` and goes straight back to §13 with no name entry. Forced rather than played, and that is the honest way round — the planner has not topped out in 320,000 pieces, so the live path cannot be provoked. |
+| C8 | Spectator controls | `round::tests::a_spectators_keys_are_live_and_the_games_are_not` (movement, rotation, hold and drop dropped at the boundary with DAS uncharged; pause, resume, quit and Ctrl-C live), `a_restart_keeps_the_player` (both paths, and both keep `Player::Pilot`), and — added at this stage — `a_spectator_reaches_the_two_sub_screens_and_comes_back_to_the_game`, which was the gap: Options and Controls off the pause menu, back to the menu with the cursor where it was, and out through §9.17's countdown into a game that still has its planner. On a pty as well: `esc down down enter` during a PILOT game opens the §13.5 panel over a blanked well with `PILOT` still on the status row. |
+| C9 | Terminal | `tools/drive.py --arg=--seed=42 down`: **PILOT** under **PLAY** with the cursor on it, and the footer `v0.1.0 ↑↓ select ENTER start` still drawn, which is §P7.2's silent clipping not happening. Then `down enter space×5`: it played itself to **32 lines, level 4, 19,228 in nine seconds**, with `PILOT` left-aligned on the status row and `B2B  QUAD` centred well clear of it, and the spectator's five `space` presses doing nothing. |
+| C10 | Window | One shell invocation, per **Commands**: launch, `key code 125` then `36`, ten seconds, `screencapture -x -o`. **40 lines, level 5, 29,178 at ten seconds**, `PILOT` in the `I`-piece cyan on the status row, `QUAD` centred beside it, `B2B ON` **in the stats panel and not on the status row** (§G4.4 — the window differs from the terminal here, and a note that ran the two together would be describing a screen neither front-end draws), and a nine-wide stack with one clean column — `well_rows` visible in pixels. Then `activate` on another application and a second capture: **PAUSED**, the well blanked, the score frozen. §G4.7 through §P7.3, off actual pixels. |
+| C11 | Benchmark | `make bench` twice: **byte-identical above `timing` and different below it**, which is §P8.2's seam and is what the criterion actually asserts. Both baselines recorded below. This is the criterion that found the stage's bug — see below. |
+| C12 | Watched | **Watched, and it failed the first time.** A player watching the window at their own `preview_count = 1` saw it build very tall sides and top out — see below; it is the criterion that found the worst defect in the stage, and the only one that could have. Re-watched on both front ends after the fix and signed off. |
+| C13 | Baseline intact | `tests/snapshots/scripted_game.txt` last moved at **Stage 7c** and `tests/scripted_game.rs` at **G2**, both long before P0, and neither is touched by any commit in this plan — `git log --` on each is the check, which is stronger than running them. The terminal's diff since P0 is §P7.2's menu row (`BLOCK_HEIGHT` 21 → 22) and §P7.3's indicator and nothing else; §12.4's mock-up test renders a *human* game character for character and is unchanged, which is what says the indicator did not leak. |
 
-**The figures C11 is measured against**, as of the T-spin commit and *not* as of
-P6 or P7 — the weights have moved three times since P6, so the tables in those
-stages are history and this is the live number. `make bench`, 8 seeds × 2,000
-pieces, `Settings::default()`:
+### The bug C11 found
+
+**`ftm-pilot --exact` at the shipped node budget topped out six games in
+eight**, where P7 had measured the same path at none. Two independent causes,
+stacked, and both are recorded because either alone would have been survivable.
+
+- **§P6.4 was violated in the code, and the rule is amended to say what it
+  always meant.** `subtree` charges nothing for a fork that has topped out or
+  run out of its queue — there is no generation to pay for, only a board to
+  score — and that early return sits *above* the budget check. So with the
+  budget gone, the branches that came back with a value were precisely the ones
+  that end the game, and `run` ranked that prefix of the beam and preferred it to
+  the one-ply answer. §P6.4's "a partly evaluated branch is never chosen" was
+  being honoured at the branch and broken at the *beam*: the fix is that a beam
+  the budget cut short is discarded entirely, which is now the wording as well as
+  the code.
+- **The other cause is a weight set out of its element.** `Weights::exact`'s
+  `t_slots` was tuned at two plies with the budget lifted; at the one effective
+  ply the default budget allows, it digs a slot it can never cash. That is the
+  uncapped-`well_rows` failure a third time — a reward for a shape the
+  configuration in force cannot collect — and it is why the fix above does not
+  rescue the path on its own: with it, `--exact` at 2,000 nodes still tops out
+  six of eight, and only the budget saves it. §P8.1's `--exact` therefore brings
+  a budget it can spend unless `--nodes` names one.
+
+Three things worth keeping from how it was found.
+
+- **It cannot reach the live game, and that was measured rather than assumed.**
+  Over `make bench`'s 16,000 searches the shipped configuration's worst search
+  cost **1,784 nodes of its 2,000** and *none* reached the budget, so the branch
+  that misbehaves is never taken in a PILOT round. `make bench` is byte-identical
+  across the fix, which says the same thing a second way.
+- **The rule had a test, and the test could not have failed.**
+  `a_tighter_budget_is_a_shallower_answer_and_not_a_different_kind_of_one` asks
+  the question of one position — an empty board on the first piece — where every
+  candidate costs the same to expand, so nothing is free and no prefix can form.
+  That is G13's B8 lesson again: a rule with a test, asked somewhere the failure
+  cannot occur. The test that replaces it sweeps the *budget* instead of the
+  position and asserts the rationale rather than an instance — every budget must
+  give either the one-ply answer or the whole two-ply answer and never a third
+  thing. It fails at `nodes 111` without the fix.
+- **Two constructions did not catch it, and why is the useful part.** A game
+  played at a starved budget never gets tall enough, because the starved planner
+  plays the one-ply game and the one-ply game does not build precarious boards.
+  A board built by hand — every piece shoved to the wall and dropped, fourteen
+  of them — gets *too* precarious: the whole beam bottoms out in leaves, which is
+  a legitimately complete ply and a legitimately different answer, so an
+  assertion that the two agree is simply wrong there. In a real `--exact` game
+  the first divergence is at **piece 649**, which no debug build is going to
+  reach. The property was testable and the instance was not.
+
+### The bug C12 found, which is the one that mattered
+
+**A watched game beat the whole test suite again**, for the third time in this
+plan. The player's report was three observations: the window never shows
+`B2B QUAD` (correct — §G4.4 puts the chain in the stats panel, and it was this
+document's C10 note that ran the two together); the planner sometimes builds
+**very tall sides** and topped a game out; and it struggles when the only
+sensible play is an `I` into an obvious hole. The last two are one fault.
+
+**The cause is not a weight. It is that `preview_count = 1` cannot afford its own
+search.** The benchmark never reads §6.2's config file (§P8.1) and defaults to a
+preview of 5; the player's file says 1. At §P6.1's two plies a preview of 1 is
+the *only* configuration that needs §P6.3's chance node — previews 2 to 6 are
+byte-identical to each other, because the second ply is the last. A chance node
+is one root per hypothesis and a beam candidate costs one expansion per root, so
+the ply costs about seven times what §P6.4 sized the budget for. The budget stops
+the beam partway, §P6.4 hands back the one-ply answer, and **the planner is a
+one-ply planner running two-ply weights** — which builds the well `well_rows`
+asks for and never plans the `I` that cashes it. The instrument that settled it
+was the board printed at each lock: a shaft **fourteen rows deep** in column 1
+with every other column stacked into the ceiling.
+
+The fix is §P6.2's width divided by the root count, so a ply costs what the
+budget was sized for. Held-out seeds 100-131, `preview_count` 1, 32 × 1,000
+pieces, inside the shipped 2,000-node budget:
+
+| | top out | score | lines |
+|---|---|---|---|
+| beam 16 (shipped) | 4 of 32 | 47,718,734 | 11,224 |
+| beam 1 | 9 of 32 | 38,226,646 | 9,836 |
+| **beam 16 ÷ 7 roots = 3** | **0 of 32** | **61,083,378** | 12,644 |
+| depth 1 | 11 of 32 | 36,495,286 | 9,456 |
+| beam 16, budget lifted to 20,000 | 0 of 32 | 63,577,624 | 12,664 |
+
+**The top-outs are gone and the score is up 28%**, against a ceiling of
+63,577,624 that only an unaffordable budget reaches. `preview_count` 5 is
+**byte-identical**, because dividing by one root changes nothing — which is also
+why no snapshot moved.
+
+Four things worth keeping.
+
+- **Two plausible fixes were measured and rejected, and rejecting them is the
+  useful half.** Capping the `wells` exemption at the four rows an `I` can clear
+  is a good story — `well_rows` caps the reward and nothing capped the licence —
+  and on eight seeds it looked like a fix. On held-out seeds it bought **nothing
+  at preview 1 and cost 2.7% at preview 5**. `PILOT-PLAN.md` has warned since
+  the first retune that this surface is noisy at eight seeds; that warning was
+  read, and the eight-seed result was still nearly taken. Confirm on held-out
+  seeds *before* believing a weight, not after.
+- **§P6.3's blend was ruled out by an experiment that returned nothing at all.**
+  Sweeping the 80/20 ratio to 65/35, 50/50 and 35/65 gave **byte-identical**
+  reports. A knob with no effect is not a knob that is badly set — it is a knob
+  nothing reaches, and it was the strongest single clue that the second ply was
+  not being evaluated at all.
+- **The two counters said so before the boards did.** Preview 1 spent 1,978
+  nodes a piece against a budget of 2,000 where preview 5 spent 1,781. A search
+  sitting exactly at its ceiling is a search being truncated, and §P8.2 reports
+  the number that says so — nobody had had a reason to compare the two.
+- **`--preview` is what the benchmark could not see.** §P8.1's refusal to read
+  the config file is right and stays: a baseline that depended on the runner's
+  file would compare nothing. But it means the benchmark measures one point in a
+  space §6.3 lets the player move, and the point it measures is not the one
+  every player is at. A configuration the game offers and the baseline never
+  runs is a configuration nobody has measured.
+
+### The figures C11 is measured against
+
+As of this stage and *not* of P6 or P7 — the weights have moved three times
+since P6, so those tables are history. Everything above `timing` reproduces byte
+for byte and everything below it does not (§P8.2), so what is recorded is the
+rows.
+
+`make bench` — 8 seeds × 2,000 pieces, `Settings::default()`, which is what the
+game plays under:
 
 ```
 total    8 games  16000 pieces  6361 lines  63281640 score  28488455 nodes
@@ -816,11 +937,27 @@ mean     7910205 score  795 lines  2000 pieces per game
 top out  0 of 8 (0/1000)
 ```
 
-Everything above `timing` reproduces byte for byte and everything below it does
-not, which is §P8.2's seam and is what C11 actually asserts. The `--exact` path
-has no committed baseline at this batch size and wants one recorded here when
-C11 is done, because it is now a **different weight set** (`Weights::exact`) and
-not merely a different generator.
+`ftm-pilot --exact --seeds 8 --pieces 2000` — §P4.2's walk at two plies under
+`Weights::exact`, at the budget §P8.1 now gives it. **The `--exact` baseline this
+stage was asked to record**, and the first one at this batch size:
+
+```
+total    8 games  16000 pieces  6364 lines  79852269 score  1590431335 nodes
+mean     9981533 score  795 lines  2000 pieces per game
+top out  0 of 8 (0/1000)
+```
+
+That is **+26% score on the same lines** — the walk buys tucks and §P5's weights
+price them (P7) — for **11× the wall cost** on this machine: 2,738 µs a piece
+against 29,869. The 35× P7 recorded is not this number and neither figure is
+wrong; the walk got cheaper relative to the default when `well_rows` changed the
+boards it walks. Unchanged is the conclusion: the choice is the default or an
+order of magnitude, with nothing in between, and only the default fits a frame.
+
+Both baselines were measured on either side of the §P6.4 fix and **both are byte
+identical across it**, which is the third statement that it reaches nothing the
+budget does not stop: the default never exhausts its budget, and a lifted one
+cannot.
 
 ## Completion criteria
 
@@ -829,6 +966,18 @@ automated mode, the headless runner reproduces fixed-seed reports, the planner
 provably cannot see hidden pieces or a clock, every chosen path replays through
 the unmodified rules, no automated run is ever recorded, and C1-C13 are signed
 off one by one.
+
+**C1-C13 are signed off** — the table in P8 above says how each was checked, and
+**PILOT is complete**. There is no stage P9 and no live plan; `PILOT-PLAN.md`
+joins `TERMINAL-PLAN.md` and `EGUI-PLAN.md` as history. Read it for why
+something is the shape it is, not for what to do next.
+
+C12 is worth a sentence of its own, because it is the criterion that nearly did
+not earn its place and then justified the whole stage. Everything else in the
+table is a test, a capture or a `git log`, and all of them passed while the
+planner was quietly playing one ply and stacking itself into the ceiling at a
+`preview_count` §6.3 offers. A person watching is the only check in this
+document that was in a position to notice.
 
 ## Open decisions
 

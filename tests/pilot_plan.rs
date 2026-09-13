@@ -182,12 +182,26 @@ fn every_input_a_plan_emits_honours_the_cap() {
     // §P9's C5, at the boundary the game sees. It is also what makes `word`
     // above a faithful rendering rather than a lossy one: a tick that carried two
     // actions would be drawn as one of them.
+    //
+    // Both generators (§P4.1, §P4.2), because the cap is a property of what each
+    // one *emits* and they build their sequences differently: `placement.rs`
+    // writes a list of inputs, and `reachable.rs` walks a graph whose every edge
+    // is one input. Neither may produce a tick a human could not have typed.
+    // Fewer pieces on the walk, which is thirty-five times the cost.
     let rules = rules(5, true);
-    let (planned, _) = record(&rules, Settings::default(), 42, PIECES);
-    for piece in &planned {
-        for input in &piece.inputs {
-            assert!(input.actions.iter().count() <= 1, "{input:?}");
-            assert!(input.shift_cells <= 1, "{input:?}");
+    let exact = Settings {
+        depth: 1,
+        exact: true,
+        ..Settings::default()
+    };
+    for (settings, pieces) in [(Settings::default(), PIECES), (exact, 12)] {
+        let (planned, _) = record(&rules, settings, 42, pieces);
+        assert!(!planned.is_empty(), "exact {}", settings.exact);
+        for piece in &planned {
+            for input in &piece.inputs {
+                assert!(input.actions.iter().count() <= 1, "{input:?}");
+                assert!(input.shift_cells <= 1, "{input:?}");
+            }
         }
     }
 }

@@ -1706,6 +1706,49 @@ mod tests {
     }
 
     #[test]
+    fn a_spectator_reaches_the_two_sub_screens_and_comes_back_to_the_game() {
+        // The rest of §P9's C8: Options and Controls off the pause menu, which
+        // §P7.3 lists among what stays live and which the test above does not
+        // reach. It is one assertion in two halves — the phase the item opens,
+        // and that leaving it goes back through §9.17's countdown rather than
+        // dropping the spectator into a running board.
+        let mut storage = Memory::new();
+        let now = Stamp::ZERO;
+        for (choice, opened) in [
+            (PauseChoice::Options, Phase::Options { selected: 0 }),
+            (PauseChoice::Controls, Phase::Controls),
+        ] {
+            let (mut app, mut session) = watched(&mut storage);
+            app.pause(0);
+            for _ in 0..choice.index() {
+                app.key(&mut session, &press(Key::Down), now);
+            }
+            assert_eq!(
+                app.key(&mut session, &press(Key::Enter), now),
+                Flow::Continue,
+            );
+            assert_eq!(app.phase, opened, "{choice:?}");
+            // Back to the menu with the cursor on the item that opened it, and
+            // out of the menu into the countdown.
+            app.key(&mut session, &press(Key::Esc), now);
+            assert_eq!(
+                app.phase,
+                Phase::Paused {
+                    selected: choice.index()
+                },
+                "{choice:?}",
+            );
+            app.key(&mut session, &press(Key::Esc), now);
+            assert!(
+                matches!(app.phase, Phase::Resuming { .. }),
+                "{choice:?}: {:?}",
+                app.phase,
+            );
+            assert!(app.pilot.is_some(), "{choice:?}: still a planned game");
+        }
+    }
+
+    #[test]
     fn a_restart_keeps_the_player() {
         // §P1: "a spectator who asks for another game gets another PILOT game",
         // from the pause menu's item and from §10.1's held key. Both, because

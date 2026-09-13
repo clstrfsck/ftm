@@ -568,23 +568,36 @@ mod tests {
 
     #[test]
     fn it_plays_under_every_rule_it_is_given() {
-        // §P9's C6, as far as one ply reaches it: §6.3's hold and 180 rotation
-        // each on and off, and a preview of 1 and of 6. A planner that assumed
-        // a mechanic it had not been given would plan a move the game refuses,
-        // and the piece would sit there until gravity dealt with it.
+        // §P9's C6: §6.3's hold and 180 rotation each on and off, and a preview
+        // of 1 and of 6. A planner that assumed a mechanic it had not been given
+        // would plan a move the game refuses, and the piece would sit there
+        // until gravity dealt with it.
+        //
+        // **Both generators**, because §P4.3 is a rule each of them obeys on its
+        // own — `placement.rs` by leaving the input out of the sequence it
+        // builds, `reachable.rs` by leaving the edge out of the graph it walks —
+        // and each has its own unit test for that. What this adds is the round:
+        // a planner that emitted a disabled key would be caught by §P3.1's
+        // divergence assertion here rather than by a board comparison, because
+        // the live game drops that key at §10.1's boundary and the fork does
+        // not. Fewer pieces on the walk, for the reason `exact` is one ply.
         for preview_count in [1u8, 6] {
             for hold_enabled in [true, false] {
                 for allow_180 in [true, false] {
                     let rules = rules(preview_count, hold_enabled, allow_180);
-                    let game = watch(&rules, 11, 30);
-                    let view = game.view();
-                    assert_eq!(
-                        view.pieces, 30,
-                        "preview {preview_count}, hold {hold_enabled}, 180 {allow_180}",
-                    );
-                    assert_eq!(view.next.len(), usize::from(preview_count));
-                    if !hold_enabled {
-                        assert_eq!(view.hold, None, "nothing was ever held");
+                    for (settings, pieces) in [(Settings::default(), 30), (exact(), 12)] {
+                        let (game, _, _) = played(&rules, settings, 11, pieces);
+                        let view = game.view();
+                        let what = format!(
+                            "preview {preview_count}, hold {hold_enabled}, \
+                             180 {allow_180}, exact {}",
+                            settings.exact,
+                        );
+                        assert_eq!(view.pieces, pieces, "{what}");
+                        assert_eq!(view.next.len(), usize::from(preview_count), "{what}");
+                        if !hold_enabled {
+                            assert_eq!(view.hold, None, "{what}: nothing was ever held");
+                        }
                     }
                 }
             }

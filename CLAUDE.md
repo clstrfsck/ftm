@@ -109,19 +109,23 @@ T1-T17 all pass, plus I1-I4, `tests/pump.rs` and
 `tests/gui_render.rs` — the window's I4, which is `tests/render_sizes.rs`'s
 counterpart in pixels (§G9.1) — and the batch-invariance canary is in CI.
 
-There is no Stage 13 of `TERMINAL-PLAN.md` and no Stage G14 of `EGUI-PLAN.md`:
-**both plans are finished**, and there is no live plan. Read them for why
-something is the shape it is, not for what to do next. A fourth front-end is a
-fourth directory, a feature and a `[[bin]]`, and `FRONTEND.md` is what it is
-written against — but it is not planned, and **Macroquad readiness** in
-`EGUI-PLAN.md` is a list of constraints rather than a work item, exactly as §19
-is.
+There is no Stage 13 of `TERMINAL-PLAN.md`, no Stage G14 of `EGUI-PLAN.md` and
+no Stage P9 of `PILOT-PLAN.md`: **all three plans are finished**, and there is no
+live plan. Read them for why something is the shape it is, not for what to do
+next. A fourth front-end is a fourth directory, a feature and a `[[bin]]`, and
+`FRONTEND.md` is what it is written against — but it is not planned, and
+**Macroquad readiness** in `EGUI-PLAN.md` is a list of constraints rather than a
+work item, exactly as §19 is.
 
-**There is a live plan again: `PILOT-PLAN.md`, stages P0-P8**, which builds the
-automated player of `PILOT.md` §P1-§P9 — a **PILOT** row on §13.3's menu that
-plays the game while the player watches. It is a deliberate amendment to the
-scope rule below: it promotes §18's first bullet and no other. Stages P1 to P7
-are complete. P1 was the specification and the amendments to `FTM.md`,
+**`PILOT-PLAN.md`, stages P0-P8, is finished too**, and it built the automated
+player of `PILOT.md` §P1-§P9 — a **PILOT** row on §13.3's menu that plays the
+game while the player watches. It was a deliberate amendment to the scope rule
+below: it promotes §18's first bullet and no other. **All eight stages are done
+and §P9's C1-C13 are signed off one by one in `PILOT-PLAN.md` P8**, C12 included,
+which is a person watching a full game on each front end. **There is now no live
+plan at all**: all three are history, and a fourth front-end or a §18 bullet
+would need one written first. P1 was the specification and the amendments to
+`FTM.md`,
 `TUI.md` and `GUI.md`; P2 is the first code — §P2.3's fork in `core/search.rs`,
 and **`src/pilot/`, a fourth directory beside `core/`, `shell/` and the two
 front-ends**, holding §P2.4's bag observation, §P2.3's `Fork` and §P5's
@@ -185,7 +189,11 @@ fully evaluated move, which is the one-ply answer **byte for byte** — measured
 not assumed. `Settings::exact` and `ftm-pilot --exact` are how it is reached;
 the live PILOT mode still runs `Settings::default()` and its plans are
 unchanged, which `tests/snapshots/pilot_plan.txt` not moving is what says.
-What is left is P8's acceptance.
+(**P8 corrected two things in this paragraph.** "Byte for byte" was true when
+P7 measured it and stopped being true when `t_slots` arrived, because the code
+did not implement §P6.4's rule — see P8 below. And `--exact` at the default
+budget is not a configuration anyone should run: `ftm-pilot --exact` brings its
+own budget now.)
 
 **Then the weights were retuned a second time, and it was watching a game that
 found it.** A player's three observations — too many `I` pieces landed flat, the
@@ -245,11 +253,12 @@ where it is kept, not what it is called.
    sections your work touches. Read those sections, not the whole thing. Start
    from `FRONTEND.md` if the work is a front-end's, and from `PILOT.md` if it
    is the automated player's.
-2. **`PILOT-PLAN.md`** — stages P0-P8, the only live plan. P1 to P7 are done,
-   and each has a "What it settled" of its own; read "The decisions this plan
-   rests on" before writing any of the rest — and P6's and P7's before P8,
-   because between them they are what the acceptance table's C11 is measured
-   against.
+2. **`PILOT-PLAN.md`** — stages P0-P8, all complete. History, like the other
+   two, but the most recently written and the one whose reasoning is freshest:
+   each stage has a "What it settled" of its own, "The decisions this plan rests
+   on" is not history, and **P8's two findings are the ones to read before
+   touching the planner** — the search was returning a shallower answer than its
+   settings claimed, in two different ways, and both had passing tests over them.
 3. **`EGUI-PLAN.md`** — stages G0-G13, all complete. History now, not
    instructions, but the two sections that are *not* history are "The decisions
    this plan rests on" and "The central idea", which is what the shell being
@@ -802,14 +811,22 @@ planned game in the test suite.
   back-to-back as many times as the search is deep, which makes the weights stop
   meaning what §P5 says they mean.
 
-- **A ply is the granularity of "fully evaluated"** (`PILOT.md` §P6.4). The node
-  budget is checked between one ply and the next, never inside a generation, so
-  a search may overrun it by the ~104 placements of the ply it was in the middle
-  of. That is the point rather than a slip: comparing half a generation against a
-  whole one is exactly the dependence on *where the count ran out* that §P6.4
-  forbids. The first ply is always paid for, so there is always a fully
-  evaluated answer — a `nodes: 0` search returns precisely the one-ply answer,
-  and a test says so.
+- **A ply is the granularity of "fully evaluated", and a ply is the whole beam**
+  (`PILOT.md` §P6.4). The node budget is checked between one ply and the next,
+  never inside a generation, so a search may overrun it by the ~104 placements
+  of the ply it was in the middle of. That is the point rather than a slip:
+  comparing half a generation against a whole one is exactly the dependence on
+  *where the count ran out* that §P6.4 forbids. The first ply is always paid
+  for, so there is always a fully evaluated answer — a `nodes: 0` search returns
+  precisely the one-ply answer, and a test says so. **And a beam the budget cuts
+  short is discarded entirely**, which P8 had to fix: `subtree` charges nothing
+  for a fork that has topped out or run out of its queue, so the branches that
+  survive an exhausted budget are precisely the ones that lose the game, and
+  ranking that prefix picks the worst move on the board for being the cheapest
+  to price. The rule is not "keep what finished"; it is all of the ply or none
+  of it. `search::tests::the_budget_buys_a_whole_ply_or_none_of_one` sweeps the
+  budget rather than the position, because the *instance* first appears at piece
+  649 of an `--exact` game and no debug build reaches that.
 
 - **`Settings`'s three defaults are one decision, not three — and `exact` is
   the same arithmetic reaching the opposite answer** (`PILOT.md` §P6.4). Two
@@ -818,9 +835,32 @@ planned game in the test suite.
   beam or adding a ply does not buy a deeper search; it buys a search the budget
   truncates, and §P6.4's answer quietly becomes shallower than `depth` asked
   for. §P4.2's walk spends ~6,400 nodes in **one** generation, so `exact` at the
-  default budget is the one-ply answer — byte for byte, which P7 measured. It is
-  off by default for that reason and not for a preference: turning it on means
-  lifting the budget, and lifting the budget means leaving the frame.
+  default budget is the one-ply answer. It is off by default for that reason and
+  not for a preference: turning it on means lifting the budget, and lifting the
+  budget means leaving the frame.
+
+- **§P6.2's beam is divided by the number of roots, and that is §P6.4's
+  arithmetic finishing the job** (`PILOT.md` §P6.2, §P6.3, §P6.4). A beam
+  candidate costs one expansion, so sixteen of them is the ~1,800 nodes the
+  budget was sized for — but §P6.3 hands the search one root *per hypothesis*
+  and then a candidate costs one expansion **per root**. `preview_count` 1 is
+  the only configuration that reaches this at two plies (2 to 6 are
+  byte-identical to each other), and there a fixed beam is ~12,000 nodes against
+  2,000: the budget truncates it and §P6.4 correctly returns the *one-ply*
+  answer, so the planner silently stops being the two-ply planner its weights
+  were tuned for. Dividing keeps a ply's cost what the budget bought. With one
+  root it is a no-op, which is why the default preview is untouched to the byte.
+
+- **A weight set belongs to a search configuration, not only to a generator**
+  (`PILOT.md` §P6.4, §P8.1, §P5). `Weights::exact`'s `t_slots` was tuned at two
+  plies with the budget lifted, and at the one effective ply the default budget
+  allows it digs a slot it can never cash — **six top-outs in eight games**,
+  which is the uncapped-`well_rows` failure for the third time. So `exact` and a
+  budget that fits a walk are one decision the way §P6.4's three defaults are:
+  `ftm-pilot --exact` brings its own `--nodes` unless told otherwise, and
+  anything else that ever offers the walk has to answer this before it offers
+  it. P7's "byte for byte" was true when P7 measured it and is not a rule; the
+  rule is the bullet above.
 
 - **Both generators produce input sequences and neither predicts** (`PILOT.md`
   §P4.1, §P4.2). `placement.rs` rotates at spawn, shifts and hard-drops;
@@ -1616,7 +1656,12 @@ planned game in the test suite.
   expansions begun and abandoned. That is §P6.4's "best fully evaluated move"
   demonstrated at 16,000 pieces rather than in a unit test, and it is the whole
   argument for the default. Read it that way if a future stage wonders whether
-  the budget is really binding.
+  the budget is really binding. (**P8 amends this.** It was true here and stopped
+  being true when `t_slots` arrived, because the code did not implement §P6.4 —
+  the free branches of an exhausted beam were being ranked. It is nearly true
+  again after the fix and not exactly: a beam that bottoms out *entirely* in
+  leaves is a legitimately complete second ply and may legitimately differ. What
+  is a rule is §P6.4; this was an observation.)
 - **There is no cheap corner where the walk wins.** On 8 × 2,000: §P4.1 at one
   ply is 39.2M at 142 µs, §P4.2 at one ply is 40.7M at 2,019 µs, and §P4.1 at
   *two* plies is 43.6M at 2,484 µs. At the same wall cost the second ply is
@@ -1712,6 +1757,89 @@ planned game in the test suite.
 
 ---
 
+## What P8 settled
+
+- **C1-C11 and C13 are signed off one by one, and the table in `PILOT-PLAN.md`
+  P8 says how each was checked.** Two of them needed something the tree did not
+  have. C3's "and under `make portable`'s target" is not something `make
+  portable` proves — it compiles for wasm32 and never runs there — so a
+  throwaway crate over the `ftm` lib folded twelve configurations into one FNV
+  digest and it came back **`e88ff742` on the host and `e88ff742` under Node**.
+  That is G6's lesson honoured rather than repeated: a difference only a 32-bit
+  target has is invisible to every test in the tree. And C9 and C10 are the
+  driven-and-screenshotted checks the two front-ends already had recipes for.
+- **C12 was watched and it failed the first time, which is the third time a
+  watched game has beaten the whole test suite** — and then passed on both front
+  ends after the fix. Every other criterion in §P9 is a test, a capture or a
+  `git log`, and every one of them was green while this was wrong. The player's
+  `preview_count` is 1; the
+  benchmark's is 5 and §P8.1 forbids it to read the config file. At §P6.1's two
+  plies **a preview of 1 is the only configuration that needs §P6.3's chance
+  node** — previews 2 to 6 are byte-identical — and a chance node costs one
+  expansion *per root*, so the ply costs ~7× what §P6.4 sized the budget for.
+  The budget truncated the beam, §P6.4 handed back the one-ply answer, and the
+  planner was **a one-ply planner running two-ply weights**: it built the well
+  `well_rows` asks for and never planned the `I` that cashes it, digging a shaft
+  fourteen rows deep and stacking the rest into the ceiling. §P6.2's width is
+  divided by the root count now — held-out seeds go from 4 top-outs in 32 and
+  47.7M to **none and 61.1M**, and preview 5 is byte-identical.
+- **A knob that changes nothing is the loudest clue there is.** Sweeping §P6.3's
+  80/20 blend across four values gave byte-identical reports, which is what said
+  the second ply was never being evaluated. Before tuning a parameter, check it
+  reaches the code at all.
+- **Two good stories were measured and rejected, and that is the half worth
+  remembering.** Capping the `wells` exemption at the four rows an `I` can clear
+  reads exactly like the `well_rows` cap — and on eight seeds it looked like a
+  fix, and on held-out seeds it bought nothing at preview 1 and cost 2.7% at
+  preview 5. This file has warned since the first retune that the surface is
+  noisy at eight seeds. The warning was read and the result was still nearly
+  taken; **confirm on held-out seeds before believing a weight, not after.**
+- **`make bench` measures one point in a space §6.3 lets the player move.**
+  §P8.1's refusal to read the config file is right and stays, but the corollary
+  is that `preview_count`, `start_level` and the rest are settings the baseline
+  never exercises. A configuration the game offers and no baseline runs is a
+  configuration nobody has measured.
+- **C11 found a real bug, which is why the acceptance stage is not a
+  formality — the third time in this repo, after G13's B8 and P4's two
+  amendments.** `ftm-pilot --exact` topped out **six games in eight** where P7
+  had measured none. §P6.4's "a partly evaluated branch is never chosen" was
+  honoured at the branch and broken at the *beam*: `subtree` charges nothing
+  for a fork that has topped out, so with the budget gone the branches that came
+  back with a value were exactly the ones that lose, and the search preferred
+  that prefix to the complete one-ply answer. A beam the budget cuts short is
+  discarded entirely now, and §P6.4 says so in words as well as in code.
+- **The bug could not reach the live game, and that was measured, not
+  argued.** Over `make bench`'s 16,000 searches the shipped configuration's
+  worst search cost **1,784 nodes of its 2,000** and none reached the budget.
+  Both baselines are byte-identical across the fix. Before concluding that a
+  search-budget change is safe, measure the *maximum*, not the mean — §P8.2
+  reports neither.
+- **The second cause was a weight set outside the configuration it was tuned
+  in.** `Weights::exact`'s `t_slots` was tuned at two plies with the budget
+  lifted; at one ply it digs a slot it can never cash, which is the
+  uncapped-`well_rows` failure for the third time. **A weight set belongs to a
+  search configuration and not only to a generator**, and `ftm-pilot --exact`
+  now brings a budget it can spend unless `--nodes` names one.
+- **The test that guarded the rule could not have failed, and the replacement
+  asserts the rationale instead of an instance.** The old one asked about an
+  empty board on the first piece, where every candidate costs the same to expand
+  and no free branch exists. The new one sweeps the *budget* and requires every
+  answer to be either the one-ply answer or the whole two-ply answer and never a
+  third; it fails at `nodes 111` without the fix. Two constructions in between
+  did not work and both are instructive — a starved *game* never gets tall,
+  because a starved planner plays the one-ply game and the one-ply game plays
+  well; and a board built by hand gets so precarious that the whole beam bottoms
+  out in leaves, which is a legitimately complete ply and a legitimately
+  different answer. In a real `--exact` game the first divergence is at **piece
+  649**. When an instance is out of a debug build's reach, test the property.
+- **There is an `--exact` baseline now**, the first at `make bench`'s batch size:
+  8 × 2,000, **79,852,269 score, 6,364 lines, no top out, 1,590,431,335
+  nodes** — +26% on the same lines for 11× the wall cost (29,869 µs a piece
+  against 2,738). P7's 35× was measured against different weights and is not
+  this number; the conclusion is unchanged, and only the default fits a frame.
+
+---
+
 ## Open decisions
 
 - **The legacy key path's feel (§8.2).** Measured over two seconds of holding
@@ -1742,8 +1870,12 @@ cargo fmt --check
 make bench           # PILOT.md §P8's baseline: 8 seeds x 2000 pieces, release.
                      # BENCH_ARGS="--seeds 5 --pieces 20000" for anything else;
                      # `--json` for the same figures with a `timing` key.
-                     # BENCH_ARGS="--exact --nodes 10000000 --pieces 400" is
-                     # §P4.2's walk at two plies -- 35x, so keep the batch short.
+                     # BENCH_ARGS="--exact --pieces 400" is §P4.2's walk at two
+                     # plies -- 11x, so keep the batch short. Since P8 `--exact`
+                     # brings its own node budget: at Settings::default()'s it
+                     # is a one-ply search under two-ply weights and tops out
+                     # six games in eight. `--nodes` still overrides it, which
+                     # is how that is measured again.
 cargo run --release  # play it (`default-run` picks `ftm` of the three bins)
 make run-gui         # the window (`cargo run --release --features gui --bin ftm-gui`)
 make run-web         # the same in a tab: `trunk serve`, http://127.0.0.1:8080/?seed=42
@@ -1827,7 +1959,14 @@ runs of forty for a top out.
 `screencapture -x -o shot.png` takes the screen without a shutter sound or a
 cursor, and `sips -c H W --cropOffset Y X` trims it to the window — the two
 together are how B3, B5, B9 and B10 were checked. It needs **Screen Recording**
-permission, granted once beside the Accessibility one. This is what turns "a
+permission, granted once beside the Accessibility one.
+
+**It captures the whole screen, which is the developer's screen.** When the keys
+go astray the game is not the front window and the shot is of whatever is —
+mail, messages, someone else's window. That happened at C12. Crop to the game's
+own rectangle rather than reading a full-screen grab, delete the file when the
+check is done, and treat "the shot does not show the game" as a reason to stop
+and re-run rather than to look closer at what it does show. This is what turns "a
 person has to look at it" from a blocker into a step: G13 read the attract
 screen, the six previews, the controls table with two bindings gone, and the
 pause that another application stealing focus forced, off actual pixels. A
