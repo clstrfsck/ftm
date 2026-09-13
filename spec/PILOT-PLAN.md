@@ -805,6 +805,23 @@ it was checked, not merely that it was.
 | C12 | Watched | A person watches a full game on each front end and judges that it plays sensibly. No test in the tree can see this. |
 | C13 | Baseline intact | I1's snapshot and §19.4's canary unmoved; the terminal's output byte-for-byte what it was outside the menu row. |
 
+**The figures C11 is measured against**, as of the T-spin commit and *not* as of
+P6 or P7 — the weights have moved three times since P6, so the tables in those
+stages are history and this is the live number. `make bench`, 8 seeds × 2,000
+pieces, `Settings::default()`:
+
+```
+total    8 games  16000 pieces  6361 lines  63281640 score  28488455 nodes
+mean     7910205 score  795 lines  2000 pieces per game
+top out  0 of 8 (0/1000)
+```
+
+Everything above `timing` reproduces byte for byte and everything below it does
+not, which is §P8.2's seam and is what C11 actually asserts. The `--exact` path
+has no committed baseline at this batch size and wants one recorded here when
+C11 is done, because it is now a **different weight set** (`Weights::exact`) and
+not merely a different generator.
+
 ## Completion criteria
 
 PILOT is complete when both native front ends can start and watch the same

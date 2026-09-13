@@ -1698,6 +1698,12 @@ planned game in the test suite.
   `pilot_plan.txt` are both unchanged: §P4.1 essentially never produces a spin,
   so re-pricing spins changed no plan it makes. The 8 × 2,000 benchmark moved
   +0.06%, which is the whole of the default path's interest in T-spins.
+- **The live baseline is the T-spin commit's, not P6's or P7's.** The weights
+  have moved three times since P6, so those stages' tables are history. `make
+  bench` is **16,000 pieces, 6,361 lines, 63,281,640 score, 28,488,455 nodes, no
+  top out**, and `PILOT-PLAN.md`'s P8 stage records it as the figure §P9's C11 is
+  measured against. `--exact` has no committed baseline at that batch size, and
+  it now differs by *weight set* as well as by generator.
 - **What is still not priced.** A T-spin *triple* has no progress feature — its
   slot is a three-deep overhang, and rewarding one would be rewarding a much
   worse board for a prize far less likely to be collected. And `t_slots` says
