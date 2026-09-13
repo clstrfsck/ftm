@@ -911,6 +911,31 @@ readable backtrace and exited 101.
   against 2,738). P7's 35× was measured against different weights and is not
   this number; the conclusion is unchanged, and only the default fits a frame.
 
+## Where the web build is served
+
+- **GitHub Pages, at `https://clstrfsck.github.io/ftm/`**, which closes the open
+  decision `Trunk.toml` had been carrying since G6. The README links it; `GUI.md`
+  §G8.1 records it. It is a one-job addition rather than a piece of
+  infrastructure because §1.2 put network play out of scope: with no server
+  behind it, hosting the game is hosting a directory.
+- **`public_url = "./"` is what made it free**, and it was written for this
+  before there was anywhere to put it. A project page serves `dist/` under a
+  `/ftm/` prefix, and nothing in the artefact knows: the same bytes run under
+  `trunk serve` at the root, under Pages in a subdirectory and from a `file://`
+  directory. Had the URLs been absolute, the prefix would have had to be built
+  in, and the local and served artefacts would have been two builds.
+- **CI deploys what CI checked, rather than rebuilding.** The `web` job uploads
+  the Pages artefact on every run — including a pull request's, so a packaging
+  break surfaces where it was written — and a separate `deploy` job, gated on a
+  push to `main`, publishes it. Two jobs rather than one for two reasons: an
+  `environment:` on the build job would record a deployment a pull request never
+  made, and the deployment permissions (`pages: write`, `id-token: write`) stay
+  off the job that runs trunk.
+- **The one step that is not in the repository** is Settings → Pages → Source:
+  **GitHub Actions**. `deploy-pages` fails with a clear message until it is set,
+  which is the right failure — but it is not something the workflow can do for
+  itself, so a fork of this repository has to do it too.
+
 ---
 
 

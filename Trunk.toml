@@ -11,6 +11,9 @@
 [build]
 target = "index.html"
 dist = "dist"
-# Relative asset URLs, so that `dist/` works wherever it is put -- where the
-# web build is served is still an open decision in EGUI-PLAN.md.
+# Relative asset URLs, so that `dist/` works wherever it is put. Where it is
+# put is now GitHub Pages, under the `/ftm/` prefix a project page adds
+# (GUI.md §G8.1) -- and this line is why that prefix needs saying nowhere: the
+# artefact is the same bytes served from a project page, a user page, a local
+# `trunk serve` or a file:// directory.
 public_url = "./"

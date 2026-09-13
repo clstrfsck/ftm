@@ -2037,7 +2037,11 @@ not make on its own.
   panel over the window's bottom-left corner, outside §G3's metric (§G4.6). The
   nine figures and their words are `Debug::figures`, shared with the terminal's
   strip.
-- **Where the web build is served, and whether high scores stay local.**
+- ~~**Where the web build is served, and whether high scores stay local.**~~
   `localStorage` makes every visitor's table private to their browser, which is
   the honest default and needs no server. A shared leaderboard is a §19 question
-  wearing different clothes, and is not in this plan.
+  wearing different clothes, and is not in this plan. **The other half settled
+  after the plan closed: GitHub Pages**, published from CI's `web` job by a
+  `deploy` job beside it, and linked from the README. It cost one job and no
+  change to the artefact, because `public_url = "./"` had been written for it
+  since G6. `GUI.md` §G8.1, and `NOTES.md`'s "Where the web build is served".

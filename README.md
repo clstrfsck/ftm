@@ -23,6 +23,10 @@ It has no server and no `unsafe`, and its pure rules core is independent of
 the front-end displaying it. The game advances at a fixed 60 Hz, making a run
 fully reproducible from its seed and inputs.
 
+**[▶ Play FTM in your browser](https://clstrfsck.github.io/ftm/)** — the same
+game, compiled to WebAssembly. It needs a keyboard; there are no touch
+controls. Append `?seed=42` for a deterministic run.
+
 <table>
   <tr>
     <td align="center">

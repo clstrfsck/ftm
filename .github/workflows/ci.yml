@@ -48,6 +48,10 @@ jobs:
   # already compiles and lints the web front-end (`make web-check`); what this
   # adds is wasm-bindgen, wasm-opt and index.html, which only trunk runs.
   #
+  # It is also what `deploy` below publishes, so the artefact this job checks
+  # and the one a player is served are the same bytes rather than two builds
+  # that agree.
+  #
   # trunk is pinned and fetched as a release binary rather than built, because
   # building it is minutes of CI for a tool; it fetches the wasm-bindgen that
   # matches Cargo.lock by itself. No apt-get: nothing here links against the
@@ -65,6 +69,43 @@ jobs:
             | tar -xz -C ~/.cargo/bin trunk
           trunk --version
       - run: make web
+      # The artefact `deploy` publishes, uploaded on every run rather than only
+      # on `main`: a pull request that breaks the packaging should say so where
+      # it is broken, not on the merge. Uploading is not deploying -- nothing
+      # reaches a URL until the job below takes it.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  # Where the web build is served (GUI.md §G8.1). `Trunk.toml` sets
+  # `public_url = "./"`, so `dist/` needs no knowledge of the `/ftm/` prefix a
+  # project page puts it under, and this job is the whole of the deployment:
+  # the bytes are the ones `web` built and CI already lints, tests and checks,
+  # so a player is served exactly the artefact `make web` produces.
+  #
+  # `main` only, and pushes only -- a pull request builds and uploads above,
+  # which is where a packaging break should surface, and publishes nothing.
+  # The environment is on this job rather than on `web` so that a pull request
+  # does not record a deployment it never made.
+  deploy:
+    needs: web
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    # One page, one deployment at a time, and a queued one is not cancelled:
+    # the last push to `main` should win, and cancelling would leave whichever
+    # run lost the race as the published one.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deploy
 
   # Not a Makefile target: it is the one command here that means nothing
   # without a pinned toolchain of its own. The version is `rust-version` in

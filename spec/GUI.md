@@ -982,6 +982,17 @@ Manager** — and its icon is empty, because §1.3's trademark rules reach both.
 --release` for the artefact in `dist/` (`make web`). Asset URLs are relative, so
 `dist/` works wherever it is put.
 
+**Where it is put is GitHub Pages**, at `https://clstrfsck.github.io/ftm/`, and
+CI's `deploy` job publishes what CI's `web` job built on every push to `main`.
+That is the whole of the hosting: §1.2 puts network play out of scope and §19 is
+a list of constraints rather than a component, so there is nothing behind the
+page. A directory of static files is not a reduced deployment here; it is the
+only kind this game has. The `/ftm/`
+prefix a project page adds is why `public_url` is relative rather than absolute
+— the artefact is not told where it is served from, and the same `dist/` runs
+under `trunk serve` at the root and under Pages in a subdirectory. A future move
+to a domain of its own is a DNS change and nothing else.
+
 The entry point, in order: make the `eframe::WebRunner` (which installs the panic
 hook, §G8.5); read the query string (§G8.4); open `localStorage` (§G8.3);
 resolve §6.1's three sources; report what that had to say (§G8.6); start. On
