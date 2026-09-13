@@ -26,6 +26,12 @@ use crate::core::{Game, GameEvent, GameView, PieceKind, PlayState, SearchGame, T
 /// When the queue runs out the fork stops spawning and says so
 /// ([`Fork::exhausted`]). A search reaches its horizon because the object it
 /// runs on does.
+///
+/// It is `Clone` because a search past one ply continues from a position rather
+/// than replaying to it from the top: a ply-1 node is cloned once per candidate
+/// the ply after it (§P6.2). A clone is exactly as fair as the fork it came
+/// from, which is exactly as fair as the queue [`Fork::of`] was given.
+#[derive(Clone)]
 pub struct Fork {
     inner: SearchGame,
 }

@@ -3,14 +3,14 @@ ftm-pilot -- PILOT.md §P8
 rules    preview 5  hold on  180 on  ghost on  lock-down extended
          start level 1  lines/level 10  lock delay 30t  soft drop x20
          das 10t  arr 2t  clear delay 15t  entry delay 0t
-search   depth 2  beam 16  nodes 100000
+search   depth 2  beam 16  nodes 2000
 batch    3 seeds  60 pieces
 
          seed        score     lines    pieces   level  ended         nodes
-            0         5994        20        60       3    cap          6240
-            1         6734        22        60       3    cap          6240
-           42         8980        22        60       3    cap          6240
+            0         6896        23        60       3    cap        107040
+            1         6536        22        60       3    cap        107040
+           42         6292        22        60       3    cap        106305
 
-total    3 games  180 pieces  64 lines  21708 score  18720 nodes
-mean     7236 score  21 lines  60 pieces per game
+total    3 games  180 pieces  67 lines  19724 score  320385 nodes
+mean     6574 score  22 lines  60 pieces per game
 top out  0 of 3 (0/1000)

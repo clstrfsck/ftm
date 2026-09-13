@@ -383,12 +383,30 @@ mod tests {
             assert!(!run.topped_out);
             assert!(!run.stalled);
             assert!(run.counted.nodes > 0, "a planned piece costs nodes");
-            assert_eq!(run.counted.nodes, run.counted.placements, "one ply");
+            assert!(
+                run.counted.nodes > run.counted.placements,
+                "§P8.2: at §P6's default depth a beam evaluates interior states \
+                 that are nobody's placement -- {:?}",
+                run.counted,
+            );
         }
         assert_eq!(report.aggregate.games, 3);
         assert_eq!(report.aggregate.pieces, 60);
         assert_eq!(report.aggregate.topped_out, 0);
         assert_eq!(report.aggregate.top_out_rate_per_mille(), 0);
+    }
+
+    #[test]
+    fn one_ply_evaluates_a_placement_and_nothing_else() {
+        // §P8.2's two counters, from the one side where they still agree: at a
+        // single ply every node is a placement, because there is no interior to
+        // expand and nothing to look up. Everything about their parting above is
+        // read against this.
+        let mut batch = batch(vec![1], 20);
+        batch.settings.depth = 1;
+        for run in &run(&batch).runs {
+            assert_eq!(run.counted.nodes, run.counted.placements);
+        }
     }
 
     #[test]

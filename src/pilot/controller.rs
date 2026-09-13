@@ -20,26 +20,21 @@
 //! predicted is a **bug**, and is caught by a debug assertion as it is
 //! consumed.
 //!
-//! What it does *not* do yet is look ahead. P3's choice is one ply: every
-//! placement §P4.1's generator can reach, scored by §P5's evaluation of the
-//! board it leaves behind, with §P6.4's tie-breaks. The beam, the chance nodes
-//! and the node budget are P6's, and [`Settings`] carries their numbers from
-//! here so the signature they arrive into is the one already written down.
+//! **How far it looks is [`search`]'s** (§P6), and what this file owns is the
+//! *position* the search is given: the fair roots of §P2.1. One root when the
+//! preview reaches the horizon, and one per hypothesis when it does not — which
+//! is the only place in the planner that decides what a search is allowed to
+//! know, and is deliberately not inside the search itself.
 
-use crate::core::{Game, GameEvent, GameView, PlayState, TickInput};
+use crate::core::{Game, GameEvent, GameView, PieceKind, PlayState, TickInput};
 use crate::pilot::eval::Weights;
+use crate::pilot::fork::Fork;
 use crate::pilot::knowledge::Knowledge;
-use crate::pilot::placement::{self, Placement, Prediction};
+use crate::pilot::placement::{self, Prediction};
+use crate::pilot::search;
 use crate::shell::config::RulesConfig;
 
 /// How hard the planner is asked to think (§P3.4).
-///
-/// P3 reads **none of these**: its search is one ply over §P4.1's placements,
-/// which has no horizon to clamp, no states to prune and no budget to run out
-/// of. They are here rather than in P6 because `Pilot::new`'s signature is
-/// §P3.4's and a settings-shaped argument that appears two stages later is a
-/// signature that changes under its callers. P6 is where they start meaning
-/// something.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
     /// Plies, clamped by `preview_count` (§P6.1).
@@ -51,14 +46,21 @@ pub struct Settings {
 }
 
 impl Default for Settings {
-    /// §P6.1's two plies, and provisional numbers for the other two: P5
-    /// measures the budget that fits a frame and P6 is where it is written
-    /// down.
+    /// §P6.1's two plies, a beam of sixteen, and the budget P5 measured.
+    ///
+    /// The three are one decision rather than three. P5 measured a frame at
+    /// ~11,900 nodes and §15.2 step 4 may play `MAX_CATCH_UP_TICKS` ticks before
+    /// it draws, so a search may spend a sixth of that: **~2,000 nodes**. Two
+    /// plies over a beam of sixteen costs 104 candidates plus sixteen
+    /// expansions of about 104 each — a little under 1,800 — which is what makes
+    /// these particular three numbers the ones that fit. A wider beam or a
+    /// third ply would be spent by the budget rather than played, and §P6.4's
+    /// answer would quietly become a shallower one.
     fn default() -> Self {
         Self {
             depth: 2,
             beam: 16,
-            nodes: 100_000,
+            nodes: 2_000,
         }
     }
 }
@@ -163,45 +165,72 @@ impl Pilot {
         self.plan.emit().unwrap_or_default()
     }
 
-    /// Plan the piece in play: every placement §P4.1 can reach, scored by §P5's
-    /// evaluation of the board it leaves behind.
+    /// Plan the piece in play (§P6).
     ///
-    /// The queue the forks are dealt is `view.next` and nothing else — exactly
-    /// `preview_count` pieces, which is what the player can see (§P2.1). One
-    /// ply needs no hypothesis beyond it; §P6.3's chance nodes are where
-    /// [`Knowledge::hypotheses`] is read.
+    /// Two steps, and the order of them is the information boundary. First the
+    /// **roots**: the live game forked on what the player can see, and — when
+    /// the search wants a piece past the preview — one such fork per hypothesis
+    /// §P2.4 says is still in the bag. Then the search, which sees forks and
+    /// settings and nothing else, and so cannot widen what it was given.
     fn think(&mut self, game: &Game, view: &GameView) -> Plan {
-        let placements = placement::placements(game, &view.next, &self.rules);
-        // One ply: every placement generated is a placement evaluated, so the
-        // two counters move together here and will not in P6.
-        let counted = placements.len() as u64;
-        self.counted.placements += counted;
-        self.counted.nodes += counted;
-        let Some(chosen) = choose(&placements, &self.weights) else {
-            // Unreachable: the generator always offers the piece where it
-            // stands. Falling back to an empty plan rather than panicking means
-            // the worst a future change here can do is let gravity play the
-            // piece.
-            debug_assert!(false, "§P4.1's generator offered nothing");
-            return Plan::spent();
-        };
-        let inputs = placements[chosen].inputs.clone();
+        let depth = search::depth_for(self.settings.depth, view.next.len());
+        let roots = self.roots(game, view, depth);
+        let chosen = search::plan(&roots, &self.rules, self.settings, &self.weights, depth);
+        self.counted.nodes += chosen.counted.nodes;
+        self.counted.placements += chosen.counted.placements;
+        debug_assert!(
+            !chosen.inputs.is_empty(),
+            "§P4.1's generator offered nothing",
+        );
         // §P3.1's divergence check, and the only thing in this file that costs
         // anything it does not have to: one more replay of the chosen sequence,
         // recording what it predicts tick by tick. `PILOT-PLAN.md` has it
         // debug-shaped for exactly that reason, and a release build records
         // nothing and compares nothing.
+        //
+        // Predicted against a fork of the **visible** queue, never against one
+        // of the hypothesis roots: a hypothesis is a piece the live game has not
+        // promised to deal, so a prediction made on one would diverge whenever
+        // the guess was wrong, which is not what the assertion is looking for.
         let predicted = if cfg!(debug_assertions) {
-            placement::predict(game, &view.next, &inputs)
+            placement::predict(&Fork::of(game, &view.next), &chosen.inputs)
         } else {
             Vec::new()
         };
         Plan {
-            inputs,
+            inputs: chosen.inputs,
             predicted,
             pending: None,
             at: 0,
         }
+    }
+
+    /// The positions a search may start from (§P2.1, §P6.3).
+    ///
+    /// One when the preview reaches the horizon, which is the ordinary case at
+    /// §6.3's default of five and a depth of two. When it does not — a preview
+    /// of 1, where §P6.1's second ply is already a chance node — it is one root
+    /// per piece that could still come out of the open bag, and §P6.3's blend
+    /// over them is what a chance node means here. The hypotheses are the
+    /// planner's own arithmetic over pieces it *saw* dealt, which is the whole of
+    /// why a fork cannot be fed a piece the player could not have worked out.
+    fn roots(&self, game: &Game, view: &GameView, depth: u8) -> Vec<Fork> {
+        if search::hypotheses_needed(depth, view.next.len()) == 0 {
+            return vec![Fork::of(game, &view.next)];
+        }
+        let hypotheses = match self.knowledge.as_ref() {
+            Some(knowledge) => knowledge.hypotheses(&view.next),
+            // Unreachable: `start` builds the tracker before anything plans.
+            None => return vec![Fork::of(game, &view.next)],
+        };
+        hypotheses
+            .iter()
+            .map(|hypothesis| {
+                let mut queue: Vec<PieceKind> = view.next.clone();
+                queue.push(hypothesis);
+                Fork::of(game, &queue)
+            })
+            .collect()
     }
 
     /// Start the bag tracker from the piece already in play (§P2.4).
@@ -317,35 +346,10 @@ impl Plan {
     }
 }
 
-/// §P6.4's choice: the best placement, and the same one on every machine.
-///
-/// The score is §P5's weighted sum. Ties are broken by lower top-out risk —
-/// whether the branch ended in §9.16, and then how tall it left the stack —
-/// then by fewer inputs, then by the generator's canonical order, which is the
-/// index. Every one of those is an integer comparison over a deterministic
-/// list, so two builds cannot disagree.
-fn choose(placements: &[Placement], weights: &Weights) -> Option<usize> {
-    placements
-        .iter()
-        .enumerate()
-        .min_by_key(|(index, placement)| {
-            let features = &placement.features;
-            (
-                std::cmp::Reverse(features.evaluate(weights)),
-                features.outcome.topped_out,
-                features.board.max_height,
-                placement.inputs.len(),
-                *index,
-            )
-        })
-        .map(|(index, _)| index)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::{Action, PlayState};
-    use crate::pilot::eval::{Board, Features, Outcome};
 
     /// The defaults with §6.3's three gameplay settings changed.
     ///
@@ -364,19 +368,53 @@ mod tests {
     /// What a round looks like from outside: input, tick, observe — §15.2's
     /// order, with no screen and no clock. Stops at a top out or at `pieces`.
     ///
-    /// This is the loop `App::advance` will run in P4, written out here because
+    /// This is the loop `App::advance` runs since P4, written out here because
     /// the planner must be drivable without a front-end at all (§P3.3).
     fn watch(rules: &RulesConfig, seed: u64, pieces: u32) -> Game {
+        played(rules, Settings::default(), seed, pieces).0
+    }
+
+    /// The default settings at another depth.
+    fn settings(depth: u8) -> Settings {
+        Settings {
+            depth,
+            ..Settings::default()
+        }
+    }
+
+    /// The same round, and the two things worth knowing about it afterwards:
+    /// where it got to, and the most any one search cost on the way.
+    fn played(
+        rules: &RulesConfig,
+        settings: Settings,
+        seed: u64,
+        pieces: u32,
+    ) -> (Game, Counted, u64) {
         let mut game = Game::new(rules.clone(), seed);
-        let mut pilot = Pilot::new(rules, Settings::default());
+        let mut pilot = Pilot::new(rules, settings);
         let mut events = Vec::new();
+        let mut dearest = 0;
         while game.view().pieces < pieces && game.state() != PlayState::ToppedOut {
+            let before = pilot.counted().nodes;
             let input = pilot.input(&game);
+            dearest = dearest.max(pilot.counted().nodes - before);
             events.clear();
             game.tick(&input, &mut events);
             pilot.observe(&events);
         }
-        game
+        let counted = pilot.counted();
+        (game, counted, dearest)
+    }
+
+    /// `played`, for the tests that want the figures rather than the game.
+    fn counted_watch(
+        rules: &RulesConfig,
+        settings: Settings,
+        seed: u64,
+        pieces: u32,
+    ) -> (GameView, Counted) {
+        let (game, counted, _) = played(rules, settings, seed, pieces);
+        (game.view(), counted)
     }
 
     #[test]
@@ -512,9 +550,9 @@ mod tests {
 
     #[test]
     fn it_takes_the_settings_it_was_given() {
-        // P3 reads none of them; P6 does. Holding them is the point, so that
-        // the signature the benchmark and the front-ends are written against is
-        // the one §P3.4 already specifies.
+        // §P3.4's signature, and §P6's three numbers. The default is one
+        // decision rather than three: P5 measured the budget, and two plies over
+        // a beam of sixteen is what fits inside it.
         let settings = Settings {
             depth: 3,
             beam: 8,
@@ -523,111 +561,59 @@ mod tests {
         let pilot = Pilot::new(&RulesConfig::default(), settings);
         assert_eq!(pilot.settings(), settings);
         assert_eq!(Settings::default().depth, 2, "§P6.1's two plies");
-    }
-
-    /// A candidate with no inputs worth reading, described by its features
-    /// alone: what is under test in the two below is the ordering, not the
-    /// generator.
-    fn candidate(inputs: usize, board: Board, outcome: Outcome) -> Placement {
-        Placement {
-            inputs: vec![TickInput::default(); inputs],
-            features: Features { board, outcome },
-        }
+        assert_eq!(Settings::default().beam, 16, "§P6.2's beam");
+        assert_eq!(Settings::default().nodes, 2_000, "§P6.4, measured by P5");
     }
 
     #[test]
-    fn a_planner_prefers_the_board_it_would_rather_be_left_with() {
-        // §P6.4's choice, on the one comparison the starting weights must get
-        // right (§P5, and `eval`'s own test of it): given two placements that
-        // differ only in a hole, the one without it wins.
-        let weights = Weights::default();
-        let clean = candidate(1, Board::default(), Outcome::default());
-        let holed = candidate(
-            1,
-            Board {
-                holes: 1,
-                ..Board::default()
-            },
-            Outcome::default(),
+    fn no_one_search_costs_more_than_the_budget_and_the_ply_it_was_inside() {
+        // §P6.4, over a game rather than a position. The budget stops a search
+        // between one ply and the next, so what it bounds is the budget plus the
+        // generation it was in the middle of — 104 candidates at §P4.1's span,
+        // and a search is always allowed the first ply whatever it is given.
+        let rules = rules(5, true, true);
+        let (_, _, dearest) = played(&rules, Settings::default(), 42, 30);
+        let budget = u64::from(Settings::default().nodes);
+        assert!(
+            dearest <= budget + 2 * 104,
+            "one search cost {dearest} nodes against a budget of {budget}",
         );
-        assert_eq!(choose(&[holed, clean], &weights), Some(1));
-        assert_eq!(choose(&[], &weights), None);
+        assert!(dearest > 1_000, "and a two-ply search is not cheap");
     }
 
     #[test]
-    fn ties_are_broken_the_same_way_on_every_machine() {
-        // §P6.4: equal evaluations go to the lower top-out risk, then to the
-        // shorter input sequence, then to the generator's canonical order.
-        // Scored against an opinion of nothing, so that every candidate here
-        // evaluates to zero and only the tie-breaks can separate them.
-        let indifferent = Weights {
-            lines: 0,
-            holes: 0,
-            covered: 0,
-            aggregate_height: 0,
-            max_height: 0,
-            bumpiness: 0,
-            row_transitions: 0,
-            column_transitions: 0,
-            blockades: 0,
-            wells: 0,
-            top_out: 0,
-            combo: 0,
-            back_to_back: 0,
-            perfect_clear: 0,
-        };
-        let tall = Board {
-            max_height: 12,
-            ..Board::default()
-        };
-        let ended = Outcome {
-            topped_out: true,
-            ..Outcome::default()
-        };
+    fn two_plies_look_further_than_one_and_cost_more_for_it() {
+        // The stage from outside: the same seed at depth 1 and depth 2 is two
+        // different games, and the deeper one paid in nodes for the difference.
+        let rules = rules(5, true, true);
+        let (one, shallow) = counted_watch(&rules, settings(1), 42, 40);
+        let (two, deep) = counted_watch(&rules, settings(2), 42, 40);
+        assert!(
+            deep.nodes > shallow.nodes * 5,
+            "{deep:?} against {shallow:?}",
+        );
+        assert_ne!(
+            one.rows, two.rows,
+            "two plies chose the same moves as one for forty pieces",
+        );
+    }
 
-        // A branch that ended in §9.16 loses to one that did not, whatever the
-        // weights are told to think of it.
-        assert_eq!(
-            choose(
-                &[
-                    candidate(1, Board::default(), ended),
-                    candidate(9, Board::default(), Outcome::default()),
-                ],
-                &indifferent,
-            ),
-            Some(1),
-        );
-        // Then the shorter stack, then the shorter sequence.
-        assert_eq!(
-            choose(
-                &[
-                    candidate(1, tall, Outcome::default()),
-                    candidate(9, Board::default(), Outcome::default()),
-                ],
-                &indifferent,
-            ),
-            Some(1),
-        );
-        assert_eq!(
-            choose(
-                &[
-                    candidate(6, Board::default(), Outcome::default()),
-                    candidate(2, Board::default(), Outcome::default()),
-                ],
-                &indifferent,
-            ),
-            Some(1),
-        );
-        // ...and then the generator's own order, which is the index.
-        assert_eq!(
-            choose(
-                &[
-                    candidate(3, Board::default(), Outcome::default()),
-                    candidate(3, Board::default(), Outcome::default()),
-                ],
-                &indifferent,
-            ),
-            Some(0),
+    #[test]
+    fn a_preview_of_one_searches_over_hypotheses_and_still_plays() {
+        // §P6.1 and §P6.3 in the configuration that makes them ordinary: at
+        // §6.3's smallest preview the second ply is a chance node, so the roots
+        // are one per piece still in the bag and the values are blended. It has
+        // to play, and it has to cost more than a preview that needs no
+        // hypothesis at all.
+        let narrow = rules(1, true, true);
+        let wide = rules(5, true, true);
+        let (view, counted) = counted_watch(&narrow, Settings::default(), 42, 30);
+        assert_eq!(view.pieces, 30);
+        assert!(view.lines > 0, "it cleared nothing in thirty pieces");
+        let (_, cheap) = counted_watch(&wide, Settings::default(), 42, 30);
+        assert!(
+            counted.nodes > cheap.nodes,
+            "a chance node costs more: {counted:?} against {cheap:?}",
         );
     }
 }

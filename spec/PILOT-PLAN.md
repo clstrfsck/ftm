@@ -544,13 +544,117 @@ Done, and docs only: no code was written, and `src/` is byte-identical.
   `controller.rs` and `fork.rs`. The spec is ground truth and was wrong, which
   is the case the rule is written for.
 
-### P6 — Lookahead
+### P6 — Lookahead ✅
 
 - Leaf evaluation, two-ply search, beam pruning, the transposition cache,
   chance nodes over the inferred remainder, and the 80/20 blend.
 - The node budget and the best-fully-evaluated-move rule.
 - Fixed-seed plan snapshots, and the hidden-future isolation test.
 - Report the improvement against P5's baseline, in the commit message.
+
+**What it settled.**
+
+- **The improvement is real, small, and smaller than the stage expected — because
+  P5's baseline was already at the ceiling.** A piece is four cells and a row is
+  ten, so 0.4 lines a piece is arithmetic and not a target. One ply was already
+  scoring 0.39881 of it at 8 × 2,000 and **0.39990 at 8 × 20,000**. There was
+  nowhere for a second ply to go:
+
+  | 8 seeds × 2,000 | lines | score | top out | µs/piece |
+  |---|---|---|---|---|
+  | one ply (P5) | 6,381 | 32,667,884 | 0 | 142 |
+  | two plies | **6,388** | **33,479,132** | 0 | 2,510 |
+  | one ply, `--preview 1` | 6,381 | 32,667,884 | 0 | 141 |
+  | two plies, `--preview 1` | **6,387** | 32,770,214 | 0 | 2,771 |
+  | one ply, `--no-hold` | 6,378 | 33,388,778 | 0 | 70 |
+  | two plies, `--no-hold` | **6,383** | 32,562,890 | 0 | 1,163 |
+  | one ply, `--preview 1 --no-hold` | 6,378 | 33,388,778 | 0 | 69 |
+  | two plies, `--preview 1 --no-hold` | **6,385** | 32,316,702 | 0 | 2,397 |
+
+  And the long run, which is where the ceiling is plainest — 160,000 pieces is a
+  theoretical 64,000 lines:
+
+  | 8 seeds × 20,000 | lines | of a possible | score | top out | µs/piece |
+  |---|---|---|---|---|---|
+  | one ply | 63,984 | 64,000 | 3,246,007,704 | 0 | 151 |
+  | two plies | **63,988** | 64,000 | **3,268,570,144** | 0 | 2,546 |
+
+  Four lines in a hundred and sixty thousand pieces. That is not a
+  disappointment in the search; it is the measurement telling you there was
+  0.025% of the axis left.
+
+  **Lines went up in all five configurations** — +7, +6, +5, +7, +4 — which is the
+  one metric here that is monotone in playing well. Score went up in one and down
+  in three, and that is not a quality signal: nothing in §P5's weights prefers a
+  quad to four singles, so the score is a by-product of which clear kinds the mix
+  happened to use. The cost is 8× to 18× the nodes.
+- **`--preview 1` stopped being free, which is how you can tell §P6.3 is
+  running.** At one ply the preview made no difference at all — the queue only
+  decides which piece a hold-into-an-empty-slot plays, and that one is visible —
+  so P5's `--preview 1` row is byte-identical to its default row. At two plies it
+  is not: the second ply is a chance node, seven roots are searched and blended,
+  and the figures move. A row that is suspiciously identical to another row is
+  worth looking at twice; this one was telling the truth both times.
+- **What lookahead did *not* buy is robustness, because there is none to buy.**
+  Zero top-outs at either depth, in every configuration, at 2,000 pieces and at
+  20,000 — 320,000 planned pieces across the two long runs without one.
+  The axis where a second ply should shine — surviving a stack one ply
+  would have buried itself under — cannot be measured against a baseline that
+  never dies. This is the honest answer to P7's open question as well: the
+  benchmark as specified has no headroom left to show, and a placement a hard
+  drop cannot reach will have to be justified by the placements themselves rather
+  than by a number going up.
+- **The three settings are one decision, and it is the budget's.** `nodes` is
+  2,000 now rather than 100,000, which was P5's stated first correction. Two plies
+  over a beam of sixteen costs 104 candidates plus sixteen expansions of about the
+  same — 1,784 measured, against the 2,000 a search may spend if six of them land
+  in one `MAX_CATCH_UP_TICKS` frame. Beam 16 is therefore not a taste: 32 would be
+  cut off by the budget halfway through, and §P6.4's answer would quietly become a
+  shallower one than `depth: 2` asked for. §P6.4 is amended to say so.
+- **The budget's granularity is a ply, and that had to be written down.** A
+  search is stopped between one ply and the next, never inside a generation, so it
+  may overrun by the placements of the ply it was in — 104 of them. The
+  alternative is comparing half a generation against a whole one, which is exactly
+  the dependence on *where the count ran out* that §P6.4 exists to forbid. The
+  first ply is therefore always paid for whatever the budget is, which is what
+  makes "the best fully evaluated move" something that always exists: a `nodes: 0`
+  search returns the one-ply answer, and there is a test that it returns
+  *precisely* that.
+- **§P5's "interior plies are scored from events" needed a line drawn through its
+  own table.** A clear, a perfect clear and a top out are events and are charged
+  at the ply they happen in; combo and back-to-back are **state** and are read
+  once, at the leaf. Charging a chain at every ply it survives pays for one
+  back-to-back as many times as the search is deep, and a planner that
+  over-values it by a factor of the depth is one whose weights stop meaning what
+  §P5 says they mean. `Outcome::interior` and `Outcome::evaluate` are the two
+  halves, and §P5 is amended.
+- **The fork needed `Clone` and nothing else.** §P2.3's list of accessors is
+  still exactly what P2 landed — P3 needed none of the three it was expected to
+  and P6 needed none either. What a deeper search needs is not a new *question*
+  but the ability to **continue** from a position instead of replaying to it, and
+  a clone of a fork leaks nothing because the randomiser was replaced before the
+  fork existed. The derive is the whole of the seam's growth in this stage.
+- **The search cannot name a `Game`, and that is structural rather than
+  reviewed.** `pilot/search.rs` imports `Fork` and never `Game`; the *roots* are
+  built in `controller.rs`, which is the one place that decides what a search is
+  allowed to know. A chance node is therefore a list of positions somebody else
+  chose — there is no path from inside the search to §9.6's bag, and adding one
+  would mean adding an import that the module's own doc comment forbids.
+- **The isolation test lives in `tests/`, and it had to.** §P3.4 holds the
+  planner's own tests to the planner's own list, and the hidden-future check needs
+  to read a game's **bag** — the very thing the planner may not do. So
+  `tests/pilot_plan.rs` is outside the crate, where `Game`'s public surface is all
+  there is. Finding the fixture is the interesting part: two seeds whose *visible*
+  state agrees and whose futures do not. §9.6 makes that cheap — six pieces seen
+  out of a bag of seven fixes the whole of the open bag, so the only place two
+  seeds can still differ is the bag *after* it, which no preview of §6.3's six can
+  reach and which `bag_remaining` does not show either. One chance in 5,040 of a
+  match, and a `Game::new` a candidate.
+- **The plan snapshot is legible because of §P3.2.** One action or one shift cell
+  a tick means one *character* a tick, so a plan renders as a word — `H2<D` is
+  hold, half turn, one left, drop. The cap was specified for honesty and for
+  §12.5's animations; that it makes the search's output readable by eye was not
+  one of the reasons and is the best thing about it.
 
 ### P7 — Exact reachable placements
 
@@ -598,12 +702,19 @@ off one by one.
 All three of P1's are settled — see P1 above. What is left is for later stages
 to answer with evidence rather than now:
 
-- ~~**The node budget** (§P6.4).~~ **Settled by P5: ~1,900-2,000 nodes per
-  search**, which is one frame's ~11,900 nodes at the measured rate divided
-  between a full `MAX_CATCH_UP_TICKS` batch. See P5 above for what makes it
-  conservative. P6 is where `Settings::default().nodes` stops being 100,000.
+- ~~**The node budget** (§P6.4).~~ **Settled by P5 and spent by P6.**
+  `Settings::default().nodes` is 2,000, and P6 found that the number constrains
+  the beam as well: two plies over sixteen states costs 1,784, so a wider beam
+  would be cut off by the budget rather than searched. All three defaults are one
+  decision, and §P6.4 says so now.
 - **Whether exact reachability (P7) is worth its cost** over the simple
-  generator. P6's baseline is what answers it; if it buys nothing measurable,
-  say so and keep it for the placements a hard drop cannot reach.
+  generator. ~~P6's baseline is what answers it~~ — and P6's answer is that **the
+  benchmark cannot answer it**, because one ply already plays at 99.98% of the
+  theoretical line ceiling and never tops out in 320,000 pieces. A second ply
+  moved that by four lines in 160,000. P7 therefore has to be justified by the
+  placements themselves — a tuck or a spin is a move the generator cannot make at
+  all, which is a capability argument rather than a percentage — or else
+  consciously taken on the plan's word. Either way, say which in the commit
+  message, and do not expect a number to go up.
 - **The starting weights** (§P5). Hand-tuned, and the benchmark is what says
   whether a change helped. Automated tuning stays out of this plan.

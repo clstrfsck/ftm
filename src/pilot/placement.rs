@@ -18,9 +18,7 @@
 //! spins and placements under an overhang. That is §P4.2's exact generator, in
 //! stage P7, and this is the one `PILOT.md` recommends starting from.
 
-use crate::core::{
-    Action, Game, GameEvent, GameView, PieceKind, PlayState, Rotation, Shift, TickInput,
-};
+use crate::core::{Action, GameEvent, GameView, PlayState, Rotation, Shift, TickInput};
 use crate::pilot::eval::{Board, Features, Outcome};
 use crate::pilot::fork::Fork;
 use crate::shell::config::RulesConfig;
@@ -49,22 +47,31 @@ pub(crate) struct Placement {
     /// delay, because §9.12 leaves a completed row on the screen through it and
     /// a board measured during it still holds the rows it is about to lose.
     pub(crate) features: Features,
+    /// The fork this candidate left behind, settled and with the next piece in
+    /// play. It is what the ply after this one is generated from (§P6.2): a
+    /// search deeper than one ply continues from a position rather than
+    /// replaying to it, which is the whole reason a [`Fork`] is `Clone`.
+    pub(crate) after: Fork,
 }
 
 /// Every placement the simple generator can reach from this position (§P4.1).
 ///
-/// `queue` is the caller's own fair list (§P2.1): the visible preview, and
-/// nothing the player cannot see. This function reads `game` through
-/// [`Game::view`] alone — the board, the piece in play and the hold slot — and
-/// never through `Game::debug`, which carries the rest of §9.6's bag.
+/// The position is a [`Fork`] rather than the live game, at every ply including
+/// the first: the root is the live game forked on the caller's fair queue
+/// (§P2.1), and everything below it is a fork of a fork. Nothing in here can
+/// name a `Game`, so there is no path from a placement to §9.6's bag even by
+/// accident.
+///
+/// What it reads of the position is `view()` — the board, the piece in play and
+/// the hold slot — and `state()`; the queue it deals from is the fork's own.
 ///
 /// The order is **canonical** and is the last of §P6.4's tie-breaks: no hold
 /// before hold, §9.3's four orientations in numbering order, and shifts from
 /// the far left to the far right. Every machine therefore enumerates the same
 /// candidates in the same sequence, and two builds cannot choose differently
 /// from one position.
-pub(crate) fn placements(game: &Game, queue: &[PieceKind], rules: &RulesConfig) -> Vec<Placement> {
-    let view = game.view();
+pub(crate) fn placements(fork: &Fork, rules: &RulesConfig) -> Vec<Placement> {
+    let view = fork.view();
     // §P4.3: a disabled mechanic is *absent* from the search rather than
     // unused, because §10.1 drops its key at the input boundary and a plan that
     // counted on it would be a plan the game declines to perform. The same goes
@@ -82,7 +89,7 @@ pub(crate) fn placements(game: &Game, queue: &[PieceKind], rules: &RulesConfig) 
         for rotation in Rotation::ALL {
             for dx in -SPAN..=SPAN {
                 let inputs = sequence(hold, rotation, dx, rules);
-                placements.push(play(game, queue, inputs, &mut events));
+                placements.push(replay(fork, inputs, &mut events));
             }
         }
     }
@@ -112,8 +119,8 @@ pub(crate) struct Prediction {
 /// same place, tick for tick. The caller compares every field but the preview
 /// queue, which is a fork's scripted remainder rather than a bag's and is the
 /// one thing that always differs (§P2.3).
-pub(crate) fn predict(game: &Game, queue: &[PieceKind], inputs: &[TickInput]) -> Vec<Prediction> {
-    let mut fork = Fork::of(game, queue);
+pub(crate) fn predict(root: &Fork, inputs: &[TickInput]) -> Vec<Prediction> {
+    let mut fork = root.clone();
     let mut events = Vec::new();
     inputs
         .iter()
@@ -166,18 +173,23 @@ fn turns(rotation: Rotation, allow_180: bool) -> &'static [Action] {
     }
 }
 
-/// Play one candidate on a fork and measure what it left behind.
+/// Play one candidate from `from` and measure what it left behind.
+///
+/// This is also how a ply below the first reaches a position: the caller hands
+/// it the fork a candidate settled into, and the sequence is played from there.
+/// The fork is cloned rather than consumed, because one position is the parent
+/// of a hundred candidates.
 ///
 /// The event buffer is the caller's and is reused across every candidate of
 /// every piece, exactly as `App` reuses one across frames: `LinesCleared`
-/// carries a `Vec` and this runs a hundred times a piece.
-fn play(
-    game: &Game,
-    queue: &[PieceKind],
+/// carries a `Vec` and this runs a hundred times a piece — and, since P6, a
+/// hundred times per beam member as well.
+pub(crate) fn replay(
+    from: &Fork,
     mut inputs: Vec<TickInput>,
     events: &mut Vec<GameEvent>,
 ) -> Placement {
-    let mut fork = Fork::of(game, queue);
+    let mut fork = from.clone();
     let mut lines = 0;
     let mut perfect_clear = false;
 
@@ -238,6 +250,7 @@ fn play(
                 perfect_clear,
             },
         },
+        after: fork,
     }
 }
 
@@ -259,7 +272,7 @@ fn tally(events: &[GameEvent], lines: &mut i32, perfect_clear: &mut bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::VIEW_WIDTH;
+    use crate::core::{Game, VIEW_WIDTH};
 
     /// The defaults with §6.3's three gameplay settings changed.
     ///
@@ -274,12 +287,17 @@ mod tests {
         }
     }
 
-    /// The placements of a fresh game under `rules`.
-    fn from_spawn(seed: u64, rules: &RulesConfig) -> (Game, Vec<Placement>) {
+    /// The root of a fresh game, and the placements from it.
+    ///
+    /// The root is the live game forked on its own visible preview, which is the
+    /// only queue §P2.1 allows without a hypothesis — and from here down
+    /// everything in this module sees forks alone.
+    fn from_spawn(seed: u64, rules: &RulesConfig) -> (Fork, Vec<Placement>) {
         let game = Game::new(rules.clone(), seed);
         let queue = game.view().next;
-        let placements = placements(&game, &queue, rules);
-        (game, placements)
+        let root = Fork::of(&game, &queue);
+        let placements = placements(&root, rules);
+        (root, placements)
     }
 
     #[test]
@@ -311,10 +329,9 @@ mod tests {
         // one that locked it and there is never one after. At level 1 that is
         // always the hard drop the sequence ends with.
         let rules = rules(5, true, true);
-        let (game, placements) = from_spawn(3, &rules);
-        let queue = game.view().next;
+        let (root, placements) = from_spawn(3, &rules);
         for placement in &placements {
-            let ticks = predict(&game, &queue, &placement.inputs);
+            let ticks = predict(&root, &placement.inputs);
             let (last, earlier) = ticks.split_last().expect("a placement is never empty");
             assert!(
                 earlier.iter().all(|tick| tick.view.pieces == 0),
@@ -331,11 +348,10 @@ mod tests {
         // mino against each wall.
         for seed in 0..8u64 {
             let rules = rules(5, false, true);
-            let (game, placements) = from_spawn(seed, &rules);
-            let queue = game.view().next;
+            let (root, placements) = from_spawn(seed, &rules);
             let mut columns = [false; VIEW_WIDTH];
             for placement in &placements {
-                let landed = predict(&game, &queue, &placement.inputs)
+                let landed = predict(&root, &placement.inputs)
                     .pop()
                     .expect("a placement is never empty");
                 for row in &landed.view.rows {
@@ -395,8 +411,8 @@ mod tests {
         // empty hold slot the swap deals from the queue, so the piece that
         // lands is the preview's first and not the one in play.
         let rules = rules(5, true, true);
-        let (game, placements) = from_spawn(9, &rules);
-        let view = game.view();
+        let (root, placements) = from_spawn(9, &rules);
+        let view = root.view();
         let current = view.current.expect("a piece is in play").kind;
         let next = view.next[0];
         assert_ne!(current, next, "§9.6's bag is a permutation");
@@ -412,7 +428,7 @@ mod tests {
             .collect();
         assert!(!held.is_empty());
         for placement in held {
-            let last = predict(&game, &view.next, &placement.inputs)
+            let last = predict(&root, &placement.inputs)
                 .pop()
                 .expect("a placement is never empty")
                 .view;

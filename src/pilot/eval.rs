@@ -166,33 +166,67 @@ impl Board {
 }
 
 impl Features {
-    /// Score a position against an opinion of it.
+    /// Score a position against an opinion of it — a **leaf**, which is the only
+    /// place the board is charged for (§P5).
+    pub fn evaluate(&self, weights: &Weights) -> i32 {
+        self.board
+            .evaluate(weights)
+            .saturating_add(self.outcome.evaluate(weights))
+    }
+}
+
+impl Board {
+    /// What the stack is worth (§P5).
     ///
     /// Saturating throughout: the weights are a player's to set, and a
     /// preposterous one must give a preposterous answer rather than a wrapped
     /// one that happens to look attractive.
     pub fn evaluate(&self, weights: &Weights) -> i32 {
-        let board = &self.board;
-        let outcome = &self.outcome;
         let mut score: i32 = 0;
         let mut add = |weight: i32, count: i32| {
             score = score.saturating_add(weight.saturating_mul(count));
         };
-        add(weights.lines, outcome.lines);
-        add(weights.holes, board.holes);
-        add(weights.covered, board.covered);
-        add(weights.aggregate_height, board.aggregate_height);
-        add(weights.max_height, board.max_height);
-        add(weights.bumpiness, board.bumpiness);
-        add(weights.row_transitions, board.row_transitions);
-        add(weights.column_transitions, board.column_transitions);
-        add(weights.blockades, board.blockades);
-        add(weights.wells, board.wells);
+        add(weights.holes, self.holes);
+        add(weights.covered, self.covered);
+        add(weights.aggregate_height, self.aggregate_height);
+        add(weights.max_height, self.max_height);
+        add(weights.bumpiness, self.bumpiness);
+        add(weights.row_transitions, self.row_transitions);
+        add(weights.column_transitions, self.column_transitions);
+        add(weights.blockades, self.blockades);
+        add(weights.wells, self.wells);
+        score
+    }
+}
+
+impl Outcome {
+    /// What the branch did, in full: the events **and** the state they left
+    /// behind. A leaf's half of [`Features::evaluate`].
+    pub fn evaluate(&self, weights: &Weights) -> i32 {
+        let mut score = self.interior(weights);
         // §9.15's combo counter rests at -1, which is not a penalty.
-        add(weights.combo, outcome.combo.max(0));
-        add(weights.top_out, i32::from(outcome.topped_out));
-        add(weights.back_to_back, i32::from(outcome.back_to_back));
-        add(weights.perfect_clear, i32::from(outcome.perfect_clear));
+        score = score.saturating_add(weights.combo.saturating_mul(self.combo.max(0)));
+        score.saturating_add(weights.back_to_back * i32::from(self.back_to_back))
+    }
+
+    /// What the branch did, for an **interior** ply: what happened, and not the
+    /// state it happens to be in on the way past (§P5).
+    ///
+    /// §P5 scores interior plies "from the core's own events and score deltas",
+    /// and the three here are exactly the events — a clear, §9.15's perfect
+    /// clear bonus, and §9.16. Combo and back-to-back are deliberately **not**
+    /// among them, because they are *state* rather than events and the leaf is
+    /// where state is read: charging a chain at every ply it survives would pay
+    /// for one back-to-back two or three times over, and a planner paid twice
+    /// for the same thing over-values it by exactly the depth it is searching.
+    pub fn interior(&self, weights: &Weights) -> i32 {
+        let mut score: i32 = 0;
+        let mut add = |weight: i32, count: i32| {
+            score = score.saturating_add(weight.saturating_mul(count));
+        };
+        add(weights.lines, self.lines);
+        add(weights.top_out, i32::from(self.topped_out));
+        add(weights.perfect_clear, i32::from(self.perfect_clear));
         score
     }
 }
@@ -510,6 +544,37 @@ mod tests {
             ..zero
         };
         assert_eq!(features.evaluate(&chain_only), 11);
+    }
+
+    #[test]
+    fn an_interior_ply_is_charged_for_what_happened_and_not_for_what_it_left() {
+        // §P5, and the one arithmetic decision P6 had to make: the leaf pays for
+        // the board and for §9.15's chain state, and an interior ply pays for
+        // the events alone. A chain charged at every ply it survived would be
+        // paid for once per ply, and a planner over-values a back-to-back by
+        // exactly the depth it searches.
+        let weights = Weights::default();
+        let outcome = Outcome {
+            lines: 2,
+            combo: 3,
+            back_to_back: true,
+            perfect_clear: false,
+            topped_out: false,
+        };
+        assert_eq!(outcome.interior(&weights), 2 * weights.lines);
+        assert_eq!(
+            outcome.evaluate(&weights),
+            outcome.interior(&weights) + 3 * weights.combo + weights.back_to_back,
+        );
+        // ...and a leaf is the board's opinion of itself plus all of that.
+        let features = Features {
+            board: Board::of(&field(&["##########", "####.#####"])),
+            outcome,
+        };
+        assert_eq!(
+            features.evaluate(&weights),
+            features.board.evaluate(&weights) + outcome.evaluate(&weights),
+        );
     }
 
     #[test]

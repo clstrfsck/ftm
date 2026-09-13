@@ -354,12 +354,14 @@ ftm/
     │   │                     #   it names the core's façade, §P2.3's fork and
     │   │                     #   RulesConfig, and nothing else.
     │   ├── mod.rs            # the façade: Pilot, Settings, Counted
-    │   ├── controller.rs     # §P3.4's controller and §P6.4's choice
+    │   ├── controller.rs     # §P3.4's controller, and the fair roots a
+    │   │                     #   search is given (§P2.1, §P6.3)
     │   ├── knowledge.rs      # observed deals, inferred bag (§P2.4)
     │   ├── fork.rs           # §P2.3's seam, seen from above
     │   ├── placement.rs      # reachable placements over forks (§P4)
     │   ├── eval.rs           # the integer board evaluation (§P5)
-    │   ├── search.rs         # beam, chance nodes, budget (§P6) — not yet
+    │   ├── search.rs         # depth, beam, cache, chance nodes, the budget
+    │   │                     #   and §P6.4's choice (§P6)
     │   └── bench.rs          # the benchmark's report types (§P8)
     ├── tui/                  # #[cfg(feature = "tui")]. TUI.md is normative.
     │   ├── mod.rs            # screen dispatch, terminal-too-small screen

@@ -1,0 +1,85 @@
+PILOT.md §P6 -- fixed-seed plans
+
+rules    preview 5  hold on  180 on
+search   depth 2  beam 16  nodes 2000
+
+seed 0
+    1  L  HD
+    2  O  H2<D
+    3  Z  H<<<<<<D
+    4  J  L>>>>>D
+    5  T  HR>>>D
+    6  S  >>D
+    7  J  HD
+    8  S  <<D
+    9  T  R<<<<<<D
+   10  O  >D
+   11  Z  H>>>>D
+   12  I  <<D
+   13  L  H>>>>D
+   14  T  L>>>>>D
+   15  I  D
+   16  L  R<<<<<<D
+   17  S  R<<<D
+   18  J  HD
+   19  O  >>D
+   20  Z  H<D
+   21  S  HR>>>>D
+   22  L  H>>>D
+   23  O  HD
+   24  I  H>>>>D
+  ==   24 pieces  8 lines  1742 score  level 1
+
+seed 42
+    1  J  L>>>>>D
+    2  T  H>>>D
+    3  I  <D
+    4  L  R<<<<<<D
+    5  Z  R>>>>D
+    6  O  H>D
+    7  J  <<D
+    8  L  <D
+    9  O  <<D
+   10  S  H<<<<<<D
+   11  Z  >>D
+   12  T  2>>>D
+   13  I  H>D
+   14  I  <<D
+   15  S  H<D
+   16  Z  R<<<<<<D
+   17  L  >>>>D
+   18  J  2>D
+   19  O  <<D
+   20  T  H>>>>D
+   21  J  2>>D
+   22  T  R<<<<<<D
+   23  O  H2D
+   24  Z  <<<<<<D
+  ==   24 pieces  8 lines  1832 score  level 1
+
+seed 2024
+    1  I  D
+    2  J  H>>>>D
+    3  O  H<<<<<<D
+    4  Z  <<<<<<D
+    5  S  R<<D
+    6  T  2>>>>D
+    7  L  2>D
+    8  T  >>D
+    9  I  H<<<<<<D
+   10  J  L>>>>D
+   11  S  HR>>>>D
+   12  Z  <D
+   13  O  HRD
+   14  L  H>>D
+   15  J  H2>>D
+   16  T  2>>>>D
+   17  O  H<<D
+   18  I  R<<<<<<D
+   19  S  H<D
+   20  Z  HR<<<D
+   21  I  H>D
+   22  T  H>>>D
+   23  L  >>>>D
+   24  Z  <<D
+  ==   24 pieces  8 lines  1934 score  level 1

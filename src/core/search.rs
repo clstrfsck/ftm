@@ -47,6 +47,13 @@ impl Game {
 /// shopping list, so each accessor lands with the stage that reads it — the
 /// pose and the hold state with P3's placement generator, which is the first
 /// thing that has a use for them. Nothing here is ever wider than that list.
+///
+/// It is `Clone`, and that is P6's one addition to the seam: a search deeper
+/// than one ply *continues* from a position it has already reached, so a node
+/// has to be copyable. A clone leaks nothing, because there is nothing in here
+/// to leak — the randomiser was replaced before the fork existed, and a copy of
+/// a scripted queue is the same list of the caller's own pieces.
+#[derive(Clone)]
 pub(crate) struct SearchGame {
     game: Game,
 }

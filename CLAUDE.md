@@ -118,7 +118,7 @@ is.
 **There is a live plan again: `PILOT-PLAN.md`, stages P0-P8**, which builds the
 automated player of `PILOT.md` §P1-§P9 — a **PILOT** row on §13.3's menu that
 plays the game while the player watches. It is a deliberate amendment to the
-scope rule below: it promotes §18's first bullet and no other. Stages P1 to P5
+scope rule below: it promotes §18's first bullet and no other. Stages P1 to P6
 are complete. P1 was the specification and the amendments to `FTM.md`,
 `TUI.md` and `GUI.md`; P2 is the first code — §P2.3's fork in `core/search.rs`,
 and **`src/pilot/`, a fourth directory beside `core/`, `shell/` and the two
@@ -143,9 +143,21 @@ two files, split at §P3.3's line: `pilot/bench.rs` plays and counts with no
 clock, `src/bench.rs` holds §P8.1's grammar and the wall clock. The baseline it
 recorded is in `PILOT-PLAN.md` P5 — 8 seeds × 2,000 pieces, no top out, 145 µs a
 piece — and so is the node budget it was written to measure: **~2,000 nodes per
-search**, which P6 is where `Settings::default().nodes` stops being 100,000.
-What is left is the search of P6-P7 and P8's acceptance. See **Scope
-discipline**, which says what is still out.
+search**.
+
+**P6 is the lookahead**, and `src/pilot/search.rs` is where it lives: §P6.1's
+two plies clamped by `preview_count`, §P6.2's beam over deduplicated states with
+a transposition cache, §P6.3's chance nodes blended 80/20 past the preview, and
+§P6.4's integer node budget — now `Settings::default().nodes = 2_000` rather
+than 100,000. **The improvement is four lines in 160,000 pieces**, and that is
+the stage's real finding rather than a disappointment: one ply was already
+playing at 99.98% of the theoretical line ceiling of 0.4 lines a piece and has
+never topped out in 320,000 pieces, so there was nothing left on the axes §P8.2
+reports. Lines rose in all five configurations measured and the cost rose 8-18×;
+the table is in `PILOT-PLAN.md` P6. It was watched on both front-ends at the new
+cost and plays at exactly the rate P4 recorded — 28 lines in the window's first
+12 seconds. What is left is P7's exact placements and P8's acceptance. See
+**Scope discipline**, which says what is still out.
 
 ## The §17.3 sign-off
 
@@ -190,9 +202,10 @@ where it is kept, not what it is called.
    sections your work touches. Read those sections, not the whole thing. Start
    from `FRONTEND.md` if the work is a front-end's, and from `PILOT.md` if it
    is the automated player's.
-2. **`PILOT-PLAN.md`** — stages P0-P8, the only live plan. P1 and P2 are done,
+2. **`PILOT-PLAN.md`** — stages P0-P8, the only live plan. P1 to P6 are done,
    and each has a "What it settled" of its own; read "The decisions this plan
-   rests on" before writing any of the rest.
+   rests on" before writing any of the rest — and P6's before P7, because it is
+   what says the benchmark has no headroom left to prove P7 with.
 3. **`EGUI-PLAN.md`** — stages G0-G13, all complete. History now, not
    instructions, but the two sections that are *not* history are "The decisions
    this plan rests on" and "The central idea", which is what the shell being
@@ -579,11 +592,10 @@ These are the ones a fresh session gets wrong. Each is normative in the spec.
   mechanic are both `hold: None` — so it travels with the theme and `show_grid`
   rather than being smuggled into the view (§12.4, §12.7).
 
-These five are `PILOT.md`'s. The first three have code behind them — the first
-two since P2, the third since P3 — and are held the way the rest of this list is:
-by a type, by `make portable`, and now by a debug assertion that runs on every
-tick of every planned game in the test suite. The fourth and fifth are still
-written-down-only: P4 has to keep them.
+These are `PILOT.md`'s, and every one of them has code behind it now — held the
+way the rest of this list is: by a type, by `make portable`, by a module that
+cannot name `Game`, and by a debug assertion that runs on every tick of every
+planned game in the test suite.
 
 - **The planner never holds a `Game`** (`PILOT.md` §P2). A clone carries the
   real bag and the real generator, and `Game::bag_remaining` is an accessor onto
@@ -671,6 +683,41 @@ written-down-only: P4 has to keep them.
   everything the pause menu reaches, §10.1's restart hold, quit and §16's
   Ctrl-C stay live: a spectator can stop, look and leave.
 
+- **The search cannot name a `Game`, and the *roots* are where fairness is
+  decided** (`PILOT.md` §P2.1, §P6.3). `pilot/search.rs` imports `Fork` and
+  never `Game`, so there is no path from inside a search to §9.6's bag — adding
+  one means adding an import the module's own doc comment forbids.
+  `controller.rs` is what builds the positions a search is handed: one fork on
+  the visible preview, or — when §P6.1's depth reaches past it — **one per
+  hypothesis**, whose values §P6.3 blends 80/20 expected-to-worst. A chance node
+  is therefore a list of positions somebody else decided the search was allowed
+  to consider, which is the same trade §P2.3 made one level down.
+
+- **The board is charged at the leaf and the events at every ply** (`PILOT.md`
+  §P5). `Features::evaluate` is a leaf's; `Outcome::interior` is an interior
+  ply's, and it is deliberately **not** the whole of `Outcome`: a clear, a
+  perfect clear and a top out are *events* and are charged where they happen,
+  while §9.15's combo and back-to-back are **state** and are read once, where
+  the branch ends. Charging a chain at every ply it survives pays for one
+  back-to-back as many times as the search is deep, which makes the weights stop
+  meaning what §P5 says they mean.
+
+- **A ply is the granularity of "fully evaluated"** (`PILOT.md` §P6.4). The node
+  budget is checked between one ply and the next, never inside a generation, so
+  a search may overrun it by the ~104 placements of the ply it was in the middle
+  of. That is the point rather than a slip: comparing half a generation against a
+  whole one is exactly the dependence on *where the count ran out* that §P6.4
+  forbids. The first ply is always paid for, so there is always a fully
+  evaluated answer — a `nodes: 0` search returns precisely the one-ply answer,
+  and a test says so.
+
+- **`Settings`'s three defaults are one decision, not three** (`PILOT.md`
+  §P6.4). Two plies over a beam of 16 costs 1,784 nodes against a budget of
+  2,000, which is one frame's ~11,900 divided by a full `MAX_CATCH_UP_TICKS`
+  batch. Widening the beam or adding a ply does not buy a deeper search; it buys
+  a search the budget truncates, and §P6.4's answer quietly becomes shallower
+  than `depth` asked for.
+
 - **The PILOT indicator is the `I`-piece cyan, in both front-ends, for the whole
   game** (`TUI.md` §12.4, `GUI.md` §G4.5, `PILOT.md` §P7.3). Left-aligned on the
   status row, over the centred content rather than joined to it — the longest
@@ -692,6 +739,15 @@ written-down-only: P4 has to keep them.
   1 × 6 ticks and as 6 × 1 ticks must produce identical snapshots. It lives in
   `tests/scripted_game.rs`, has been in CI since Stage 5, and must never be
   marked ignored. If it fails, stop and find the desync — do not proceed.
+- **Two snapshots are *meant* to move, and they are not I1.**
+  `tests/snapshots/pilot_bench.txt` and — since P6 —
+  `tests/snapshots/pilot_plan.txt`, the plans three fixed seeds produce, a
+  character to a tick (`UPDATE_SNAPSHOT=1 cargo test --all-features --test
+  pilot_plan`). A weight, generator, tie-break or search change moves both by
+  design (§P8.3); read the diff rather than chase it. `tests/pilot_plan.rs` is
+  also where the hidden-future isolation test lives, and it is outside the crate
+  because it has to read a game's bag — which §P3.4 forbids the planner's own
+  tests to do.
 - **The I1 snapshot** (`tests/snapshots/scripted_game.txt`) is regenerated with
   `UPDATE_SNAPSHOT=1 cargo test --test scripted_game`. Stage 7 has to, when the
   score stops being zero. Read the diff before committing it: a snapshot that

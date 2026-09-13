@@ -26,19 +26,23 @@
 //! * [`knowledge`] — what the planner is allowed to know (§P2.1), folded out of
 //!   the event stream and inferred from §9.6's bag arithmetic.
 //! * [`fork`] — the object a search runs on: the fair fork of §P2.3.
-//! * [`eval`] — §P5's board features and the integer evaluator over them.
+//! * [`eval`] — §P5's board features and the integer evaluator over them, split
+//!   at the line between a leaf and an interior ply.
 //! * [`bench`] — §P8.2's report: a batch of headless games, folded into
 //!   integers. The half of the benchmark that has no clock in it, which is why
 //!   it is in here and `src/bench.rs` is not.
 //!
 //! Those four are public because §P8's runner and §P9's acceptance checks are
-//! written against them from outside the crate. The two modules under the
-//! controller are not: `placement` is §P4.1's generator and `controller` is the
-//! plan it feeds, and both are reached through [`Pilot`] alone.
+//! written against them from outside the crate. The three modules under the
+//! controller are not: `placement` is §P4.1's generator, `search` is §P6's
+//! lookahead over it and `controller` is the plan they feed, and all three are
+//! reached through [`Pilot`] alone.
 //!
-//! P3 chooses one ply ahead, P4 is where a front-end offers the mode and P5 is
-//! where a batch of it can be measured; the search of §P6 and the exact
-//! placements of §P4.2 are the two stages after that.
+//! Since P6 it looks two plies ahead (§P6.1), over a beam of deduplicated states
+//! with a transposition cache, chance nodes past the preview blended 80/20, and
+//! an integer node budget that always returns the best *fully* evaluated move.
+//! What is left is §P4.2's exact placements, in P7: everything a hard drop
+//! cannot reach.
 
 pub mod bench;
 mod controller;
@@ -46,5 +50,6 @@ pub mod eval;
 pub mod fork;
 pub mod knowledge;
 mod placement;
+mod search;
 
 pub use controller::{Counted, Pilot, Settings};

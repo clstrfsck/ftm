@@ -91,6 +91,7 @@ impl Game {
     pub(crate) fn fork(&self, queue: &[PieceKind]) -> SearchGame;
 }
 
+#[derive(Clone)]
 pub(crate) struct SearchGame { /* … */ }
 
 impl SearchGame {
@@ -112,10 +113,19 @@ impl SearchGame {
   accident or on purpose. The replacement is at the level of §9.6's bag itself,
   which is one of two *sources* — a seeded generator with the bag it shuffles,
   or a list — so a fork does not hold a randomiser it has promised not to ask.
+- It is **`Clone`**, which is P6's one addition to the seam and is not an
+  accessor: a search deeper than one ply *continues* from a position it has
+  already reached rather than replaying to it from the root, so a node has to be
+  copyable. A clone leaks nothing, because there is nothing in a fork to leak —
+  the randomiser was replaced before the fork existed, and a copy of a scripted
+  queue is the same list of the caller's own pieces. The same derive on `Fork`
+  is what carries it to the planner's side.
 - That list above is an **upper bound on this surface, not a shopping list**.
   Each accessor lands with the stage that reads it, and nothing here may ever be
   wider: `tick`, `state`, `view`, `scripted` and `exhausted` are P2's, and
-  **that is still the whole of it after P3**. The pose and the hold state were
+  **that is still the whole of it after P6** — P3 needed none of the three it was
+  expected to, and P6 needed a derive rather than a method. The pose and the hold
+  state were
   expected with P3's placement generator and were not needed by it: §P4.1
   produces input sequences and *replays* them, so what it wants to know about
   the position it reads from `view()` — the board, the piece in play, the hold
@@ -316,6 +326,14 @@ the game will not perform.
   defect is not charged once per ply. Interior plies are scored from the core's
   own events and score deltas — what actually happened, rather than a second
   opinion about it.
+- **"Events" excludes combo and back-to-back**, and the line is worth drawing
+  because the table below lists all three together. A clear, a perfect clear and
+  a top out are things that *happened* on the way past and are charged at the ply
+  they happened in; §9.15's combo counter and back-to-back flag are **state**,
+  and state is read once, at the leaf, where the branch leaves it. Charging a
+  chain at every ply it survives pays for one back-to-back two or three times
+  over, and a planner paid twice over-values it by exactly the depth it is
+  searching.
 - The features, each an integer over the visible field:
 
   | Feature | Measured as |
@@ -349,11 +367,32 @@ of 1, in which case the second ply is already a chance node. That is an ordinary
 configuration, not an edge case, which is why §P6.3 is load-bearing rather than
 decorative.
 
+The clamp is `preview_count + 1`, and the `+ 1` is exactly one level of
+hypothesis. A search `d` plies deep consumes `d` pieces from the queue — the
+piece in play is the live game's and every ply after it spawns from the queue,
+and a hold into an empty slot deals one early, so the worst case is a piece a
+ply. A preview of `n` therefore reaches `n` plies for certain and an `n + 1`th by
+hypothesis alone. **A second level of hypothesis is out**, and deliberately: it
+multiplies the leaves by seven again for a piece nothing whatever is known
+about, and at a preview of 1 that would be the ordinary case rather than the
+exotic one.
+
 ### §P6.2 Beam
 
 A fixed-width beam after each ply, over deduplicated states in canonical order.
 Subtrees are cached by board, current and held piece, scripted queue, inferred
 remainder and remaining depth.
+
+Two details that follow from §P6.4 rather than from the beam itself. **A beam is
+expanded best first**, because the budget can stop the expansion partway and a
+list that may be cut has to have its promising end at the front; equal values
+keep the generator's canonical order, so two builds cut at the same place.
+And states are deduplicated **by the position reached and not by the inputs that
+reached it** — §P4.1 shifts up to six cells either way and a shift into a wall is
+refused, so a great many candidates arrive at the same place by different routes.
+The board is compared as **occupancy** rather than colour: two stacks of
+different pieces in the same cells are the same stack to §P5's features, and
+treating them as one is most of what makes the cache worth having.
 
 ### §P6.3 Beyond the horizon
 
@@ -361,14 +400,34 @@ Past the preview, branch uniformly over §P2.4's inferred remainder and combine
 the results at an integer **80/20** expected-to-worst-case ratio: a planner that
 maximised the average alone will build setups that only one piece rescues.
 
+The branch is **the caller's**, not the search's: the planner builds one fair
+root per hypothesis and the search is handed the set. That is where the
+information boundary lives, and it is why nothing inside the search can widen
+what it was given — a chance node is a list of positions somebody else decided
+it was allowed to consider.
+
 ### §P6.4 The budget, and ties
 
-- The budget is an **integer node count**, never a duration (§P3.3).
+- The budget is an **integer node count**, never a duration (§P3.3). A **node**
+  is a position the search evaluated or expanded, which is §P8.2's counter of
+  that name.
 - Exhausting it returns the **best fully evaluated move**. A partly evaluated
   branch is never chosen, which is what keeps the answer independent of where
-  the count ran out.
+  the count ran out. **A ply is the granularity of "fully"**: the budget is
+  checked between one ply and the next, so a search may overrun it by the
+  placements of the ply it was in the middle of generating — half a generation is
+  not an answer that can be compared with anything. The first ply is therefore
+  always paid for, whatever the budget, and there is always an answer to give.
 - Ties are broken by lower top-out risk, then fewer inputs, then canonical
   action order. Every machine therefore chooses the same move.
+- **The three settings are one decision.** P5 measured a frame at ~11,900 nodes
+  and §15.2 step 4 may play `MAX_CATCH_UP_TICKS` ticks before it draws, so a
+  search may spend a sixth of that: ~2,000 nodes. Two plies over a beam of
+  sixteen costs the first ply's ~104 candidates plus sixteen expansions of about
+  the same, a little under 1,800 — which is what makes *those* three numbers the
+  defaults. A wider beam or a third ply would be spent by the budget rather than
+  played, and the answer would quietly become a shallower one than the settings
+  asked for.
 
 ---
 
@@ -505,6 +564,14 @@ when weights change** — which is the opposite of `tests/snapshots/scripted_gam
 and the reason they are not kept beside it. §17.2's I1 snapshot and §19.4's
 batch-invariance canary must not move at any stage of this work; one that does
 has found a bug.
+
+There are two of them, and they are checked in beside each other.
+`tests/snapshots/pilot_plan.txt` is the **plans**: three fixed seeds, and what
+the planner pressed for each piece a tick at a time, which §P3.2's cap is what
+makes legible as one character a tick. It lives in `tests/` rather than in
+`src/pilot/` because the isolation test beside it has to look at a game's bag,
+and §P3.4 forbids the planner's own tests to do the very thing the planner may
+not.
 
 The checked-in batch is `tests/snapshots/pilot_bench.txt`, and it is small on
 purpose: `cargo test` is a debug build, where §P3.1's divergence assertion
